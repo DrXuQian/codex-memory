@@ -1,0 +1,6 @@
+interface:
+  display_name: "Hopper → PPU1.7"
+  short_description: "Map, debug, simulate and tune Hopper kernels on PPU1.7"
+  default_prompt: "Use $ppu17-hopper-porting to map this Hopper kernel to PPU1.7 and validate it with single-launch simulation and a CPU reference."
+policy:
+  allow_implicit_invocation: true

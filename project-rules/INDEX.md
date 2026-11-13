@@ -1,0 +1,80 @@
+# Project rule files and project skills (deduplicated)
+
+Each entry is stored at `project-rules/<original absolute path>`. Identical copies are listed under the kept one.
+
+- `/root/autodl-tmp/flashinfer-ppu-flare-20261105/3rdparty/cccl/AGENTS.md`
+- `/root/autodl-tmp/flashinfer-ppu-flare-20261105/AGENTS.md`
+  - same as: `/root/autodl-tmp/qwen4flash-flashinfer/AGENTS.md`
+- `/root/autodl-tmp/flashinfer-ppu-flare-20261105/CLAUDE.md`
+- `/root/autodl-tmp/llama-deepgemm-mxfp4.zHt1ng45/source/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-ffn-integration.8t1EQHVU/source/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-kpack-cache/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-kpack-dense/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-kpack-load-only/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-kpack-tp/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-moe-integration.6TcCwPLC/source/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-mxfp4.N6aSVBCu/source/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-ppu-base-update/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-tp-review.MAVQvgoQ/source/AGENTS.md`
+  - same as: `/root/autodl-tmp/llama-v0.3.0/AGENTS.md`
+  - same as: `/root/autodl-tmp/quactlize-simt-split.rPN99TZt/llama-abi-check/AGENTS.md`
+  - same as: `/root/autodl-tmp/quactlize-strategy-close.UcfHzRy7/llama/AGENTS.md`
+  - same as: `/root/llama.cpp-ppu-backend/AGENTS.md`
+  - same as: `/root/llama.cpp-tp-kpack-fix/AGENTS.md`
+- `/root/autodl-tmp/llama-deepgemm-mxfp4.zHt1ng45/source/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-ffn-integration.8t1EQHVU/source/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-kpack-cache/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-kpack-dense/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-kpack-load-only/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-kpack-tp/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-moe-integration.6TcCwPLC/source/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-mxfp4.N6aSVBCu/source/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-ppu-base-update/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-tp-review.MAVQvgoQ/source/CLAUDE.md`
+  - same as: `/root/autodl-tmp/llama-v0.3.0/CLAUDE.md`
+  - same as: `/root/autodl-tmp/quactlize-simt-split.rPN99TZt/llama-abi-check/CLAUDE.md`
+  - same as: `/root/autodl-tmp/quactlize-strategy-close.UcfHzRy7/llama/CLAUDE.md`
+  - same as: `/root/llama.cpp-ppu-backend/CLAUDE.md`
+  - same as: `/root/llama.cpp-tp-kpack-fix/CLAUDE.md`
+  - same as: `/root/llama.cpp/CLAUDE.md`
+- `/root/autodl-tmp/llama-kpack-cache/skills/add-new-model/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-kpack-dense/skills/add-new-model/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-kpack-load-only/skills/add-new-model/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-kpack-tp/skills/add-new-model/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-ppu-base-update/skills/add-new-model/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-v0.3.0/skills/add-new-model/SKILL.md`
+  - same as: `/root/llama.cpp-ppu-backend/skills/add-new-model/SKILL.md`
+  - same as: `/root/llama.cpp-tp-kpack-fix/skills/add-new-model/SKILL.md`
+- `/root/autodl-tmp/llama-kpack-cache/skills/code-review/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-kpack-dense/skills/code-review/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-kpack-load-only/skills/code-review/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-kpack-tp/skills/code-review/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-ppu-base-update/skills/code-review/SKILL.md`
+  - same as: `/root/autodl-tmp/llama-v0.3.0/skills/code-review/SKILL.md`
+  - same as: `/root/llama.cpp-ppu-backend/skills/code-review/SKILL.md`
+  - same as: `/root/llama.cpp-tp-kpack-fix/skills/code-review/SKILL.md`
+- `/root/autodl-tmp/qwen4flash-flare/AGENTS.md`
+- `/root/autodl-tmp/qwen4flash-flashinfer/3rdparty/cccl/CLAUDE.md`
+  - same as: `/root/autodl-tmp/qwen4flash-flashinfer/3rdparty/cccl/AGENTS.md`
+- `/root/autodl-tmp/qwen4flash-flashinfer/flashinfer/experimental/CLAUDE.md`
+- `/root/autodl-tmp/qwen4flash-flashinfer/CLAUDE.md`
+- `/root/autodl-tmp/qwen4flash-transformers/AGENTS.md`
+  - same as: `/root/autodl-tmp/qwen4flash-transformers/CLAUDE.md`
+  - same as: `/root/autodl-tmp/qwen4flash-transformers/.ai/AGENTS.md`
+- `/root/autodl-tmp/strata-ppu-work-20261106/Strata/AGENTS.md`
+  - same as: `/root/strata-ppu-serve-20261109/AGENTS.md`
+- `/root/llama.cpp/AGENTS.md`
+- `/root/marlin_ppu/ForgeKernel/skills/job-env-check/SKILL.md`
+- `/root/marlin_ppu/ForgeKernel/skills/lever-pricing/SKILL.md`
+- `/root/marlin_ppu/ForgeKernel/skills/ncu-trace/SKILL.md`
+- `/root/marlin_ppu/ForgeKernel/skills/orchestration/SKILL.md`
+- `/root/marlin_ppu/ForgeKernel/skills/ppu-kernel-knowledge/SKILL.md`
+- `/root/marlin_ppu/ForgeKernel/skills/ppu-profiling/SKILL.md`
+- `/root/marlin_ppu/ForgeKernel/skills/sass/SKILL.md`
+- `/root/marlin_ppu/ForgeKernel/skills/stall/SKILL.md`
+- `/root/marlin_ppu/ForgeKernel/skills/timeline/SKILL.md`
+- `/root/marlin_ppu/kda/skills/ppu-kernel-knowledge/SKILL.md`
+- `/root/marlin_ppu/kda/skills/ppu-profiling/SKILL.md`
+- `/root/marlin_ppu/kda/AGENTS.md`
+- `/root/marlin_ppu/kda/CLAUDE.md`
+- `/root/marlin_ppu/SKILL.md`

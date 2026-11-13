@@ -1,0 +1,5264 @@
+# Codex prompt history (every prompt typed, grouped by session)
+
+## `019fb84e-f971-7791-926a-a9018f576230` — hi
+
+- (2026-07-31 13:23 UTC) hi
+
+## `019fe961-f686-7681-a873-0d58287ce0f0` — Fix K-pack4 grouped dequant
+
+- (2026-08-13 08:44 UTC) 先读 .coord/INBOX.md 的 159 到 166,共 8 条,你之前都没读到(我这边调度失误,写了没派)。 本轮唯一主线是 INBOX 166:先对齐 Marlin,不是调优。 INBOX 163/164/165(TileK / WarpN / m8 / occupancy 门槛)全部暂停,不要做。 另外补一条范围更正,请一并处理: 用户指出「指令超出和 retained-different 的投递轴关系不大」,他是对的。 拆开看(我们 − classic): 提取/反量化(不是投递) v.lop3.i +134,040 v.shrl.i +101,072 classic 用另一套: v.byte.prmt.i 65,536 / v.mul.i 65,536 / v.shra +59,936 / v.cnvt +54,280 / v.madl +48,088 标量地址+控制 s.add +148,450 s.mov +112,572 s.cmp +75,562 s.shll +64,256 s.cbr +56,248 同步 s.wait +86,710 不明 v.mov.v2s +78,054 两边的提取算法根本不同:classic = 字节置换 + 整数乘 + 算术右移; 我们 = lop3 + 移位。这不是投递差异,是转换器算法差异。 而 MARLIN_STANDALONE_ALIGNMENT.md 把 Format/dequant 标成 "explicitly outside INBOX 129 alignment scope" —— 范围划错了: 指令超出的最大一块正好落在被划出去的地方。 要做: 1. 把 dequant/提取重新纳入对齐范围,清单里补一条轴: 「提取算法」classic 字节置换+整数乘+算术右移 vs 我们 lop3+移位, 并给出实测代价(两边 opcode 分项已有)。 2. v.byte.prmt.i:classic 每 mma 一条,我们零。PPU 有这条指令而我们一次没用。 能不能用?不能就说清楚为什么(artifact 摆放不适配?converter 结构不允许?)。 3. 把指令超出按「投递驱动」与「转换器算法」两类分开归账,不要混成一堆。 判据:该笔是否随共享流量(3.07x)成比例变化。 每个 checkpoint 更新 STATUS.md(真 UTC)。
+- (2026-08-13 08:44 UTC) 现在做 INBOX 162 的字节账。它解释的是 3.07x 共享流量(投递), 不是指令超出的主体 —— 两件事分开做、分开报。 事实(acu, Current=classic, Baseline=我们 b5aaa65,同 grid (72,1,1)x(256,1,1)): KVD -> TSM classic 8.91 MB 我们 ~27.33 MB 3.07x Shared <- TSM req 56.26 K ~166.8 K 2.97x TSM -> Shared req 6.75 K ~24 K 3.55x KVD <- L2 41.34 KB 311.04 KB 7.52x KVD 命中率 94.72% 25.37% Device Memory 8.68 MB 8.82 MB 1.02x Regs 170 146 时间(acu) 21.46 us 29.69 us HBM 几乎相同(权重就那么多),但共享路多搬 3 倍、L2->KVD 多拉 7.5 倍。 KVD 命中率 25% vs 95% 说明大量重复读,不是新数据。 要交付: 1. 把 27.33 MB 拆成几笔,每笔对得上一个具体的读/写点; classic 的 8.91 MB 同样拆一遍。两个账都做完,差额自然显形。 不要给「可能是 A 重复读」这种定性,要字节账。 2. 每一笔归到 MARLIN_STANDALONE_ALIGNMENT.md 的哪一条轴上。 若某笔归不到任何已列的轴,说明清单漏了一条,立刻补进去。 3. 每条 retained-different 轴给出实测代价(字节/指令/两者), 把它从「我们没声称等价」升级为「它值 X」。 4. 拆账时按「每 K-cohort / 每 N-warp」归一,这样形状依赖性直接可见。 5. 给出关闭顺序:哪几条对齐后收益最大、改动最小。不要一次全改。 候选(逐个证实或排除,不要挑一个顺眼的): a) 4 个 K-cohort 各自重复读同一份 A (classic 的 A 在 shared 里被 8 warp 共享,我们是否每 cohort 各读一遍?) b) 归约 scratch 的往返 —— 但 v.add.f32 两边相等(20,928), 说明归约的算术量相同;若字节量不同,那是布局/粒度问题不是算法问题 c) 两源 B 消费者(tCsB_peer)是否让 B 的 shared 读翻倍 d) stage ring 与 reduction scratch 的 union 是否导致重复填充 (main=50208 epi=8208 union=50208 overlap-sum-counterfactual=58416) 判据:对齐到什么程度算够 —— 共享流量与 classic 同量级(不是 3x)、 指令比接近 1.0x。到那时若仍慢,才是「PPU 上 classic 那套就只能这样」, 现在还没资格说这句话。
+- (2026-08-13 08:48 UTC) 继续
+- (2026-08-13 08:53 UTC) 为什么多了这么多xnor，s.mov，lop3，s.cmp
+- (2026-08-13 09:07 UTC) 参考https://github.com/CalebDu/Awesome-Cute/tree/main/gemm/marlin_gemm了吗？
+- (2026-08-13 09:13 UTC) marlin的这个cute版本作为参考应该直接就能写一个完整的类似的实现啊。差异在哪里？
+- (2026-08-13 09:17 UTC) 我们的aiu的加载有啥问题吗？应该也还好吧？如果有问题，是否应该写一个通用的marlin style的加载function，作为一个分支。
+- (2026-08-13 09:18 UTC) 或者这么说，marlin的加载的collective包括dequant的部分可以作为扩充新建文件来写，不要尝试原来的collective上兼容。
+- (2026-08-13 09:21 UTC) 可以，最终要在本地验证能验证的。并且从现有的collective中删掉为了兼容增加的代码。
+- (2026-08-13 09:21 UTC) 死的
+- (2026-08-13 09:21 UTC) 死的
+- (2026-08-13 09:22 UTC) side question，现在5090上的marlin的几个测试结果给我。
+- (2026-08-13 09:22 UTC) 然后你继续上面的工作
+- (2026-08-13 09:27 UTC) 注意你比marlin standalone强的点在于你的sweep的轴更多。这一点要体现。
+- (2026-08-13 09:28 UTC) 其他的应该和marlin cute 的instruction等等完全一致。
+- (2026-08-13 09:40 UTC) # 分析:把 Marlin 变成轴,还缺什么 ## 已经做好的(codex 在 155 那轮做的) ```cpp Candidate 有 warp_k 字段 ✓ (:128) cta_warps = (tm/wm)·(tn/wn)·(tactic_tile_k/warp_k) ✓ (:174,K 因子已加) TiledMMA = Layout<Shape<TM/WM, TN/WN, TacticTileK/WarpK>> ✓ (:170) 两条排除:WarpKDoesNotDivideTile / WarpKUnsupportedFormat ✓ 离线摆放:place_derived_warp_k / recover_derived_warp_k ✓ ``` **类型层面已经通了。** ## 缺口一:**`kWarpK` 枚举数组不存在** ```cpp kTileK{32,64,128,256} kTileM{...} kTileN{...} kWarpM{...} kWarpN{...} kBChunkModes{0,1} ↑ 没有 kWarpK ``` **字段有了,但没有任何东西给它生成取值。** 默认 `warp_k = tactic_tile_k`(即 WK=1),所以**枚举器扫出来的每一行都是 WK=1** —— WK4 只能靠手写那张 `marlin-wk4-aligned-single-row` 表。 这正是我们踩过三次的形状:**"输了"和"从没生成过"长得一样**。 ## 缺口二:格式门把 WK 锁死在一个格式上 ```cpp if (c.warp_k != c.tactic_tile_k && !(low_bits==4 && high_bits==0 && artifact_low_fold(c)==1 && b_chunk==0)) return Exclusion::WarpKUnsupportedFormat; ``` **只有 ordinary 单平面 int4、fold=1、无 B-chunk 能用 WK>1。** int1/int2/Q3/Q5/Q6、fold>1、B-chunk 全部 fail-closed。 注释写得很诚实:*"compiling a type is not evidence that its resident byte map is correct"* —— **但这意味着 WK 现在不是轴,是一个格式的特例。** ## 缺口三:`WarpKCohorts == 1 || == 4` 的硬断言 collective 里: ```cpp static_assert(WarpKCohorts == 1 || WarpKCohorts == 4, "B two-source delivery is not yet proved for this K-cohort count"); ``` **WK=2 和 WK=8 编不出来。** 而 classic 的 `NWK = threads/(8·NB)` 可以是 2、4、8 —— 我们只支持其中一个。 ## 缺口四:classic 的坐标在我们空间里是**受约束的子空间** 把 classic 翻译过来: ``` WarpN = TileN / (NB/4) = 16·NB / (NB/4) = 64 ← 恒等于 64,结构性的 WarpM = TileM ← M 从不跨 warp 切 WK = threads / (8·NB) = thread …
+- (2026-08-13 09:45 UTC) 名字最好叫marlinxxx，比如marlin collective之类的。marlin scheduler
+- (2026-08-13 09:48 UTC) 你先跟我讲一下你要怎么修改，touch新建哪些文件。分别改什么？最终交付给我的是什么，期望的性能。
+- (2026-08-13 09:55 UTC) 继续
+- (2026-08-13 23:20 UTC) 给我command
+- (2026-08-13 23:30 UTC) 现在我们的gemv接入fastdequant了吗
+- (2026-08-14 00:58 UTC) [l169] FAIL: generated unit did not reach the exact device-body marker once /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/float8.h:91:10: fatal error: hggc_fp8.h: No such file or directory 91 | #include <hggc_fp8.h> | ^~~~~~~~~~~~ compilation terminated. ppu_clang++: error: device preprocessor command failed with exit code 1 (use -v to see invocation) error: command 'nvcc' failed with exit code 2
+- (2026-08-14 01:15 UTC) [l176:ppu] FAIL: exact shipping target did not build: [FAIL] ppu_portability: quactlize/include/quactlize_extensions/cutlass/gemm/kernel/marlin_kernel_ppu.hpp:17 is NVIDIA-only in a branch the box compiles: [l176:ppu] artifacts: /tmp/quactlize-l176-ppu-7f6ac14
+- (2026-08-14 01:27 UTC) [l176:ppu] FAIL: exact symbol lost line bindings for marlin_load_ppu.hpp, marlin_dequant_ppu.hpp, marlin_mma_ppu.hpp, marlin_collective_ppu.hpp, marlin_kernel_ppu.hpp
+- (2026-08-14 01:36 UTC) [l176:source] PASS: shipping generated row + standalone wrapper + split helpers + native 4x8 accumulator are hash-bound; PPU opcode/spill remains a disassembly postcondition [l176] PASS: exact shipping generated unit compiled; unique standalone symbol is source/resource/opcode-bound; no device code executed [l176] artifacts: /tmp/quactlize-l176-ppu-8f022fc
+- (2026-08-14 01:37 UTC) 最终我们看acu吧。先不要用这种方法统计。先给我acu的command。
+- (2026-08-14 01:39 UTC) 开一个subagent干这个事情：读 .coord/INBOX.md 169(它作废了 167/168 里与之冲突的部分),以及重写过的 TODO #28。 一句话:我此前把优化对象写成 gemv_lowbit,错了。出货的 decode GEMV 是 gguf_bc_vecdot.hpp:201 rows_kernel —— 它读的是 tensor-core prefill 那份 xplane 摆放,一个权重文件同时喂 prefill 和 decode。 三个必须先接受的事实: 1. BACKTEST 的 D1/D2/D3/D5 全是 gemv_lowbit(config 串来自 gemv_tactic_space.hpp:97),D4/D6-D9 是 tensor-core。出货 kernel 没有基线,第一次 box 跑要先补 baseline 再谈提升。 2. 出货路的 fp16 转换已经是快的(MixGemmByte4ToHalf)。贵的是 code_at: 每码重跑 xplane_physical_code 那 14 位置换 + 自己一次字节载入。 3. 格式不能改。π = frag.layout()^-1 让 prefill 零地址算术,而 π 由 converter 的固定发射顺序钉死。要改的是 reader。 先做可行性表,不要先写 kernel: 对每个 (T, ArtifactTileK, High),判定"连续 CPW 个 k 是否落在同一 32-bit 字内、字内置换是什么"。ArrangementSlotPermutation 是显式对象,这一步纯 离线、不用 box,而且直接决定 #28 是"推广"还是"只对部分格式成立"。 q4_group 是已有的正例(unfolded Q4:整字读 + 寄存器置换,快 55×)。 性质、三条事前判据、三条负控、四条范围限制都在 #28 的任务描述里,原样执行。 特别是负控 (2)(字内置换错一位必须判红)和 (3)(覆盖率分母少一个组合必须判红)。 注意:166 的 Marlin 对齐仍然优先。这条如果与它冲突,以 166 为准。
+- (2026-08-14 01:41 UTC) 目录不要到tmp下，都在/workspace/下面创建
+- (2026-08-14 01:42 UTC) 你刚才的命令改成workspace，不要用tmp。我的意思是这个
+- (2026-08-14 01:44 UTC) 不要用mktemp，用mkdir
+- (2026-08-14 01:45 UTC) 不要到csv，直接acu -o xxx --set full 这样。因为我贴不出来csv
+- (2026-08-14 01:56 UTC) 如何理解为什么现在simt的gemv比tensorcore的gemv快很多的问题。
+- (2026-08-14 01:57 UTC) [dense marlin aligned artifact] batch=0 bytes=8388608 placement=classic-marlin-u32 scale=classic-gs128-permuted consumer_axis=WarpK32 roundtrip_bad=0/16777216 [dense verify owners] tile=16x128 cta_threads=256 output_threads=64 K_cohorts=4 stripes/output_thread=32 mapping=classic-ppu-m16n16 coverage=exact-once [dense marlin decomposition] real_cu=72 occupancy_api=3 blocks_per_cu=1 Q=0 Kt=0 G=0 I=0 active=0 idle=0 handoffs=0 max_peers=0 workspace=0 dense Marlin fail-close: lowered Q/Kt/G differs from the scheduler-owned launch contract [Asight]: All target application created processes are terminated. marlin的kernel最后完全没有跑啊
+- (2026-08-14 02:02 UTC) 什么意思，为什么还有L的事情，这个不是一个dense的gemm的kernel吗？L不是moe-gemm的配置参数吗？
+- (2026-08-14 02:12 UTC) 改好了吗
+- (2026-08-14 02:16 UTC) .[marlin-wk4] FAIL: automatic box identity probe failed; no kernel was built or run [marlin-wk4] artifacts preserved at /tmp/quactlize-dense-marlin-wk4.f9E49L
+- (2026-08-14 02:20 UTC) subagent干的如何了
+- (2026-08-14 02:23 UTC) 现在好像能够对齐了。我们继续做sweep看一下最优的config
+- (2026-08-14 02:25 UTC) 然后计算的时候可以用m8的指令。
+- (2026-08-14 02:32 UTC) TN128、TK128、WN64、WarpK32 这些不能sweep吗？
+- (2026-08-14 02:34 UTC) 我们先试试同一个config，instructionM=8的时候的acu report看看。然后你继续添加这些sweep的选型。
+- (2026-08-14 02:37 UTC) 其他的目录都可以挪到autodl-tmp下面。
+- (2026-08-14 02:37 UTC) 尤其是模型文件
+- (2026-08-14 03:08 UTC) A-smem为什么还是16行。那肯定不行啊。。后续你不会还是ldmatrix。x4吧。。。
+- (2026-08-14 03:13 UTC) 现在是cp async读取的A矩阵吗？读取的时候应该不需要padding到8行吧？ldmatrix的时候除了第一行matter，其他的行其实无所谓，所以我们有A的pack
+- (2026-08-14 03:18 UTC) 每个Kstage的A的拷贝也应该是所有的thread配合来cp async吧。要不然只有一个thread发麻？
+- (2026-08-14 03:34 UTC) 为什么A是16x16B？
+- (2026-08-14 03:35 UTC) 距离我跑一个m=8的同config的acu还差多少
+- (2026-08-14 03:55 UTC) 距离我跑一个m=8的同config的acu还差多少
+- (2026-08-14 04:22 UTC) /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/gemm/kernel/ppu_aiu_gemm_mixed_input.hpp:118:29: error: constexpr variable 'MaxThreadsPerBlock' must be initialized by a constant expression
+- (2026-08-14 04:22 UTC) /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cute/int_tuple.hpp:407:14: error: non-type template argument is not a constant expression return C<shape_div(IntTupleA::value, IntTupleB::value)>{}; ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- (2026-08-14 04:34 UTC) grid设为2*72，3*72试试
+- (2026-08-14 04:43 UTC) 为什么这两个是m16的instruction
+- (2026-08-14 05:01 UTC) /workspace/quactlize-dense-marlin-m8-acu-0340da1/build/ppu_targets/test_lowbit_dense_marlin_m8_ab_main.cu:3102:27: error: no member named 'InstructionM' in '::cutlass::gemm::kernel::GemmUniv
+- (2026-08-14 05:13 UTC) [Asight]: Trace written into the output file: /workspace/quactlize-dense-marlin-m8-acu-ea2c3e2/marlin-m8-tm8-tn128-tk128-wn64-wk32-bpc1.report.acurep [marlin-m8-acu] FAIL: ACU produced no report for blocks_per_cu=1
+- (2026-08-14 05:20 UTC) 没有144，216的结果
+- (2026-08-14 05:38 UTC) grid上去之后，为什么instruction数量不一样了。而且也变慢了。baseline是72，current是144。================================================================ acu 手抄 — standalone Marlin,grid 加倍的 A/B 手抄人:claude。acu 只能截图,以下为逐格转录 + 我自己的对账。 % 的约定:Current 相对 Baseline(两张表都是)。 ================================================================ 【运行标识】 Report Size Time Cycles Regs PPU Current marlin-m8-tm8-tn128-tk128-wn64-wk32-bpc2 (144,1,1)x(256,1,1) 18.78 µs 31,923 124 PPU-ZW810 Baseline 1 marlin-m8-tm8-tn128-tk128-wn64-wk32-bpc1 (72,1,1)x(256,1,1) 16.96 µs 28,839 124 PPU-ZW810 CE Frequency 1.70 cycle/ns(两者相同) DRAM Frequency 1.80 cycle/ns(相同) ★ bpc1(每 CU 1 block,grid 72)= 16.96 µs ★ bpc2(每 CU 2 block,grid 144)= 18.78 µs ← 慢 10.69% ★ Regs = 124(两者相同) 【SOL 概览】 Current(vs Baseline) Compute (CU) Throughput [%] 20.04 (-11.61%) Memory Throughput [%] 16.72 (-9.63%) L1 Cache Throughput [%] 0.17 (+60.13%) L2 Cache Throughput [%] 3.09 (-8.41%) LLC Cache Throughput [%] 7.24 (-8.89%) DRAM Throughput [%] 16.72 (-9.63%) Duration [µs] 18.78 (+10.69%) Elapsed Cycles 31,923 (+10.69%) Active Cycles 31,466 (+10.87%) CU Active Cycles 23,832.11 (+9.60%) 【Compute Throughput Breakdown】 SOL CU: WS Issue Active [%] 20.04 (-11.61%) SOL CU: PU Pipe SALU Cycles Active [%] 9.10 (+4.21%) SOL CU: WE Pipe IALU Cycles Active [%] 8.47 (+7.49%) SOL CU: WE Pipe FALU Cycles Active [%] 8.08 (-4.91%) SOL CU: WE Pipe Tensor Cycles Active [%] 5.95 (-12.21%) SOL CU: Inst Executed [%] 5.94 (+3.74%) SOL CU: Inst Executed Pipe FALU FP16 [%] 5.70 (-9.66%) SOL CU …
+- (2026-08-14 05:40 UTC) ================================================================ acu 手抄 — Warp State (All Cycles) 同一组 A/B:Current = bpc2(grid 144),Baseline 1 = bpc1(grid 72) % 的约定:Current 相对 Baseline ================================================================ Metric Current Baseline 1 Current vs BL Instruction Fetch 1.580898 0.921758 +71.51% Stall Sync 1.32724 0.507206 +161.68% Memory Dependency 0.464079 0.243511 +90.58% Stall AMC 0.370684 0.196454 +88.69% Not Selected 0.256384 0 (inf%) Stall Pipe Busy 0.167767 0.036714 +356.95% Compute Dependency 0.12191 0.135425 -9.98% Stall SALU Control 0.100696 0.099661 +1.04% Stall FALU Pipe Busy 0.06945 0.001952 +3,457.22% Stall IALU Pipe Busy 0.036105 0.000863 +4,084.92% Memory Throttle 0.007327 0.001425 +414.28% Stall Shared Memory Pipe Busy 0.002861 0.000842 +239.99% Stall Fence Sys 0.001862 0.003922 -52.52% Stall SREG Read 0.000695 0 (inf%) Stall Vector Memory Pipe Busy 0.000431 0 (inf%) Stall Others 0 0 0% Stall SIMT Control 0 0 0% Stall Sleeping 0 0 0% Stall Tensor Pipe Busy 0 0 0% Stall Scaler Memory Pipe Busy 0 0 0% Stall SFU Pipe Busy 0 0 0% Stall SCTL Pipe Busy 0 0 0% Stall AIU Pipe Busy 0 0 0% Wait PC (空) (空) ================================================================ 【对账 — 整个 A/B 的时间账现在闭合了】 1 合计(每指令周期) Current 4.5084 Baseline 2.1497 比 2.097×
+- (2026-08-14 05:40 UTC) 2 指令总数(上一份 mix 的可见行相加) Current 2,123,432 Baseline 1,826,440 +16.26% 3 发射率 = 指令/周期 Current 2,123,432/31,923 = 66.52 Baseline 1,826,440/28,839 = 63.33 +5.03% 4 时间比预测 1.1626 / 1.0503 = 1.1069 时间比实测 31,923 / 28,839 = 1.1069 ✓ 完全吻合 ⟹ 加倍 block 确实把发射率提高了 5.0%, 但它多造出来的 16.3% 指令把这个收益吃掉还倒亏 10.7%。 5 各项占全部 stall 周期的份额 bpc1(快的那个) Instruction Fetch 42.9% Stall Sync 23.6% Memory Dependency 11.3% Stall AMC 9.1% Compute Dependency 6.3% SALU Control 4.6% ⟹ 前端 + barrier = 66.5% bpc2 Instruction Fetch 35.1% Stall Sync 29.4% Memory Dependency 10.3% Stall AMC 8.2% Not Selected 5.7% Pipe Busy 3.7% ================================================================ 另外还有
+- (2026-08-14 05:48 UTC) 那是不是说直接写出，也就是splitk比marlin这种要更快，因为不用sync了。
+- (2026-08-14 06:08 UTC) 我们做一个hack，让现在的kernel，没有这部分sync，看看
+- (2026-08-14 06:09 UTC) 同样的shape，在5090上的带宽是？
+- (2026-08-14 06:13 UTC) 等一下，为什么5090上的marlin的带宽利用率高这么多
+- (2026-08-14 06:22 UTC) 你测试一下精确的5090上同shape的结果
+- (2026-08-14 06:33 UTC) 很难理解啊，同样的case，在5090上好这么多？
+- (2026-08-14 06:41 UTC) no-sync的hack做好了吗？
+- (2026-08-14 06:50 UTC) 为什么我们stall instruction fetch但是simt的gemv没有？区别在哪里，instruction数量在一个数量级
+- (2026-08-14 06:54 UTC) 你上面改啥了，抓出来的acu没有任何变化
+- (2026-08-14 06:59 UTC) 读 .coord/INBOX.md 的 173(你的 inbox-consumed 停在 169,170/171/172 也没读)。 针对 bpc1 那份 acu 里 Instruction Fetch 占 42.9% 的事,我读了主循环: marlin_collective_ppu.hpp :535 while (k_tiles_remaining > 0) ROLLED :536-7 #pragma unroll for (pipe < Stages) ×4 :538-9 #pragma unroll for (inner < BInnerIters) ×2 :508-517 multiply_n_block<0..3> 手写四份 ×4 直线体 = 4 × 2 × 4 = 32 条 mma 两条独立推导对上了: 源码结构 32 mma/体 acu 27.9 指令/mma(3,171 指令/warp ÷ 113.8 mma/warp) → 体 = 893 条 进入次数 113.8/32 = 3.56 与 (32×32)/72/4 = 3.56 精确相等 ⟹ 893 条直线体,每 warp 只进 3.56 次,冷取指摊不掉。 关键区分(第四节):pipe 只索引 shared/global 指针,inner 索引寄存器数组 (fragment_a / fragment_b_quant / fragment_scale / state.a_smem_read)。 所以 :538 的 inner 展开承重不能动,:536 的 pipe 展开不承重。 实验:只把 :536 改成 #pragma unroll 1,其余一字不改。足迹 893 → 223。 不触发 PipelineDepthUnproved —— 那个门管的是 Stages 的值,不是它展不展开。 判据在第七节,核心是三条: · 不看指令总数(卷起来动态指令会涨,按它判读会得出相反结论) · 主指标是 Instruction Fetch 的 stall 份额(基线 42.9%) · Regs ≤ 124 且 spill = 0,否则实验作废(测的就不是足迹了) 负控 2 最要紧:改完必须用 nvdisasm/cuobjdump 数主循环段的静态条数, 确认真的从 ~893 降到 ~223。nvcc 可以忽略 pragma —— 只改不验等于没做实验。 第三节是我的假说,而这个实验能证伪它: 如果足迹缩 4× 而 fetch stall 不动,我那套「取指是因为展开体大」的解释就是错的, 要回头找别的原因。请把这条当主要产出,不是附带。 它比 171 的四路对照便宜得多(一个 pragma + 一次 acu),可以先做。
+- (2026-08-14 07:02 UTC) 刚才的hack的代码去掉。防止污染
+- (2026-08-14 07:09 UTC) 你判断跟这个有关系吗？
+- (2026-08-14 07:11 UTC) 逻辑上来说，我们之前的非marlin的方法也没有stall在instruction fetch
+- (2026-08-14 07:30 UTC) 还有多久才能测试？
+- (2026-08-14 07:36 UTC) [marlin-m8-pipe-roll] FAIL: missing executable identity probe: /sim/eec/shared/junfu.qx/quactlize/tools/probe_box_identity.py
+- (2026-08-14 07:40 UTC) [marlin-m8-pipe-roll] FAIL: automatic box identity probe failed; no binary was built or profiled
+- (2026-08-14 07:45 UTC) [marlin-m8-pipe-roll] FAIL: automatic box identity probe failed with resolved PPU_SDK=/usr/local/PPU_SDK; no binary was built or profiled
+- (2026-08-14 07:46 UTC) 不要probe了
+- (2026-08-14 07:49 UTC) 太复杂了， 我只是想要测试一下unroll不同的时候的latency的差异，你这个改了几十分钟，这样迭代也太慢了
+- (2026-08-14 07:59 UTC) rolled和classic的区别是什么，好像都不是原来的方法啊。但是rolled的instruction stall少了非常多。
+- (2026-08-14 08:01 UTC) rolled改成marlin默认。
+- (2026-08-14 08:02 UTC) rolled的register更少啊
+- (2026-08-14 08:02 UTC) 时间也更短。
+- (2026-08-14 08:02 UTC) 时间也更短。
+- (2026-08-14 08:03 UTC) 太复杂了， 我只是想要测试一下unroll不同的时候的latency的差异，你这个改了几十分钟，这样迭代也太慢了
+- (2026-08-14 08:04 UTC) 等一下。，rolled已经是在我们的新的代码基础上改的了？那他的instruction fetch减少了，但是时间差不多
+- (2026-08-14 08:04 UTC) instruction还有一些变多了
+- (2026-08-14 08:06 UTC) 我要测一下144和216下的acu
+- (2026-08-14 08:09 UTC) 后面不要exit 1，我在docker里面，你直接给我推出去了
+- (2026-08-14 08:10 UTC) find: ‘/workspace/quactlize-dense-marlin-m8-pipe-roll-acu/outer-roll/build’: No such file or directory ERROR: rolled binary not found
+- (2026-08-14 08:11 UTC) find /workspace -type f \ -name test_lowbit_dense_marlin_m8_ab \ -perm -u+x \ -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' 2>/dev/null | sort 2026-08-14 12:30:02.1327673400 /workspace/quactlize-dense-marlin-m8-acu-ab29adb/build/ppu_targets/test_lowbit_dense_marlin_m8_ab 2026-08-14 13:11:33.6261691280 /workspace/quactlize-dense-marlin-m8-acu-ea2c3e2/build/ppu_targets/test_lowbit_dense_marlin_m8_ab 2026-08-14 13:26:09.4515581560 /workspace/quactlize-dense-marlin-m8-acu-76d2eb8/build/ppu_targets/test_lowbit_dense_marlin_m8_ab 2026-08-14 14:52:41.9863619230 /workspace/quactlize-dense-marlin-m8-nosync-acu-c6fa72d/ordered/build/ppu_targets/test_lowbit_dense_marlin_m8_ab 2026-08-14 15:53:40.6944521040 /workspace/pipe-roll-simple/baseline/ppu_targets/test_lowbit_dense_marlin_m8_ab 2026-08-14 15:56:26.0742692140 /workspace/pipe-roll-simple/rolled/ppu_targets/test_lowbit_dense_marlin_m8_ab
+- (2026-08-14 08:14 UTC) 那就不管了，开始sweep
+- (2026-08-14 08:28 UTC) 还有多久？
+- (2026-08-14 08:44 UTC) 之扫描了5个config吗？
+- (2026-08-14 08:45 UTC) [CUTLASS w4 gs=128 cfg=8x128:128 w8x64x32 s4 bc0->0 scheduler=marlin] M=1 15.20 us | 2.2 TF/s ( 0.4% MFU) | distinct 557 GB/s (20.2% of 2766 nameplate) | tile 574 GB/s (1.0x dis
+- (2026-08-14 08:45 UTC) 能多扫描几组吗？
+- (2026-08-14 09:15 UTC) 不要固定TN128/TK128/WN64/WarpK32
+- (2026-08-14 09:31 UTC) 另外一个活是给原来的非marlin的collective 在m=1的时候也默认用M8的mma ptx。A的加载也不要padding。按照APack来做。
+- (2026-08-14 09:49 UTC) 那一步了？
+- (2026-08-14 09:50 UTC) 继续做吧
+- (2026-08-14 12:56 UTC) tcp://0.tcp.jp.ngrok.io:24129 我有一台5070可以远程登录，使用ncu测量。用户名和密码<REDACTED>,<REDACTED_KNOWN_SECRET>。用wsl跑marlin测试可以。可以profile一下同shape的时候的利用率。
+- (2026-08-14 12:58 UTC) 给我command，用我们的自己的方法，sweep
+- (2026-08-14 12:58 UTC) sweep n4096， k4096的case，复现之前的最优结果。 sweep n16384，k1024的case，看一下差异。
+- (2026-08-14 12:58 UTC) sweep n4096， k4096的case，复现之前的最优结果。 sweep n16384，k1024的case，看一下差异。
+- (2026-08-14 12:59 UTC) 给我command。注意这里我希望用m=1，M8的ptx。你之前已经加好了？不是我说的是ppu上的command
+- (2026-08-14 12:59 UTC) 给我command。注意这里我希望用m=1，M8的ptx。你之前已经加好了？不是我说的是ppu上的command
+- (2026-08-14 12:59 UTC) 然后你继续5070上的profile和分析。
+- (2026-08-14 13:06 UTC) 之前37。5%的带宽利用率测似的是什么shape，我说的是tensorcore的路径。dense的shape。
+- (2026-08-14 13:12 UTC) 继续啊
+- (2026-08-14 13:12 UTC) 还有我sweep的command给我
+- (2026-08-14 13:13 UTC) 等一下，不是marlin的sweep，是我们原来的collective的sweep，desne
+- (2026-08-14 13:26 UTC) 这里应该也复现不了吧，毕竟之前的测试是8个expert？是吗？
+- (2026-08-14 13:26 UTC) 应该准确说是第一次测试的结果。
+- (2026-08-14 13:26 UTC) 应该准确说是第一次测试的结果。
+- (2026-08-14 13:27 UTC) ◦ Working (1s • esc to interrupt) · 2 background terminals running · /ps to view · /stop to close » 如何理解5070的带宽利用率这么高，我在h800测试的带宽利用率只有18%。PPU也是类似的20%左右。
+- (2026-08-14 13:33 UTC) 这就让我很难理解，包括5070还比h800更快，显然不合理
+- (2026-08-14 13:36 UTC) 记到todo，我明天来做这个实验。
+- (2026-08-14 13:40 UTC) 读 .coord/INBOX.md 的 176。任务:在 5090 上把我们的 GEMV 和用户交来的 PDF 参考实现同机同 shape 对跑,目标是赢过它。 这直接服务 dev/fold_derivation/TODO.md:756 的 TODO #55 —— 先量出"目标值"。 三个阻塞我已经拆掉,别重复花时间: ① 我们的 GEMV 没有 ppu. 前缀要脱 gguf_vecdot.hpp (859 行) 和 gguf_bc_vecdot.hpp (304 行) 的 inline asm 数量都是 0。 ppu. 那套在张量核转换器里,不在 GEMV 路上。 ② 唯一阻塞是 actlize/cutlass/half.h:64 的无条件 #include <hggc_fp16.h>, 而 dev/fold_derivation/stub_inc 里已经有,加一个 -I 就编过了(实测 10,880 B 目标文件): nvcc -std=c++17 -arch=sm_120 --expt-relaxed-constexpr \ -Iquactlize/include -Iquactlize/include/gemv_lowbit \ -Ithird_party/actlize/include -Idev/fold_derivation/stub_inc -c <tu>.cu stub 是诚实的三行:#include <cuda_fp16.h>; using half = __half; ③ PDF 那份在 NVIDIA 上要改 4 处 "n"→"r" —— sub.f16x2/fma.rn.f16x2 不吃立即数, 而 PPU 吃(反汇编里 v.add.f16x2 vreg12, vreg12, 0xe408e408)。 这是 TODO #55「按 target 分派」的一个具体差异,#55 目前没记。 先跑哪一组(第二节):PDF 和 gguf_vecdot 都吃原生 GGUF ⟹ 第一组是这两个。 gguf_bc_vecdot 吃 xplane artifact,要先有打包器,是第二步,不要混进来。 要打败的目标值(我已实测,冷缓存,轮转 2.16× L2): 5090 CtaN2 7.748 µs 1218 GB/s 68.0% 64 regs / 0 spill / 1 barrier 5070 CtaN4 18.212 µs 518 GB/s 77.1%(峰值 672) 最优 config 随机器变,两边都要各自扫。 它的精度代价:超块内 half2 累加 ⟹ 带符号激活 5.6% 相对误差(我们是 fp32,没有)。 判据在第五节,三条要特别注意: · 峰值带宽必须从设备推导 —— 我的 bench.cu 写死 1792,5070 上整列 %HBM 错了 · 冷 fixture 用轮转多份权重超 2× L2,不用合成 flush · 正激活和带符号两种误差都要报,带符号那列是累加精度读数不是失败 负控三条在第六节。范围限制:不要在这一步实现 #55 的 fast dequant。 可以直接抄的东西在 scratchpad(我建的,已验证): q4k/ref_q4k_nv.cuh PDF 的 NVIDIA 版(4 处约束已修 + 两个受控旋钮) q4k/bench.cu 轮转 fixture + 两条件正确性门 + 多 config 表 第八节给 TODO #55 补了一条边界:它现在只区分「算术内核」和「投递层」, 而**累加精度 …
+- (2026-08-14 13:48 UTC) 出货的gemv因为必须要和prefill的layout一致，所以不是raw格式的输入
+- (2026-08-14 13:51 UTC) gguf_bc_vecdot没有用fastdequant吗？
+- (2026-08-14 13:52 UTC) 做完吧，我要睡觉去了，你overnight做完这个任务。评估一下时间
+- (2026-08-15 01:41 UTC) 测试了几个shape
+- (2026-08-15 01:43 UTC) 外推一下，所有的我们的目标的shape都要更快。
+- (2026-08-15 01:43 UTC) 读 .coord/INBOX.md 的 178。177 撤回,不要执行。 PPU 冷缓存、两边各自 sweep 最优、同 gs 同权重: (1, 32768, 512) 7.4 µs 1169 GB/s 42.3% 18.5 权重/核/周期 (1, 4096, 4096) 17 µs 509 GB/s 18.4% 8.06 2.30× 要做的是把这个优势固化进 kernel:先看一下我们有没有这样的collective或者scheduler，如果没有可以参考CUTLASS 2.x GemmSplitKParallel实现。 外部 reshape 到 (32768,512) 和内部 S=8 split-K,分解完全相同,权重零重排。 ★ 改动的形状(第五节,用户纠正过我一次): 主体是 **scheduler**,kernel 的 epilogue 是**净删除**,**collective 一个字不用改** —— WorkTileInfo 本来就带 K_idx/k_tile_count,mainloop 不关心那段 K 是条带还是 slice。 零改动清单在第五节末尾,谁动了谁要在报告里说明理由。 ★ 方法学警告(第一节):5090 上 S=8 是最差(10.451 µs/50.7%),峰在 S=4;PPU 上 S=8 赢 2.30×。 核数 72 vs 170,基线离"填满"的距离不同 ⟹ **S 的曲线必须在 PPU 上自己扫**。 要先确认(第三节):那两次的 config 串,以及是哪条 kernel。 standalone Marlin 只有一个准入几何,sweep 不出"不同 winning config" ⟹ 7.4 µs 大概率来自 mixed-input dense 路。split-K 要加在产出它的那条上。 (顺带:(4096,4096) 的 17 µs/18.4%/8.06 与 standalone Marlin 那次 acu 16.96/18.5%/8.08 几乎重合,值得一并核。) 判据两条最要紧:必须报 GEMM+reduce 的端到端时间(只报 GEMM 段无效); S=1 必须复现 17 µs ±3%。负控三条、范围限制四条在第七/八节。 归约 v1 故意用最笨的独立 kernel —— 9.6 µs 预算,先求「对且赢」, 并把 launch 开销单独量出来给第二步用。
+- (2026-08-15 01:43 UTC) 这个任务先分析，然后跟我对齐一下改动和目标达成的效果。
+- (2026-08-15 01:48 UTC) 等一下，我先告诉你我的目的，就是拿到目前的更大的N，小K相对于更小的N，大K的性能优势，也就是对于N*K，通过splitk来让性能达到N*ksplits，K/ksplits的水平，然后单独的reduction kernel。懂了吗？无论哪种方案，最终目的是要拿到这个收益。
+- (2026-08-15 01:49 UTC) 你找找本地的streamk/gemmsplitkparallel等等方法是否符合我们的要求。然后给我一个最小改动方案。
+- (2026-08-15 01:50 UTC) 甚至最终可能是uniform的moe-gemm，来表示dense的splitk，这个也可以分析，但是我期望最终不应该选这个
+- (2026-08-15 02:08 UTC) 按照你说的开始工作。另外如果我们要考虑后续添加fusion的fixup逻辑，怎么设计比较好。比如考虑非均匀分配任务，然后gemm计算少的最后fixup。但是要考虑顺序，尽量没有同步开销，类似streamk的概念。先回答这个问题再开工。
+- (2026-08-15 03:56 UTC) 下一步是什么
+- (2026-08-15 03:56 UTC) 你直接完成完成最终的性能版本
+- (2026-08-15 03:57 UTC) ppu上的winningconfig还是需要sweep
+- (2026-08-15 05:04 UTC) iteration是什么？
+- (2026-08-15 05:05 UTC) 不同的kernel不会同时跑吧
+- (2026-08-15 05:35 UTC) 我怎么看最后的report
+- (2026-08-15 05:37 UTC) [splitk sweep] source=lowbit_dense_configs.inc source_rows=1772 packedA_rows=201 cells=804 bits=4 mode=ScaleOnly gs=128 artifact_tk=64 space_fnv=cc7e34e5f55c4456 emitter_fnv=5e766c533b52cf2e shape=1x4096x4096 S=1,2,4,8 cold_copies=16 representation_bytes=8650752 rotation_bytes=138412032 l2_bytes=33554432 cold_multiple=4.125000 iterations=7 launches_per_sample=16 cu=32 ce_ghz=1.700000 hbm_gbs=2766.000 execution_order=shuffled schedule_seed=0x6a09e667f3bcc909 WINNER_SPAN kind=S1 cfg=8x64x256_w8x16_s3_bc0 S=1 producer=17.920000_us reducer=NA/0.000000_us repeated_correctness=8 midpoint_events=DIAGNOSTIC_NOT_RANKING WINNER_SPAN kind=SPLIT cfg=8x128x256_w8x16_s3_bc0 S=2 producer=14.920000_us reducer=3.880000_us repeated_correctness=8 midpoint_events=DIAGNOSTIC_NOT_RANKING GLOBAL_S1 cfg=8x64x256_w8x16_s3_bc0 S=1 e2e=17.510001_us historical_17us_admission=FAIL range=[16.49,17.51] GLOBAL_SPLIT cfg=8x128x256_w8x16_s3_bc0 S=2 e2e=17.100001_us speedup_vs_global_S1=1.023977x empty_launch=1.786719_us confirmation_envelopes=DISJOINT/SPLIT-WINS gap=0.137499_us S1=[17.464999,17.619999]_us SPLIT=[17.045001,17.327501]_us [splitk sweep] UNADJUDICATED: denominator=804 measured=684 inadmissible=120 correctness=RAW-BIT winner_binding=SWEEPED+TOP8-CONFIRMED performance=WIN historical_environment=DRIFTED
+- (2026-08-15 05:38 UTC) split如果有14。92肯定是不对的。之前我单独测试的结果只有个位数。差别不会这么大。
+- (2026-08-15 05:39 UTC) OK，给我command，我去72的机器上跑
+- (2026-08-15 05:39 UTC) OK，给我command，我去72的机器上跑
+- (2026-08-15 05:51 UTC) [splitk device] ordinal=0 measured_cu=72 measured_l2=67108864 effective_cu=72 effective_l2=67108864 WINNER_SPAN kind=S1 cfg=8x16x256_w8x16_s4_bc0 S=1 producer=17.039999_us reducer=NA/0.000000_us repeated_correctness=8 midpoint_events=DIAGNOSTIC_NOT_RANKING WINNER_SPAN kind=SPLIT cfg=8x128x256_w8x16_s3_bc0 S=4 producer=9.960000_us reducer=4.240000_us repeated_correctness=8 midpoint_events=DIAGNOSTIC_NOT_RANKING [splitk device] ordinal=0 measured_cu=72 measured_l2=67108864 effective_cu=72 effective_l2=67108864 WINNER_SPAN kind=S1 cfg=8x16x256_w8x16_s4_bc0 S=1 producer=17.039999_us reducer=NA/0.000000_us repeated_correctness=8 midpoint_events=DIAGNOSTIC_NOT_RANKING WINNER_SPAN kind=SPLIT cfg=8x128x256_w8x16_s3_bc0 S=4 producer=9.960000_us reducer=4.240000_us repeated_correctness=8 midpoint_events=DIAGNOSTIC_NOT_RANKIING
+- (2026-08-15 05:51 UTC) GLOBAL_S1 cfg=8x16x256_w8x16_s4_bc0 S=1 e2e=15.872941_us historical_17us_admission=FAIL range=[16.49,17.51] GLOBAL_SPLIT cfg=8x128x256_w8x16_s3_bc0 S=4 e2e=13.164706_us speedup_vs_global_S1=1.205719x empty_launch=1.845000_us confirmation_envelopes=DISJOINT/SPLIT-WINS gap=2.527060_us S1=[15.842354,16.014118]_us SPLIT=[13.044706,13.315294]_us [splitk sweep] UNADJUDICATED: denominator=804 measured=684 inadmissible=120 correctness=RAW-BIT winner_binding=SWEEPED+TOP8-CONFIRMED performance=WIN historical_environment=DRIFTED
+- (2026-08-15 05:51 UTC) GLOBAL_S1 cfg=8x16x256_w8x16_s4_bc0 S=1 e2e=15.872941_us historical_17us_admission=FAIL range=[16.49,17.51] GLOBAL_SPLIT cfg=8x128x256_w8x16_s3_bc0 S=4 e2e=13.164706_us speedup_vs_global_S1=1.205719x empty_launch=1.845000_us confirmation_envelopes=DISJOINT/SPLIT-WINS gap=2.527060_us S1=[15.842354,16.014118]_us SPLIT=[13.044706,13.315294]_us [splitk sweep] UNADJUDICATED: denominator=804 measured=684 inadmissible=120 correctness=RAW-BIT winner_binding=SWEEPED+TOP8-CONFIRMED performance=WIN historical_environment=DRIFTED
+- (2026-08-15 05:54 UTC) 我昨天有到7us的啊。。而且你这里的4。24也太高了。这个是reduction的kernel吗？
+- (2026-08-15 05:56 UTC) reduction可能也就是1us左右。你现在只测试了s4吗？另外9。96是config没有扫描到还是什么原因，我想理解清楚。这个差距有点大。
+- (2026-08-15 06:08 UTC) 给我command
+- (2026-08-15 06:12 UTC) === BEST E2E PER S === S=1: CELL provider=packedA cfg=8x16x256_w8x16_s4_bc0 S=1 state=MEASURED e2e_median=15.872941_us mean=15.905210 min=15.842354 max=16.014118 execution_ordinal=100001 output_tiles=256 work_units=256 tiles_per_cu=3.555556 Kt=16 k_steps=16 partial_bytes=0 partial_logical_rw_bytes=0 distinct_gbs_model=545.000 hbm_nameplate_model=19.704% weights_per_core_cycle=8.635372 raw_bad=0 fingerprint=c9e00687bfa2c383 S=2: CELL provider=packedA cfg=8x32x256_w8x16_s3_bc0 S=2 state=MEASURED e2e_median=13.920000_us mean=13.933445 min=13.905882 max=13.962353 execution_ordinal=541 output_tiles=128 work_units=256 tiles_per_cu=3.555556 Kt=16 k_steps=8 partial_bytes=32768 partial_logical_rw_bytes=73728 distinct_gbs_model=621.462 hbm_nameplate_model=22.468% weights_per_core_cycle=9.846893 raw_bad=0 fingerprint=c9e00687bfa2c383 S=4: CELL provider=packedA cfg=8x128x256_w8x16_s3_bc0 S=4 state=MEASURED e2e_median=13.164706_us mean=13.170756 min=13.044706 max=13.315294 execution_ordinal=100008 output_tiles=32 work_units=128 tiles_per_cu=1.777778 Kt=16 k_steps=4 partial_bytes=65536 partial_logical_rw_bytes=139264 distinct_gbs_model=657.117 hbm_nameplate_model=23.757% weights_per_core_cycle=10.411836 raw_bad=0 fingerprint=c9e00687bfa2c383 S=8: CELL provider=packedA cfg=8x128x256_w8x32_s2_bc0 S=8 state=MEASURED e2e_median=15.280000_us mean=15.276303 min=15.247059 max=15.312942 execution_ordinal=659 output_tiles=32 work_units=256 tiles_per_cu=3.555556 Kt=16 k_steps=2 partial_bytes=131072  …
+- (2026-08-15 06:17 UTC) 什么意思，现在看到的最优的没有reduce的结果是多少？
+- (2026-08-15 06:18 UTC) 给我补测的command
+- (2026-08-15 06:30 UTC) SPAN_CURVE role=best-e2e-S8 cfg=8x128x256_w8x32_s2_bc0 S=8 producer_median=11.040000_us producer_range=[10.240000,11.160000]_us reducer=6.040000_us reducer_range=[6.040000,6.360000]_us span_samples=7 correctness=RAW-BIT/PASS SPAN_CURVE role=reshape-matched-S8 cfg=8x128x128_w8x32_s3_bc0 S=8 producer_median=11.280000_us producer_range=[10.520000,11.400000]_us reducer=6.120000_us reducer_range=[6.040000,6.360000]_us span_samples=7 correctness=RAW-BIT/PASS SPAN_CURVE role=best-e2e-S2 cfg=8x32x256_w8x16_s3_bc0 S=2 producer_median=12.720000_us producer_range=[12.120000,12.760000]_us reducer=3.080000_us reducer_range=[3.040000,3.400000]_us span_samples=7 correctness=RAW-BIT/PASS SPAN_CURVE role=best-e2e-S4 cfg=8x128x256_w8x16_s3_bc0 S=4 producer_median=10.880000_us producer_range=[10.280000,11.000000]_us reducer=4.280000_us reducer_range=[4.200000,4.320000]_us span_samples=7 correctness=RAW-BIT/PASS [splitk span curve] mode=producer-reducer-median samples=7 correctness_repeats=8 selection=bound-to-72cu-full-sweep SPAN_CURVE role=best-e2e-S1 cfg=8x16x256_w8x16_s4_bc0 S=1 producer_median=18.080000_us producer_range=[17.880000,22.679999]_us reducer=NA/0.000000_us reducer_range=NA/[0.000000,0.000000]_us span_samples=7 correctness=RAW-BIT/PASS
+- (2026-08-15 06:31 UTC) 没有复现就是不对的。
+- (2026-08-15 06:32 UTC) 8x64:128 w8x16 s2 bc0->0 Disposition: Passed Problem Size: 1x32768x512x1 Avg runtime: 0.007854 ms GFLOPS: 4272.27 [CUTLASS w4 gs=128 cfg=8x64:128 w8x16 s2 bc0->0] M=1 7.85 us | 4.3 TF/s ( 0.9% MFU) | distinct 1077 GB/s (38.9% of 2766 nameplate) | tile 1143 GB/s (1.1x distinct) 4.3 ok
+- (2026-08-15 06:33 UTC) 8x128:128 w8x16 s2 bc0->0 Disposition: Passed Problem Size: 1x32768x512x1 Avg runtime: 0.007696 ms GFLOPS: 4359.98 [CUTLASS w4 gs=128 cfg=8x128:128 w8x16 s2 bc0->0] M=1 7.70 us | 4.4 TF/s ( 0.9% MFU) | distinct 1099 GB/s (39.7% of 2766 nameplate) | tile 1133 GB/s (1.0x distinct) 4.4 ok
+- (2026-08-15 06:34 UTC) 分析一下和之前的这个最优结果的差距
+- (2026-08-15 06:39 UTC) 来吧。
+- (2026-08-15 07:09 UTC) 还要多久可以跑
+- (2026-08-15 10:30 UTC) [splitk-sweep] sha=c12f0eb0842bbe372a201999b3f23706af3c448a out=/workspace/quactlize-dense-splitk-sweep-c12f0eb0-20260815T071108Z-2472353 [splitk device] ordinal=0 measured_cu=72 measured_l2=67108864 effective_cu=72 effective_l2=67108864 [splitk fixture] shape=1x32768x512 mode=ScaleOnly gs=128 artifact=TK64-xplane shipping_byte_diff=0/8388608 roundtrip_bad=0/16777216 integer_bound=128 max_output=53 -> ORDER-INDEPENDENT+FP16-EXACT [splitk fixture] shape=1x4096x4096 mode=ScaleOnly gs=128 artifact=TK64-xplane shipping_byte_diff=0/8388608 roundtrip_bad=0/16777216 integer_bound=1024 max_output=50 -> ORDER-INDEPENDENT+FP16-EXACT [splitk exact warm A/B] protocol=one-prepared-address aggregate-timer iterations=100 external=1x32768x512/S1 internal=1x4096x4096/S8 artifact=shape-specific-xplane-repack EXACT_WARM_AB cfg=8x64x128_w8x16_s2_bc0 external_cta=512 internal_cta=512 k_steps=4 historical_ordinary_reshape=7.883200_us historical=7.854000_us historical_admission=ADMITTED range=[7.618380,8.089620]_us shipping_ordinary_reshape=7.924800_us packedA_reshape=7.512400_us packedA_internal_S8_producer=7.881600_us historical_to_shipping_delta=+0.041600_us provider_delta=-0.412400_us internal_split_producer_delta=+0.369200_us reducer=EXCLUDED total_delta=-0.001600_us conservation_error=+0.000000000_us/PASS bad=0/0/0/0 post_timing=RAW-BIT/PASS EXACT_WARM_AB cfg=8x128x128_w8x16_s2_bc0 external_cta=256 internal_cta=256 k_steps=4 historical_ordinary_reshape=7.600800_us historical=7.696000_us histo …
+- (2026-08-15 10:33 UTC) 已经固化了吗？reduction的kernel你可以本地调试，让速度最快，reduction的带宽利用率应该是80-90%以上
+- (2026-08-15 11:37 UTC) todo里面记录一笔，后续这个方案要扩展到所有的数值精度，以及fully quantized的格式。
+- (2026-08-15 13:23 UTC) ════════════════════════════════════════════════════════════════════════ PPU box:tools/run_dense_splitk_sweep_box.sh 转录自截图 ════════════════════════════════════════════════════════════════════════ 【S 曲线 —— SPAN_CURVE,每个 S 取 best-e2e 的 config,7 个样本】 SPAN_CURVE role=best-e2e-S1 cfg=8x16x256_w8x16_s4_bc0 S=1 producer_median=18.080000_us producer_range=[17.880000,22.679999]_us reducer=NA/0.000000_us reducer_range=NA/[0.000000,0.000000]_us span_samples=7 correctness=RAW-BIT/PASS SPAN_CURVE role=best-e2e-S2 cfg=8x32x256_w8x16_s3_bc0 S=2 producer_median=12.720000_us producer_range=[12.120000,12.760000]_us reducer=3.080000_us reducer_range=[3.040000,3.400000]_us span_samples=7 correctness=RAW-BIT/PASS SPAN_CURVE role=best-e2e-S4 cfg=8x128x256_w8x16_s3_bc0 S=4 producer_median=10.880000_us producer_range=[10.280000,11.000000]_us reducer=4.280000_us reducer_range=[4.200000,4.320000]_us span_samples=7 correctness=RAW-BIT/PASS SPAN_CURVE role=best-e2e-S8 cfg=8x128x256_w8x32_s2_bc0 S=8 producer_median=11.040000_us producer_range=[10.240000,11.160000]_us reducer=6.040000_us reducer_range=[6.040000,6.360000]_us span_samples=7 correctness=RAW-BIT/PASS SPAN_CURVE role=reshape-matched-S8 cfg=8x128x128_w8x32_s3_bc0 S=8 producer_median=11.280000_us producer_range=[10.520000,11.400000]_us reducer=6.120000_us reducer_range=[6.040000,6.360000]_us span_samples=7 correctness=RAW-BIT/PASS 【第一次运行 EXACT_WARM_AB=1 ITERATIONS=100 JOBS=16】 [splitk-sweep] sha=c12f0eb0842bbe372a201999b3f23706af3c448a out=/work …
+- (2026-08-15 13:25 UTC) 先跟我对齐一下怎么接进去。看看现在actlize中有没有参考，以及trtllm的代码
+- (2026-08-15 13:34 UTC) 所以你的思路是什么？最终的期望的目标
+- (2026-08-15 13:35 UTC) 时间呢？
+- (2026-08-15 13:36 UTC) 你先完成融合的实现，本地正确性校验，然后给我box命令。
+- (2026-08-15 13:39 UTC) 检查一下未提交部分是怎么回事，是你的修改吗？
+- (2026-08-15 13:41 UTC) 之前中断的inbox150是否需要继续，如果需要就等这个fixup完成之后继续也完成，不要留一半的改动。
+- (2026-08-15 13:41 UTC) ppu before baseline还需要吗？如果不需要直接revert相关改动
+- (2026-08-16 02:08 UTC) root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# OUT=/workspace/quactlize-dense-splitk-fused-$(git rev-parse --short HEAD)-$(date -u +%Y%m%dT%H%M%SZ) EXACT_WARM_AB=1 ITERATIONS=200 JOBS=16 OUT="$OUT" \ bash tools/run_dense_splitk_sweep_box.sh echo "artifacts: $OUT" [splitk-sweep] sha=f763aca366b28a8a7c02b1110d95b0d59ecb04ff out=/workspace/quactlize-dense-splitk-fused-f763aca-20260816T014347Z [splitk device] ordinal=0 measured_cu=72 measured_l2=67108864 effective_cu=72 effective_l2=67108864 [splitk fixture] shape=1x32768x512 mode=ScaleOnly gs=128 artifact=TK64-xplane shipping_byte_diff=0/8388608 roundtrip_bad=0/16777216 integer_bound=128 max_output=53 -> ORDER-INDEPENDENT+FP16-EXACT [splitk fixture] shape=1x4096x4096 mode=ScaleOnly gs=128 artifact=TK64-xplane shipping_byte_diff=0/8388608 roundtrip_bad=0/16777216 integer_bound=1024 max_output=50 -> ORDER-INDEPENDENT+FP16-EXACT [splitk exact warm A/B] protocol=one-prepared-address aggregate-timer iterations=200 external=1x32768x512/S1 internal=1x4096x4096/S8 artifact=shape-specific-xplane-repack EXACT_WARM_AB cfg=8x64x128_w8x16_s2_bc0 external_cta=512 internal_cta=512 k_steps=4 historical_ordinary_reshape=7.849800_us historical=7.854000_us historical_admission=ADMITTED range=[7.618380,8.089620]_us shipping_ordinary_reshape=7.900000_us packedA_reshape=7.479200_us packedA_internal_S8_producer=7.890600_us packedA_internal_S8_reducer_only=1.770200_us packedA_internal_S8_full_e2e=9.655000_us packedA_internal_S8_fused_e2e=10.380800_us …
+- (2026-08-16 02:12 UTC) 继续，另外如果是实际跑的过程中，大概率写出去的D矩阵还是在L2cache，是不是可以进一步说明分开reduction的好处？
+- (2026-08-16 02:15 UTC) 这个可以做成mega kernel吗？或者mega kernel需要支持哪些硬件功能才能用？
+- (2026-08-16 02:19 UTC) 后续还有什么todo
+- (2026-08-16 02:25 UTC) 关于 fixed Split-K 的 device verdict(dfa6d78):判决我同意,支撑它的两条论证要改。 站得住的四条,不用动: · two-launch 胜出 —— 直接实测,同正确性下选赢家,无异议 · 保留 fused 作为反事实臂而不删 · 措辞把结论限制在 "actual-last fused" 而不是 "fusion" —— 范围收得准 · ScaleOnly/gs128 ≠ 出货 Q4_K 的 ScaleZero/gs32,不按 shape 直接接线 —— 重要的捕获 要改的三件: ① L2 那条论证内部不自洽,而且多余,应替换 文档写 reducer-only 1.768–1.770 µs「已落在约 1.845 µs 的空 launch 地板上」。 但 1.770 < 1.845 —— 做了活的 kernel 比空 kernel 快,说明这两个数不是同一口径量的 (可能空 launch 那次带了同步,而 reducer 在 200 次聚合计时里被流水了)。 拿它当「128 KiB 免费」的承重证据站不住。 而且不需要它,尺寸本身就够: 136 KiB = 139,264 B ÷ 2766 GB/s(峰值) = 0.050 µs = reducer 1.77 µs 的 2.8% ÷ 500 GB/s(decode 实测) = 0.279 µs = 16% ⟹ 无论冷热这点数据都是零头,reducer 的 1.77 µs 几乎全是 launch + kernel setup。 这个结论不依赖任何 cache 状态,比 L2 推断强。 请把 DENSE_FIXED_SPLITK_PARALLEL.md 里的承重论证换成尺寸论证, 把 L2-hot 那句降级成注记(它仍然大概率为真,只是不该承重)。 ② 「per-producer-CTA publication tax」是两点拟合且带混淆,需要一次直接测量 惩罚 0.7258(512 CTA)/ 0.3224(256 CTA)= 2.25,CTA 比 = 2.0 —— 方向对。 但 TN64→TN128 变的不只是 CTA 数,还有 tile 几何和 producer 本身(7.891 vs 8.131)。 「signature of a per-producer-CTA protocol tax」比两个带混淆的点能支撑的更确定。 最干净的消歧:**跑一次「发布协议照做、但归约跳过」的 fused**。 它直接量出那个税本身,而不是从两个 E2E 的差里推。 (次选:固定 TN 改 S=2/4/8,CTA 数变而几何不变。) 数值会是错的,只看时间;这是一次性诊断,不进出货路。 ③ 文档要求的那个「避免 per-CTA 发布税的机制」已经存在,应点名 文档写 "A future fused variant must first state a mechanism that avoids the measured per-producer-CTA publication tax"。那个机制就是**直接 atomicAdd 进 fp32 D**: actual-last 每个 producer CTA:__syncthreads + threadfence + __syncthreads + atomicAdd ⟹ 完成段 2.49 / 2.08 µs(比独立 reducer 的 1.77 还贵) 原子加 没有 counter、没有 fence、没有 last-CTA 归约, …
+- (2026-08-16 02:39 UTC) 清理一下空间。按照道理root下面只有代码，，为什么会超过容量
+- (2026-08-16 06:39 UTC) artifacts: /workspace/quactlize-dense-splitk-fused-f763aca-20260816T014347Z root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# OUT=/workspace/quactlize-dense-splitk-publish-only-$(git rev-parse --short HEAD)-$(date -u +%Y%m%dT%H%M%SZ) EXACT_WARM_AB=1 ITERATIONS=200 JOBS=16 OUT="$OUT" \ bash tools/run_dense_splitk_sweep_box.sh echo "artifacts: $OUT" [splitk-sweep] sha=91cfb715cce19b933bee2cd958d4bdbfd9f98e8f out=/workspace/quactlize-dense-splitk-publish-only-91cfb71-20260816T062529Z [splitk device] ordinal=0 measured_cu=72 measured_l2=67108864 effective_cu=72 effective_l2=67108864 [splitk fixture] shape=1x32768x512 mode=ScaleOnly gs=128 artifact=TK64-xplane shipping_byte_diff=0/8388608 roundtrip_bad=0/16777216 integer_bound=128 max_output=53 -> ORDER-INDEPENDENT+FP16-EXACT [splitk fixture] shape=1x4096x4096 mode=ScaleOnly gs=128 artifact=TK64-xplane shipping_byte_diff=0/8388608 roundtrip_bad=0/16777216 integer_bound=1024 max_output=50 -> ORDER-INDEPENDENT+FP16-EXACT [splitk exact warm A/B] protocol=one-prepared-address aggregate-timer iterations=200 external=1x32768x512/S1 internal=1x4096x4096/S8 artifact=shape-specific-xplane-repack EXACT_WARM_AB cfg=8x64x128_w8x16_s2_bc0 external_cta=512 internal_cta=512 k_steps=4 historical_ordinary_reshape=7.855000_us historical=7.854000_us historical_admission=ADMITTED range=[7.618380,8.089620]_us shipping_ordinary_reshape=7.910200_us packedA_reshape=7.484400_us packedA_internal_S8_producer=7.885200_us packedA_internal_S8_reducer_only=1.768 …
+- (2026-08-16 06:45 UTC) 所以结论还是要单独的reduction？
+- (2026-08-16 06:48 UTC) 逻辑上也可以fp16 partial workspace？应该没有溢出的风险吧
+- (2026-08-16 06:49 UTC) todo拉出来我们再看一下
+- (2026-08-16 06:51 UTC) W4 selector 接线 → 其余 ScaleOnly/ScaleZero → 双平面/fully-quantized 把这些都本地做完。然后我小睡一会
+- (2026-08-16 08:30 UTC) 后续我需要要接入llamacpp,所以我要一个sweep的脚本sweep所有candidate的的shape的最优最优config,先跟我align一下一下shape列表和对应的layout
+- (2026-08-16 10:31 UTC) layout应该是prefill的时候dequant scale first，然后用scalefirst的layout进行矩阵乘法，是两个kernel。decode时候就是fully quantized 的layout。
+- (2026-08-16 10:31 UTC) 当然prefill最好是要比较scalefirst+dequantscale的时间和直接跑fullyquantized的时间。
+- (2026-08-16 10:32 UTC) 这个扫真实shape的最优config的任务记录为todo。我们现在decoding的性能已经差不多了。prefill的性能还差了streamk来解决wave quantization的问题。
+- (2026-08-16 10:35 UTC) streamk现在的scheduler是怎么样的，我想要了解能不能解决我们的last wave quantization的问题。比较一下和我们原来的scheduler的差异。
+- (2026-08-16 10:49 UTC) 也就是原persistent也可以解决last wave的问题吗？那我还需要streamk干啥
+- (2026-08-16 10:50 UTC) 尾波应该有很多种做法，可以dp+streamk结合，只有最后一个wave streamk，这样应该最适合我们，有这种scehduling的策略吗？在我们的代码中国呢。
+- (2026-08-16 11:01 UTC) 参考文章：https://research.colfax-intl.com/cutlass-tutorial-persistent-kernels-and-stream-k/
+- (2026-08-16 11:01 UTC) dp+streamk是不是就能够解决我们的问题
+- (2026-08-16 11:03 UTC) 我们先找之前的q4k的65%的计算利用率的shape来试试看，先复现65%的利用率在normal scheduler上，然后尝试用streamk达到更高利用率
+- (2026-08-16 11:32 UTC) == historical normal-scheduler admission == unknown config '64x64:64'; use --list_configs [A path] ordinary AIU + swzl [dense-table] file=streamk-q4k65-ab-single-row rows=1 space_fnv1a64=streamk-q4k65-ab emitter_fnv1a64=streamk-q4k65-ab PPU1.0 group scale mode. [q4k65-streamk] FAIL: normal historical-fixture arm failed correctness or timing [q4k65-streamk] artifacts preserved at /workspace/quactlize-dense-streamk-q4k65-e098668a-20260816T112646Z
+- (2026-08-16 11:39 UTC) [build.sh] BINARY: /workspace/quactlize-dense-streamk-q4k65-5c3f2582-20260816T113507Z/build/ppu_targets/test_lowbit_dense_streamk_q4k65_ab BIN=$(/sim/eec/shared/junfu.qx/quactlize/build.sh --print-bin) is not a thing; copy the line above, or: BIN=/workspace/quactlize-dense-streamk-q4k65-5c3f2582-20260816T113507Z/build/ppu_targets/test_lowbit_dense_streamk_q4k65_ab [q4k65-streamk] binary=/workspace/quactlize-dense-streamk-q4k65-5c3f2582-20260816T113507Z/build/ppu_targets/test_lowbit_dense_streamk_q4k65_ab sha256=bc5c15a9591d07042b302b826a51d3e34c5935a15b441016500d5745ce0ded11 [q4k65-streamk] hgcc=hgcc(HGGC C/C++ Compiler) [A path] ordinary AIU + swzl [dense-table] file=streamk-q4k65-ab-single-row rows=1 space_fnv1a64=streamk-q4k65-ab emitter_fnv1a64=streamk-q4k65-ab compiled CUTLASS W4A16 tile configs scheduler=default (group sizes 16, 32, 64, 128): 64x64:64 w64x32 s3 bc0->0 tile 64x64x64 warp 64x32 stages 3 instruction=m16 == historical normal-scheduler admission == [A path] ordinary AIU + swzl [dense-table] file=streamk-q4k65-ab-single-row rows=1 space_fnv1a64=streamk-q4k65-ab emitter_fnv1a64=streamk-q4k65-ab PPU1.0 group scale mode. [streamk fixture exactness] fixture=random shape=2048x4096x4096 -> ROUNDS/UNKNOWN (ordinary-reference differences are not classifiable) [dense verify owners] tile=64x64 cta_threads=64 output_threads=64 K_cohorts=1 stripes/output_thread=64 coverage=exact-once [dense scheduler=non-persistent] logical_cta=2048 cu=72 occupancy_api=8 grid=(32,64,1) p …
+- (2026-08-16 11:46 UTC) [dense kernel-span-upper] n=100 median=217.040 us mean=219.011 us min=208.440 us max=232.640 us spread=(max-min)/mean=11.05% distinct-event-pairs=100 warmup-event-pairs=1 includes-launch-idle=1 lock-reset-before-start=0 Problem Size: 2048x4096x4096x1 Median runtime: 0.21704 ms GFLOPS: 316621 [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=non-persistent] M=2048 217.04 us | 316.6 TF/s (63.3% MFU) | distinct 193 GB/s ( 7.0% of 2766 nameplate) | tile 6261 GB/s (32.4x distinct, L2-served) Q4K65_BASELINE measured_cu=72 occupancy_api=8 runtime=217.040_us MFU=63.324% registered=209.27_us/65.7% range=[202.992,215.548] verdict=DRIFTED normal baseline drifted beyond the preregistered +/-3% window [q4k65-streamk] FAIL: normal arm did not reproduce the registered 65% anchor [q4k65-streamk] artifacts preserved at /workspace/quactlize-dense-streamk-q4k65-5c3f2582-20260816T113507Z
+- (2026-08-16 11:50 UTC) 0 raw_max_per_tile=0 mismatch_tiles=0 one_mismatch_tiles=0 max_per_tile=0 final_visit0=0 final_visit_gt0=0 local_mode=(0,0):0 [dense verify interpretation] fixture rounds: ordinary-reference ULP is diagnostic only; same-order replay can validate fixup, not the captured partials. Disposition: Passed [dense historical aggregate] n=100 average=218.743 us protocol=PpuTimer-aggregate reference=209.27us Problem Size: 2048x4096x4096x1 Avg runtime: 0.218743 ms GFLOPS: 314157 [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=non-persistent] M=2048 218.74 us | 314.2 TF/s (62.8% MFU) | distinct 192 GB/s ( 6.9% of 2766 nameplate) | tile 6213 GB/s (32.4x distinct, L2-served) Q4K65_BASELINE measured_cu=72 occupancy_api=8 runtime=218.743_us MFU=62.831% registered=209.27_us/65.7% range=[202.992,215.548] verdict=DRIFTED
+- (2026-08-16 11:54 UTC) 如果现在复现除了问题，我们还是先sweep一下streamk吧。看看是不是差距很大。
+- (2026-08-16 12:03 UTC) [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=non-persistent] M=2048 218.74 us | 314.2 TF/s (62.8% MFU) | distinct 192 GB/s ( 6.9% of 2766 nameplate) | tile 6213 GB/s (32.4x distinct, L2-served) Q4K65_BASELINE measured_cu=72 occupancy_api=8 runtime=218.744_us MFU=62.831% registered=209.27_us/65.7% range=[202.992,215.548] verdict=DRIFTED Q4K65_BASELINE_OVERRIDE historical_anchor=DRIFTED subject_result_scope=CURRENT-SHA-UNANCHORED Median runtime: 0.2093 ms GFLOPS: 328330 [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=non-persistent] M=2048 209.30 us | 328.3 TF/s (65.7% MFU) | distinct 200 GB/s ( 7.2% of 2766 nameplate) | tile 6493 GB/s (32.4x distinct, L2-served) Median runtime: 0.21698 ms GFLOPS: 316709 [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=streamk] M=2048 216.98 us | 316.7 TF/s (63.3% MFU) | distinct 262 GB/s ( 9.5% of 2766 nameplate) | tile 6332 GB/s (
+- (2026-08-16 12:58 UTC) 转录与我给的一致。两点补充,其中一条是**更正我上一轮的话**: ## ① 日志开头那 16 行会把人带偏 ``` 打印的样本 out=32768..32783,全部是 local=(0, 0..15) ← 局部第 0 行 最常见的错 local_mode=(6,0) ← 局部第 6 行 ``` **那 16 行只是「输出下标最小的前 16 个」,不是主导模式。** 从上往下读会去查第 0 行,而实际的集中点在第 6 行。 ## ② 更正:我上一轮说的「98% 的坏 tile 都在 (6,0)」不成立 —— 分母不明 ``` local_mode=(6,0):23383 若分母是 mismatch_tiles=23,854 → 98.0% ← 强信号,确定性索引缺陷 若分母是 raw_bitdiff=5,983,072 → 0.39% ← 几乎是噪声,说明不了什么 ``` **我上一轮直接取了前者。那是没有依据的。** 这个字段统计的是「每 tile 一个众数」还是「全部错元素的众数」,决定它是不是线索 —— **必须先看 `local_mode` 的产生代码,不能从数字猜。** 而 `max_per_tile=256`(= 一个 8×32 tile 的全部输出)+ `one_mismatch_tiles=0` 说明**存在整 tile 全错的情况**,这和「集中在单一局部坐标」是**互相矛盾**的两种形状 —— 更说明分母要先钉死。 --- 其余三条上一轮的判断不受影响,仍然成立: ``` DP 桶脏了(4,161,536 个 nonfinite)—— 而 DP 不经过 fixup ⟹ 不是 121 那个 bug want=0x6200(768)got=0x0000 ⟹ 没写,不是算错 [dense same-order replay] UNVERIFIED ⟹ 诊断本身改了被测输出,所有归因先失效 ``` 要我把这份转录 + 更正后的分析写成给 codex 的消息吗?
+- (2026-08-16 13:02 UTC) 找到错误的原因了吗
+- (2026-08-16 13:03 UTC) 之前的精度是对的的啊，现在变了什么
+- (2026-08-16 13:17 UTC) 先修复吧。
+- (2026-08-16 13:18 UTC) m8只在decoding的case用。当然这里都要fix
+- (2026-08-16 14:09 UTC) grid size可以调整吗？我希望有2倍和3倍的grid size可以选择。不要纯persistent。因为我们没有async的mma，所以on the fly的mma没有那么多，导致sync的地方后续的stall大家的instruction都差不多。所以需要切换到其他的block
+- (2026-08-16 14:26 UTC) 那我上一次的可以停掉了吗
+- (2026-08-16 14:27 UTC) 但是之前跑的可以作为CU1的baseline
+- (2026-08-16 14:28 UTC) 所以旧任务额不是persistent kernel？
+- (2026-08-16 14:28 UTC) 那CU2和3是不是也没有太大的意义？为什么是2和3呢？为什么不是1，4，5，6，7
+- (2026-08-16 14:30 UTC) 那你给我一个扫1，2，3，4的脚本。
+- (2026-08-16 23:07 UTC) [q4k65-streamk-sweep] FAIL: sweep returned rc=1 [q4k65-streamk-sweep] artifacts: /workspace/quactlize-dense-streamk-bpc1234-6f9c83f-20260816T143104Z 然后只跑了bpc1。最后两行打印如上。
+- (2026-08-16 23:14 UTC) 24239: Disposition: Passed (whole-K reference bit-exact; fixup replay closed) 24244:no config passed
+- (2026-08-17 01:11 UTC) 逻辑上dp的streamk是不是就是我们原来的这种scheduler
+- (2026-08-17 01:13 UTC) 我说的是我们的baseline的scheduler和纯dp的streamk对比
+- (2026-08-17 01:16 UTC) 我的意思是可能要先来persistent pure dp看看能不能到baseline的水准，要不然直接上streamk其实不太好对比
+- (2026-08-17 01:18 UTC) 逻辑上应该是有一种dp的config跟baseline的scheduler是差不多的，对吗？
+- (2026-08-17 01:31 UTC) 给我command，我来对比一下
+- (2026-08-17 01:37 UTC) [dense scheduler=non-persistent] logical_cta=2048 cu=72 occupancy_api=8 grid=(32,64,1) physical_cta=2048 block_threads=64 warps/cta=2 resident_warps/cu=16 Disposition: Passed [dense kernel-span-upper] n=100 median=209.480 us mean=209.938 us min=208.440 us max=232.240 us spread=(max-min)/mean=11.34% distinct-event-pairs=100 warmup-event-pairs=1 includes-launch-idle=1 lock-reset-before-start=0 [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=non-persistent] M=2048 209.48 us | 328.0 TF/s (65.6% MFU) | distinct 200 GB/s ( 7.2% of 2766 nameplate) | tile 6487 GB/s (32.4x distinct, L2-served) [dense scheduler=persistent] logical_cta=2048 cu=72 occupancy_api=8 grid=(576,1,1) physical_cta=576 block_threads=64 warps/cta=2 resident_warps/cu=16 Disposition: Passed [dense kernel-span-upper] n=100 median=208.540 us mean=209.173 us min=207.320 us max=272.800 us spread=(max-min)/mean=31.30% distinct-event-pairs=100 warmup-event-pairs=1 includes-launch-idle=1 lock-reset-before-start=0 [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=persistent] M=2048 208.54 us | 329.5 TF/s (65.9% MFU) | distinct 201 GB/s ( 7.3% of 2766 nameplate) | tile 6517 GB/s (32.4x distinct, L2-served)
+- (2026-08-17 01:39 UTC) [dense scheduler=persistent] logical_cta=2048 cu=72 occupancy_api=8 grid=(576,1,1) physical_cta=576 block_threads=64 warps/cta=2 resident_warps/cu=16 Disposition: Passed [dense kernel-span-upper] n=100 median=208.540 us mean=209.173 us min=207.320 us max=272.800 us spread=(max-min)/mean=31.30% distinct-event-pairs=100 warmup-event-pairs=1 includes-launch-idle=1 lock-reset-before-start=0 [dense scheduler=persistent] logical_cta=2048 cu=72 occupancy_api=8 grid=(576,1,1) physical_cta=576 block_threads=64 warps/cta=2 resident_warps/cu=16 Disposition: Passed [dense kernel-span-upper] n=100 median=208.540 us mean=209.173 us min=207.320 us max=272.800 us spread=(max-min)/mean=31.30% distinct-event-pairs=100 warmup-event-pairs=1 includes-launch-idle=1 lock-reset-before-start=0 [dense verify partition] DP=1152 SK-whole=440 SK-split=456 peer_excess=456 valid_fixup_elements=1867776 qk_cells=57344 coverage=exact-once Disposition: Passed (whole-K reference bit-exact; fixup replay closed) [dense kernel-span-upper] n=100 median=217.080 us mean=219.302 us min=213.440 us max=236.120 us spread=(max-min)/mean=10.34% distinct-event-pairs=100 warmup-event-pairs=1 includes-launch-idle=1 lock-reset-before-start=1 [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=streamk] M=2048 217.08 us | 316.6 TF/s (63.3% MFU) | distinct 262 GB/s ( 9.5% of 2766 nameplate) | tile 6329 GB/s (24.2x distinct, L2-served) | StreamK-C valid_eleme
+- (2026-08-17 01:41 UTC) 我希望只有很少的一部分用了streamk。大部分dpo
+- (2026-08-17 02:21 UTC) == historical normal-scheduler admission == [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=non-persistent] M=2048 218.91 us | 313.9 TF/s (62.8% MFU) | distinct 192 GB/s ( 6.9% of 2766 nameplate) | tile 6208 GB/s (32.4x distinct, L2-served) == exact normal control == [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=non-persistent] M=2048 209.32 us | 328.3 TF/s (65.7% MFU) | distinct 200 GB/s ( 7.2% of 2766 nameplate) | tile 6492 GB/s (32.4x distinct, L2-served) == exact forced hybrid Stream-K subject == [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=streamk] M=2048 222.38 us | 309.0 TF/s (61.8% MFU) | distinct 256 GB/s ( 9.2% of 2766 nameplate) | tile 6178 GB/s (24.2x distinct, L2-served) | StreamK-C valid_eleme
+- (2026-08-17 02:45 UTC) 不应该是最后一个wave才streamk吗？
+- (2026-08-17 02:47 UTC) 继续
+- (2026-08-17 02:55 UTC) 可以通过调整blockm和n的大小，来让wave quantization的问题变小吗？我们是72个sm
+- (2026-08-17 02:58 UTC) forced hybrid streamK: [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=streamk] M=2048 232.70 us | 295.3 TF/s (59.1% MFU) | distinct 216 GB/s ( 7.8% of 2766 nameplate) | tile 5876 GB/s
+- (2026-08-17 03:00 UTC) 我们先把调整grid size减少wave quantization的实验做了
+- (2026-08-17 03:02 UTC) 我们basline 的scheduler是不是调整起来更容易？
+- (2026-08-17 03:05 UTC) 你觉得怎么实现最合理
+- (2026-08-17 03:07 UTC) 我说的是最合理的是不是用普通的scheduler，而不是streamk的scehduler
+- (2026-08-17 03:08 UTC) 我说的是non-persistent scheduler是不是最合理的修改的基础
+- (2026-08-17 03:09 UTC) OK
+- (2026-08-17 03:09 UTC) 那你从persitent dp来修改吧。
+- (2026-08-17 03:38 UTC) == exact persistent pure-DP grid=512 == [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=persistent] M=2048 201.68 us | 340.7 TF/s (68.1% MFU) | distinct 208 GB/s ( 7.5% of 2766 nameplate) | tile 6738 GB== exact persistent pure-DP grid=576 == [dense kernel-span-upper] n=20 median=208.560 us mean=211.762 us min=207.840 us max=272.000 us spread=(max-min)/mean=30.30% distinct-event-pairs=20 warmup-event-pairs=1 includes-l [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=persistent] M=2048 208.56 us | 329.5 TF/s (65.9% MFU) | distinct 201 GB/s ( 7.3% of 2766 nameplate) | tile 6516 GB
+- (2026-08-17 04:55 UTC) 我现在需要一个脚本sweep所有的我们的candidiate 网络的shape，然后保留最优config和layout，以及对应的MBU和MFU。注意格式也要按照目标的格式来，因为大部分是有混合精度的。给我一个方案和期望拿到的结果。这个目的是为了确定offline的数据layout（per-layer可以不同），以及我们warmup的时候要搜哪些config，现在的config数量还是太大了，需要prune大部分。
+- (2026-08-17 05:32 UTC) offline的layout应该是和foldN有关系的。你这边layout体现吗？
+- (2026-08-17 05:38 UTC) OK，就按照你的方案，我们先扫描prefill的几个shape。给我一个sweep的脚本。
+- (2026-08-17 06:05 UTC) [prefill-sweep:self-test] PASS: GGUF qtype/dim authority, q4 semantic tag, FoldN negative, Q3 legacy exclusion, denominator fail-close, and cross-M conflict [prefill-sweep] FAIL: q: pattern '^blk\\.0\\.attn_q\\.weight$' matched 0 tensors: [] artifacts: /workspace/quactlize-prefill-smoke-343e951-20260817T060502Z sed: can't read /workspace/quactlize-prefill-smoke-343e951-20260817T060502Z/results/summary.tsv: No such file or directory
+- (2026-08-17 07:09 UTC) [build.sh] BINARY: /workspace/quactlize-prefill-smoke-10997db-20260817T061217Z/build/ppu_targets/test_scalefirst_bench BIN=$(/sim/eec/shared/junfu.qx/quactlize/build.sh --print-bin) is not a thing; copy the line above, or: BIN=/workspace/quactlize-prefill-smoke-10997db-20260817T061217Z/build/ppu_targets/test_scalefirst_bench cell format M N K disposition leader median_us MFU_pct distinct_MBU_model_pct ArtifactTileK FoldN_low FoldN_high layout denominator q-m64 qtype-8 64 8192 2048 UNSUPPORTED 0/0 q-m2048 qtype-8 2048 8192 2048 UNSUPPORTED 0/0 k-m64 qtype-8 64 512 2048 UNSUPPORTED 0/0 k-m2048 qtype-8 2048 512 2048 UNSUPPORTED 0/0 v-m64 qtype-8 64 512 2048 UNSUPPORTED 0/0 v-m2048 qtype-8 2048 512 2048 UNSUPPORTED 0/0 o-m64 qtype-8 64 2048 4096 UNSUPPORTED 0/0 o-m2048 qtype-8 2048 2048 4096 UNSUPPORTED 0/0 tensor qtype N K disposition policy minimax_layout max_regret [prefill-sweep] overall=INCOMPLETE results=/workspace/quactlize-prefill-smoke-10997db-20260817T061217Z/results/summary.json [prefill-sweep] artifacts: /workspace/quactlize-prefill-smoke-10997db-20260817T061217Z [prefill-sweep] summary: /workspace/quactlize-prefill-smoke-10997db-20260817T061217Z/results/summary.tsv [prefill-sweep] offline layout plan: /workspace/quactlize-prefill-smoke-10997db-20260817T061217Z/results/offline_layout_plan.json rc=1 artifacts=/workspace/quactlize-prefill-smoke-10997db-20260817T061217Z q-m64 blk.3.attn_q.weight qtype-8 M/N/K=64/8192/2048 fold=- UNSUPPORTED q-m2048 blk.3.attn_q.weight qt …
+- (2026-08-17 08:36 UTC) m/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/float8.h:91:10: fatal error: hggc_fp8.h: No such file or directory 91 | #include <hggc_fp8.h> | ^~~~~~~~~~~~
+- (2026-08-17 13:02 UTC) 你这里是全的版本吗？包括我们今天调试的拍refill；
+- (2026-08-17 13:02 UTC) 你这里是全的版本吗？包括我们今天调试的prefill的persistent + 小wave front。以及decoding的时候的splitk+reduce的
+- (2026-08-17 13:07 UTC) 整理一下空间，照理说只有两个repo再root下面，其他的都是可以挪到autodl-tmp下面的
+- (2026-08-17 13:10 UTC) 内部对比，继续给我一个全量扫描的脚本，注意我要的是一定在这些configuration中找到最好的config。所以要考虑算法层面和对应的config层面，decoding的splitk先不考虑reduction kernel。scale first和fully quantized之间也不考虑横向对比，只在内部对比。
+- (2026-08-17 13:10 UTC) 先清理完。
+- (2026-08-17 13:38 UTC) 继续吧
+- (2026-08-17 13:54 UTC) 还有多久
+- (2026-08-17 13:55 UTC) 我注意到你现在是在做Q8，你知道我们要真实的数据格式，所以还有别的格式的吧。
+- (2026-08-17 13:56 UTC) 我们先不看所有的其他格式，要看真实的gguf的几个模型中出现的dtype。可能就是Q4K为主。
+- (2026-08-17 13:57 UTC) 算了，你先搭建基础设施吧。后续有新的shape和dtype也容易加入。先把所有的格式和shape的基础设施大劲啊。
+- (2026-08-17 14:08 UTC) 对应的测试的模型列表：单卡Qwen3.5-35B-A3B-Q4_K_M-GGUF,单卡Qwen3-32B-Q4_K_M_GGUF,Qwen3.5-122B-A10B-GGUF-Q4_K_M的双卡TP版本。dtype和weight shape按照这个来。最后跑的结果构建三个folder，每个模型一个folder，然后内部分shape，每个shape（m_n_k_(g)）一个folder。构建测试脚本的时候也要考虑后续的可扩展性。目前先是这三个模型。
+- (2026-08-18 01:18 UTC) [internal-model-resolver] FAIL: binding resolved to no .gguf files root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/models/Qwen3.5-35B-A3B-Q4_K_M-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf /workspace/models/Qwen3.5-35B-A3B-Q4_K_M-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/models/Qwen3-32B-Q4_K_M_GGUF/ Qwen3-32B-Q4_K_M.gguf root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/models/Qwen3.5-122B-A10B-GGUF-Q4_K_M Q4_K_M root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/models/Qwen3.5-122B-A10B-GGUF-Q4_K_M/ .cache/ Q4_K_M/ root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/models/Qwen3.5-122B-A10B-GGUF-Q4_K_M/Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-0000 Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf Qwen3.5-122B-A10B-Q4_K_M-00002-of-00003.gguf Qwen3.5-122B-A10B-Q4_K_M-00003-of-00003.gguf
+- (2026-08-18 01:21 UTC) 出错了，
+- (2026-08-18 01:39 UTC) [gguf-inventory-v2] FAIL: qwen3.5-122b-a10b-q4_k_m-tp2: shard metadata key mismatch missing=['general.architecture', 'general.base_model.0.name', 'general.base_model.0.organization', 'general.base_model.0.repo_url', 'general.base_model.count', 'general.basename', 'general.file_type', 'general.license', 'general.license.link', 'general.name', 'general.quantization_version', 'general.quantized_by', 'general.repo_url', 'general.sampling.temp', 'general.sampling.top_k', 'general.sampling.top_p', 'general.size_label', 'general.tags', 'general.type', 'quantize.imatrix.chunks_count'] extra=[] artifacts: /workspace/quactlize-internal-full-sweep-a6f092e-20260818T012957Z
+- (2026-08-18 01:46 UTC) [gguf-inventory-v2] status=COMPLETE models=3 tensors=1554 matmul=1485 cells=8910 dedup=180 [gguf-inventory-v2] output=/workspace/quactlize-internal-full-sweep-a6f092e-20260818T012957Z/inputs/inventory.partial [internal-model-resolver:self-test] PASS: 3-model authority, TP role axes, split completeness/family negatives, duplicate-ID red, and stable shape folders [gguf-inventory-v2:self-test] PASS: shard-zero metadata authority/subset inheritance plus multi-shard count/name fail-close; dense/grouped/unclassified visibility; GGUF E/top-k + pinned routing fixture; tied LM-head; TP-local/rank/block admission; canonical downstream provenance and dedup identity [gguf-inventory-v2:bridge] PASS: real FQ consumer accepted canonical multi-GGUF/model/TP/grouped rows; aggregate-hash, source-provenance, and missing-source negatives red after JSON round-trip [internal-sweep-authority] FAIL: qwen3.5-35b-a3b-q4_k_m: logical tensor count differs from tensor rows
+- (2026-08-18 01:52 UTC) [internal-sweep-authority] FAIL: inventory tensors[1] TP world differs for qwen3.5-35b-a3b-q4_k_m: None != 1 [internal-model-resolver:self-test] PASS: 3-model authority, TP role axes, split completeness/family negatives, duplicate-ID red, and stable shape folders [gguf-inventory-v2:self-test] PASS: shard-zero metadata authority/subset inheritance plus multi-shard count/name fail-close; dense/grouped/unclassified visibility; GGUF E/top-k + pinned routing fixture; tied LM-head; TP-local/rank/bllock admission; canonical downstream provenance and dedup identity [gguf-inventory-v2:bridge] PASS: real FQ consumer accepted canonical multi-GGUF/model/TP/grouped rows; aggregate-hash, source-provenance, and missing-source negatives red after JSON round-trip [internal-sweep-authority] FAIL: inventory tensors[1] TP world differs for qwen3.5-35b-a3b-q4_k_m: None != 1
+- (2026-08-18 01:55 UTC) [scalefirst-internal] FAIL: inventory-v2 qtype 0 declares invalid group size 0
+- (2026-08-18 01:56 UTC) [internal-sweep-authority] PASS models=3 resolved=ad110700b0c817344627abb4ff500121ed571099bb6fe313b69418692b4a7949 [internal-model-resolver:self-test] PASS: 3-model authority, TP role axes, split completeness/family negatives, duplicate-ID red, and stable shape folders [gguf-inventory-v2:self-test] PASS: shard-zero metadata authority/subset inheritance plus multi-shard count/name fail-close; dense/grouped/unclassified visibility; GGUF E/top-k + pinned routing fixture; tied LM-head; TP-local/rank/block admission; canonical downstream provenance and dedup identity [gguf-inventory-v2:bridge] PASS: real FQ consumer accepted canonical multi-GGUF/model/TP/grouped rows; aggregate-hash, source-provenance, and missing-source negatives red after JSON round-trip [internal-full-sweep] running ScaleFirst component: /sim/eec/shared/junfu.qx/quactlize/tools/run_scalefirst_internal_sweep_box.sh [scalefirst-internal:self-test] PASS exact NP/P(all-b)/S2/S4/S8; negative=missing-S4+raw-bit+extra-algorithm+drop-P-grid+wrong-grid [scalefirst-internal-matrix:self-test] PASS pairs=18 raw=414720 typed=33738 q8=2501 Q4-gs-negative=RED omit-one=RED extra-algorithm=RED grouped=30xEXPLICIT_UNSUPPORTED [internal-full-sweep] PASS positive=4-separated-leaderboards+shape-layer-dedup negative=missing-cell+missing-scalefirst-s4+extra-q8-cell+unknown-state+scope-mix+device-mix+gguf-map-substitution+gguf-member-loss shape-template-mismatch+identity-isolation runner-up=BOUND [scalefirst-internal-runner] PASS atom …
+- (2026-08-18 03:33 UTC) [internal-full-sweep] running FullyQuantized component: /sim/eec/shared/junfu.qx/quactlize/tools/run_fully_quantized_internal_sweep_box.sh [fq-internal:self-test] PASS parser, qtype0=g0 terminal UNSUPPORTED, reducer-closure/scope RED, packed-A M>1 INADMISSIBLE, future/grouped 5-algorithm UNSUPPORTED_FQ with model/TP/ragged identity, shared-merger schema bridge, exact inventory-v2 field mapping, inventory-v1/missing-TP and nonrepresentative-rank RED, orphan-model/cross-shard RED, missing-cell fail-close, and committed run-sidecar deletion RED [fq-internal-matrix:self-test] PASS formats=6 tensor_fq=5 cells=1862485 raw_axes=BOUND fq_smem=DEFERRED_TO_COMPILED_TYPE tacticTK=FULL_SHARED_SPACE/default-marked bc=80-supported+1-q8-sentinel/68-legal-rpw-expanded q8=5xUNSUPPORTED metric_scope=BOUND [internal-full-sweep:self-test] PASS positive=4-separated-leaderboards+shape-layer-dedup+unsupported-g0 negative=missing-cell+missing-fq-algorithm+missing-scalefirst-s4+extra-q8-cell+unknown-state+scope-mix+device-mix+gguf-map-substitution+gguf-member-loss shape-template-mismatch+identity-isolation runner-up=BOUND [fq-internal-runner] PASS: exact --out-dir ABI, hgcc generated include, generated unit graph, five build variables, no-device fail-close, inventory/run/device resume identity, all-static guard, published generated/direct-source authority, parent-shard binding, atomic authorities, and producer-only disclosure; ten seam plus six dynamic run-sidecar and one delete-binary negative red [ …
+- (2026-08-19 04:43 UTC) [internal-model-resolver] PASS models=3 set_sha256=ad110700b0c817344627abb4ff500121ed571099bb6fe313b69418692b4a7949 output=/workspace/quactlize-internal-full-sweep-081495f-20260818T044307Z/inputs/resolved-models.json.partial qwen3.5-35b-a4_q4_k_m: tp=1 files=1 fileset=b9da8b5b3a903abc2f93ff9977c2af78bd982c277634d5627e31dea27dd8aef6 qwen3.5-122b-a10b-q4_k_m-tp2: tp=2 files=3 fileset=a26cfcb337ccf4e48de31f7f819c0811eae5d0ffd6344343b9bdced61b217d69 [gguf-inventory-v2] status=COMPLETE models=3 tensors=1554 matmul=1485 cells=8910 dedup=180 output=/workspace/quactlize-internal-full-sweep-081495f-20260818T044307Z/inputs/inventory.partial [internal-model-resolver:self-test] PASS: 3-model authority, TP role axes, split completeness/family negatives, duplicate-ID red, and stable shape folders [gguf-inventory-v2:self-test] PASS: shard-zero metadata authority/subset inheritance plus multi-shard count/name fail-close; dense/grouped/unclassified visibility; GGUF E/top-k + pinned routing fixture; tied LM-head; TP-local/rank/block admission; canonical downstream provenance and dedup identity [gguf-inventory-v2:bridge] PASS: real FQ consumer accepted canonical multi-GGUF/model/TP/grouped rows; aggregate-hash, source-provenance, and missing-source negatives red bridge JSON round-trip [internal-full-sweep] running ScaleFirst component → /sim/eec/shared/junfu.qx/quactlize/tools/run_scalefirst_internal_sweep_box.sh [scalefirst-internal:self-test] PASS exact MP/P(all-b)/S2/S4/S8; negative-missing- …
+- (2026-08-19 04:49 UTC) SF_CELL {"shape":"2048x2048x4096","qtype":8,"artifact_tile_k":32,"bchunk":0,"symbol":"sf_q8_a32_tm16_tn128_tk128_wm16_wn64_s3_bc0","config":"16x128x128_w16x64_s3_bc0","algorithm":"NONPERSISTENT","metric_scope":"FULL_OUTPUT","policy":"ordinary","split":1,"grid":2048,"occupancy":4,"capacity_b_mask":"0x0","balanced_b_mask":"0x0","status":"MEASURED","reason":"MEASURED","sample":6,"sample_us":358.880013227,"MFU_pct":19.48315371,"distinct_MBU_model_pct":3.433063419,"raw_bad":0,"fingerprint":"0xb32d2b279a490383","reducer_correctness_untimed":0,"partial_bytes":0,"shipping_smem":64544,"persistent_smem":64544,"split_smem":64544,"execution_ordinal":16} SF_CELL {"shape":"2048x2048x4096","qtype":8,"artifact_tile_k":32,"bchunk":0,"symbol":"sf_q8_a32_tm16_tn128_tk128_wm16_wn64_s3_bc0","config":"16x128x128_w16x64_s3_bc0","algorithm":"PERSISTENT","metric_scope":"FULL_OUTPUT","policy":"raw_bad_nced","split":1,"grid":71,"occupancy":4,"capacity_b_mask":"0x0","balanced_b_mask":"0x0","status":"MEASURED","reason":"MEASURED","sample":0,"sample_us":953.679078848,"MFU_pct":7.205716620,"distinct_MBU_model_pct":1.291898617,"raw_bad":0,"fingerprint":"0xb32d2b279a490383","reducer_correctness_untimed":0,"partial_bytes":0,"shipping_smem":64544,"persistent_smem":64544,"split_smem":64544,"execution_ordinal":16} SF_CELL {"shape":"2048x2048x4096","qtype":8,"artifact_tile_k":32,"bchunk":0,"symbol":"sf_q8_a32_tm16_tn128_tk128_wm16_wn64_s3_bc0","config":"16x128x128_w16x64_s3_bc0","algorithm":"PERSISTENT","metric_s …
+- (2026-08-19 04:51 UTC) 这个MFU这么低感觉非常不合理
+- (2026-08-19 04:52 UTC) 剩下来的几行：SF_CELL {"shape":"2048x2048x4096","qtype":8,"artifact_tile_k":32,"bchunk":0,"symbol":"sf_q8_a32_tm16_tn128_tk128_wm64_s3_bc0","config":"16x128x128_w16x64_s3_bc0","algorithm":"PERSISTENT","policy":"capacity","split":1,"grid":288,"occupancy":4,"capacity_b_mask":"0x10","balanced_b_mask":"0x0","status":"MEASURED","reason":"MEASURED","sample":4,"sample_us":350.679993629,"MFU_pct":19.596064214,"distinct_MBU_model_pct":3.513339420,"raw_bytes":0,"fingerprint":"0xb32d2db279a490383","reducer_correctness_untimed":0,"partial_bytes":0,"shipping_smem":64544,"persistent_smem":64544,"split_smem":64544,"execution_ordinal":16} SF_CELL {"shape":"2048x2048x4096","qtype":8,"artifact_tile_k":32,"bchunk":0,"symbol":"sf_q8_a32_tm16_tn128_tk128_wm64_s3_bc0","config":"16x128x128_w16x64_s3_bc0","algorithm":"PERSISTENT","policy":"capacity","split":1,"grid":288,"occupancy":4,"capacity_b_mask":"0x10","balanced_b_mask":"0x0","status":"MEASURED","reason":"MEASURED","sample":5,"sample_us":351.041451435,"MFU_pct":19.553886063,"distinct_MBU_model_pct":3.505741525,"raw_bytes":0,"fingerprint":"0xb32d2db279a490383","reducer_correctness_untimed":0,"partial_bytes":0,"shipping_smem":64544,"persistent_smem":64544,"split_smem":64544,"execution_ordinal":16} SF_CELL {"shape":"2048x2048x4096","qtype":8,"artifact_tile_k":32,"bchunk":0,"symbol":"sf_q8_a32_tm16_tn128_tk128_wm64_s3_bc0","config":"16x128x128_w16x64_s3_bc0","algorithm":"PERSISTENT","policy":"capacity","split":1,"grid":288,"occupancy":4,"capacity_b_mask" …
+- (2026-08-19 04:56 UTC) [internal-full-sweep] running FullyQuantized component: /sim/eec/shared/junfu.qx/quactlize/tools/run_fully_quantized_internal_sweep_box.sh [fq-internal:self-test] PASS parser, qtype=0-g0 terminal UNSUPPORTED, reducer-closure/scope RED, packed-A M>1 INADMISSIBLE, future/grouped 5-algorithm UNSUPPORTED_FQ with model/TP/ragged identity, shared-merger schema bridge, exact inventory-v2 field mapping, inventory-v1/missing-TP and nonrepresentative-rank RED, orphan-model i/cross-shard RED, missing-cell fail-close, and committed run-sidecar deletion RED [fq-internal-matrix:self-test] PASS formats=6 tensor_fq=5 cells=1862485 raw_axes=BOUND fq_smem=DEFERRED_TO_COMPILED_TYPE tacticTK=FULL_SHARED_SPACE/default-marked bc=80-supported+1-q8-sentinel/68-legal-rpw-expanded q8=5xUNSUPPORTED rc_scope=BOUND [internal-full-sweep:self-test] PASS positive=4-separated-leaderboards+shape-layer-dedup+unsupported-g0 negative=miss-ing-cell-missing-fq-algorithm+missing-scalefirst-s3+4+extra-q8-cell+unknown-state+scope-mix+device-mix+gguf-map-substitongguf-member-loss shape-template-mismatch+identity-isolation runner-up=BOUND [fq-internal-runner] PASS: exact --out-dir ABI, hgcc generated include, generated unit graph, five build variables, no-device fail-close, inventory/run/device resume identity, all-static guard, published generated/direct-source authority, parent-shard binding, atomic authorities, and producer-only disclosure; twelve seam plus six dynamic run-sidecar and one delete-binary negative red  …
+- (2026-08-19 05:37 UTC) 现在扫描太慢了，思考一下是不是可以预先prune大部分config。
+- (2026-08-19 05:42 UTC) 我们的搜索空间描述一下
+- (2026-08-19 05:51 UTC) 基于你贴的搜索空间描述（33,738 legal tactics × 180 shapes × 12 runtime cells × 7 samples ≈ 数百万次 launch），以下是从 CUTLASS/DeepGEMM/Triton 等库总结的 pruning 策略，按层次从粗到细： --- 1. 解析式预剪枝（零开销，编译前） CUTLASS 做法：problem-size heuristic CUTLASS profiler 不会盲跑所有 tile，而是根据问题尺寸做启发式过滤： 小 M 剪大 TileM：M≤4 时只保留 TileM∈{8,16}，不试 64/128/256。理由是大 TileM 导致 grid 过小（1-2 blocks），SM 利用率坍塌。 TileN/TileK 与 N/K 的整除/效率约束：如果 ceil(N/TileN) 过小导致 wave 不满，降级该 TileN。 Occupancy 下界：CUTLASS 的 kernel scheduler 会预估 smem 用量，直接跳过 occupancy=1 且 grid 不满的配置。 DeepGEMM 做法：极端约束 + JIT DeepGEMM 的哲学是不搜索——直接用分析模型选唯一配置： Tile 固定为 128×128 或 128×256 TileK 通过 JIT 按 K 的实际值编译（不是搜索轴） Persistent vs Non-persistent 仅看 num_blocks > num_SMs 一个条件 你可以借鉴的思路：对你的 6×5×4×4×4×6×2 = 23,040 笛卡尔积，加入解析式 roofline bound： theoretical_MFU_upper = min( compute_bound: FLOPs / (peak_TFLOPS × latency), memory_bound: bytes_accessed / (peak_BW × latency) ) 如果某配置的理论上界已经 < 当前 best measured MFU，直接 skip。你的 SF_CELL 数据已经有 distinct_MBU_model_pct，这就是这个方向的雏形。 2. 轴独立性 + 单轴 sweep（1st pass，1 sample） Triton autotune 做法： Triton 的 @triton.autotune 按 config list 逐个试，但 FLA 等框架在此之上做了分层： 1. 先用 triton.heuristics 做布尔特化（如 EVEN_K = K % BLOCK_K == 0） 2. 再用 check_shared_mem 按档位 if-else 3. 最后才进真 benchmark 适用于你的分层策略： Phase 1: 固定 shape 子集（选 3-5 个代表性 shape）， 每个 tactic 只跑 1 sample → 淘汰 MFU < 0.7 × best_in_group 的配置 Phase 2: 存活配置 × 全部 180 shapes，仍然 1 sample → 每个 shape 保留 top-K（K=5~10） Phase 3: top-K × 7 samples 正式计时 你文中提到的 "完整合法空间单样本 screen → shortlist 再做 7 次" 就是这个思路，具体压缩比： | Phase | Configs | Samples | Total launches …
+- (2026-08-19 06:00 UTC) 你先保守prune试试。规划一下
+- (2026-08-19 06:23 UTC) 先实现直到我可以跑第一次sweep。我们还是在我们之前的winning config比较明确的case上实验。Q4K
+- (2026-08-19 07:22 UTC) ^ make[2]: *** [CMakeFiles/Makefile2:2876: ppu_targets/CMakeFiles/test_scalefirst_internal_sweep.dir/all] Error 2 make[1]: *** [CMakeFiles/Makefile2:2884: ppu_targets/CMakeFiles/test_scalefirst_internal_sweep.dir/rule] Error 2 make: *** [Makefile:1216: test_scalefirst_internal_sweep] Error 2 artifacts: /workspace/quactlize-q4k-pruned-02d94f9-20260819T071316Z
+- (2026-08-19 07:23 UTC) bash: rg: command not found
+- (2026-08-19 07:24 UTC) 39:/sim/eec/shared/junfu.qx/quactlize/benchmarks/test_scalefirst_internal_sweep.cu:266:5: error: static_assert failed due to requirement '64 == 32' "Q8 has one canonical A32 artifact" 40- static_assert(64 == 32, 41- ^ ~~~~~~~~ 42-1 error generated when compiling for host. 43-hgcc error: Exited with error code 1 44-make[3]: *** [ppu_targets/CMakeFiles/test_scalefirst_internal_sweep.dir/build.make:74: ppu_targets/ppu_obj/test_scalefirst_internal_sweep_8feb8b0a.o] Error 5
+- (2026-08-19 08:33 UTC) Q4K_PRUNED_WINNER board=SPLITK_S8_PRODUCER verdict=RESOLVED config=64x64x64_w64x32_s3_bc0 algorithm=SPLITK_S8_PRODUCER median=323.320001_us range=[320.760012,326.040000]_us MFU=42.509% distinct_MBU=4.925% speedup_vs_anchor=1.000000x runner_gap=10.600001_us [q4k-prune] PASS sha=1b14700d7320aef1bc7469780c66012d18fa0c06 artifacts=/workspace/quactlize-q4k-pruned-1b14700-20260819T074228Z Q4K_PRUNED_WINNER board=FULL_OUTPUT verdict=UNRESOLVED config=64x64x64_w64x32_s3_bc0 algorithm=PERSISTENT median=217.360005_us range=[216.440007,218.600005]_us MFU=63.231% distinct_MBU=7.325% speedup_vs_anchor=1.000000x runner_gap=0.119999_us Q4K_PRUNED_WINNER board=SPLITK_S2_PRODUCER verdict=RESOLVED config=64x64x64_w64x32_s3_bc0 algorithm=SPLITK_S2_PRODUCER median=248.359993_us range=[246.920004,251.560003]_us MFU=55.339% distinct_MBU=6.411% speedup_vs_anchor=1.000000x runner_gap=13.160005_us Q4K_PRUNED_WINNER board=SPLITK_S4_PRODUCER verdict=RESOLVED config=64x64x64_w64x32_s3_bc0 algorithm=SPLITK_S4_PRODUCER median=261.839986_us range=[260.439992,265.199989]_us MFU=52.490% distinct_MBU=6.081% speedup_vs_anchor=1.000000x runner_gap=26.840001_us
+- (2026-08-19 08:57 UTC) jixu
+- (2026-08-19 08:58 UTC) 不对啊，我记得我们之前的结果persistent是68%的利用率啊
+- (2026-08-19 09:02 UTC) grid=512 occupancy=8 policy=balanced median=217.360 us range=[216.440,218.600] 我希望复现一下scaleonly
+- (2026-08-19 09:07 UTC) [CUTLASS w4 gs=32 cfg=64x64:64 w64x32 s3 bc0->0 scheduler=persistent] M=2048 202.24 us | 339.8 TF/s (68.0% MFU) | distinct 207 GB/s ( 7.5% of 2766 nameplate) | tile 6720 GB/s (32.4x distinct, L2-served) 复现了，后面我们继续扫描其他的真实的shape？但是对于不同的shape，config的set还是一样的吗？不应该吧
+- (2026-08-19 09:08 UTC) 做下一次扫描的工作，最后贴command，让我扫
+- (2026-08-19 09:27 UTC) [q4k-real-shapes] FAIL: INTERNAL_SWEEP_SPEC must name the COMPLETE inventory-v2 JSON
+- (2026-08-19 09:28 UTC) [q4k-real-shapes] FAIL: INTERNAL_SWEEP_SPEC must name the COMPLETE inventory-v2 JSON
+- (2026-08-20 01:24 UTC) [q4k-real-shapes] build A256 typed=401 [q4k-real-shapes] cell=1 A32 shape=64x1024x5120 phase=screen full-typed-graph [q4k-real-shapes] FAIL: A32/m64_n1024_k5120_g32 screen rc=1 SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=2340 selected_rows=2340 algorithm_mask=0x1 device=0 cu=72 iterations=2 correctness_repeats=1 schedule_seed=0x6a09e667f3bcc92d SF_ATTEMPT shape=64x1024x5120 ordinal=1/2340 symbol=sf_q12_a32_tm32_tn32_tk64_wm16_wn16_s3_bc0 SF_FATAL symbol=sf_q12_a32_tm32_tn32_tk64_wm16_wn16_s3_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=65536 first_bad=0 want=0xc200 got=0xd000 artifacts: /workspace/quactlize-q4k-real-shapes-e33bcde-20260819T092900Z sed: can't read /workspace/quactlize-q4k-real-shapes-e33bcde-20260819T092900Z/summary.tsv: No such file or directory
+- (2026-08-20 01:46 UTC) /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/float8.h:91:10: fatal error: hggc_fp8.h: No such file or directory 91 | #include <hggc_fp8.h>
+- (2026-08-20 01:55 UTC) /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/float8.h:91:10: fatal error: hggc_fp8.h: No such file or directory 91 | #include <hggc_fp8.h>
+- (2026-08-20 05:39 UTC) [q4k-real-shapes] FAIL: A32/m64_n1024_k5120_g32 screen rc=1 SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=490 selected_rows=490 algorithm_mask=0x1 device=0 cu=72 iterations=2 correctness_repeats=1 schedule_seed=0x6a09e667f3bcc92d SF_ATTEMPT shape=64x1024x5120 ordinal=1/490 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=61184 first_bad=0 want=0xc200 got=0xcc80 artifacts: /workspace/quactlize-q4k-real-shapes-851a374-20260820T020240Z
+- (2026-08-20 05:46 UTC) 这次改完不要让我重新全部sweep了，先把精度问题看看能不能解决
+- (2026-08-20 06:38 UTC) 什么进度了？
+- (2026-08-20 06:49 UTC) 找到问题了吗
+- (2026-08-20 06:59 UTC) 这个精度的debug过程和错误记录到skill或者其他的位置。
+- (2026-08-20 07:09 UTC) 复跑命令给我
+- (2026-08-20 07:13 UTC) SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=61184 first_bad=0 want=0xc200 got=0xcc80 [q4-a32-exact] FAIL: exact numeric target rc=1 artifacts=/workspace/quactlize-q4-a32-exact-eb7d95c-20260820T070953Z
+- (2026-08-20 07:43 UTC) 还没定位到吗？可能是offline的格式的问题吗？
+- (2026-08-20 07:49 UTC) 什么状态了。
+- (2026-08-20 07:52 UTC) 你本地复现这个错误了？
+- (2026-08-20 08:03 UTC) 什么状态了
+- (2026-08-20 08:05 UTC) 所以错误你定味道原因了吗？
+- (2026-08-20 08:22 UTC) SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=26368 first_bad=0 want=0x4000 got=0xc580 Q4_A32_ARM fixture=code-only state=NUMERIC_FAIL rc=1 SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=65536 first_bad=0 want=0xc100 got=0xc780 Q4_A32_ARM fixture=metadata-only state=NUMERIC_FAIL rc=1 SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_b …
+- (2026-08-20 08:41 UTC) 什么状态了
+- (2026-08-20 08:48 UTC) SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=26368 first_bad=0 want=0x4000 got=0xc580 SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=26368 first_bad=0 want=0x4000 got=0xc580 Q4_A32_ARM fixture=metadata-only state=NUMERIC_FAIL rc=1 SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=61184 first_bad=0 want=0xc200 got=0xcc80 Q4_A32_AR …
+- (2026-08-20 08:56 UTC) 现在准备怎么debug这个问题
+- (2026-08-20 09:21 UTC) Q4_A32_ARM fixture=exact state=NUMERIC_FAIL rc=1 Q4_A32_BISECT code_only=NUMERIC_FAIL metadata_only=NUMERIC_FAIL exact=NUMERIC_FAIL locus=COMMON_PIPELINE_OR_MULTIPLE_DEFECTS Q4_A32_COMPONENTS transport_only=PASS code_only=NUMERIC_FAIL scale_only=NUMERIC_FAIL zero_only=NUMERIC_FAIL metadata_only=NUMERIC_FAIL exact=NUMERIC_FAIL [q4-a32-exact] DIAGNOSTIC_COMPLETE: component/three-arm locus classified; artifacts=/workspace/quactlize-q4-a32-components-789d25f-20260820T091036Z
+- (2026-08-20 09:24 UTC) [q4-a32-exact] sha=789d25f6a3f808e77b8ff793376dbe85f884e48e symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 binary=/workspace/quactlize-q4-a32-components-789d25f-20260820T091036Z/build/q12-a32-bc0-exact/ppu_targets/test_scalefirst_internal_sweep SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_FIXTURE mode=transport-only first_golden=0x4400 a_fnv=d080ccc7d5541383 low_native_fnv=307a9ce911a50383 low_placed_fnv=307a9ce911a50383 scale_fnv=8329575ff3450383 zero_fnv=20d6697798d90383 golden_fnv=9d5ae8327c250383 roundtrip=1 exact=1 isolation=1 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_CELL {"shape":"64x1024x5120","qtype":12,"artifact_tile_k":32,"bchunk":0,"symbol":"sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0","config":"64x64x128_w16x32_s8_bc0","algorithm":"NONPERSISTENT","metric_scope":"FULL_OUTPUT","policy":"ordinary","split":1,"grid":16,"occupancy":0,"capacity_b_mask":"0x0","balanced_b_mask":"0x0","status":"MEASURED","reason":"MEASURED","sample":0,"sample_us":37.840001285,"MFU_pct":3.546938006,"distinct_MBU_model_pct":3.882114155,"raw_bad":0,"fingerprint":"0x9d5ae8327c250383","reducer_correctness_untimed":0,"partial_bytes":0,"shipping_smem":172032,"persistent_smem":172032,"split_smem":172032,"execution_ordinal":0} SF_COMPLETE status=COMPLETE shape=64x1024x5120 typed_rows=1 runtime_cells=1 measure …
+- (2026-08-20 09:57 UTC) 找到问题 了吗？
+- (2026-08-20 09:58 UTC) 是不是你什么地方没有cute化，导致scale zero等等变化就出错
+- (2026-08-20 10:54 UTC) [q4-a32-exact] sha=789d25f6a3f808e77b8ff793376dbe85f884e48e symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 binary=/workspace/quactlize-q4-a32-components-789d25f-20260820T091036Z/build/q12-a32-bc0-exact/ppu_targets/test_scalefirst_internal_sweep SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_FIXTURE mode=transport-only first_golden=0x4400 a_fnv=d080ccc7d5541383 low_native_fnv=307a9ce911a50383 low_placed_fnv=307a9ce911a50383 scale_fnv=8329575ff3450383 zero_fnv=20d6697798d90383 golden_fnv=9d5ae8327c250383 roundtrip=1 exact=1 isolation=1 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_CELL {"shape":"64x1024x5120","qtype":12,"artifact_tile_k":32,"bchunk":0,"symbol":"sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0","config":"64x64x128_w16x32_s8_bc0","algorithm":"NONPERSISTENT","metric_scope":"FULL_OUTPUT","policy":"ordinary","split":1,"grid":16,"occupancy":0,"capacity_b_mask":"0x0","balanced_b_mask":"0x0","status":"MEASURED","reason":"MEASURED","sample":0,"sample_us":37.840001285,"MFU_pct":3.546938006,"distinct_MBU_model_pct":3.882114155,"raw_bad":0,"fingerprint":"0x9d5ae8327c250383","reducer_correctness_untimed":0,"partial_bytes":0,"shipping_smem":172032,"persistent_smem":172032,"split_smem":172032,"execution_ordinal":0} SF_COMPLETE status=COMPLETE shape=64x1024x5120 typed_rows=1 runtime_cells=1 measure …
+- (2026-08-20 10:54 UTC) SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_FIXTURE mode=scale-only first_golden=0x3800 a_fnv=c08630c625541383 low_native_fnv=307a9ce911a50383 low_placed_fnv=307a9ce911a50383 scale_fnv=7fcd2aaac491b02b zero_fnv=20d6697798d90383 golden_fnv=05e46d5a0a749b83 roundtrip=1 exact=1 isolation=1 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=65536 first_bad=0 want=0x3800 got=0x0000 Q4_A32_ARM fixture=scale-only state=NUMERIC_FAIL rc=1 SF_SHARD qtype=12 artifact_tile_k=32 bchunk=0 typed_rows=1 selected_rows=1 algorithm_mask=0x1 device=0 cu=72 iterations=1 correctness_repeats=8 schedule_seed=0x6a09e667f3bcc909 SF_FIXTURE mode=zero-only first_golden=0xc200 a_fnv=c08630c625541383 low_native_fnv=307a9ce911a50383 low_placed_fnv=307a9ce911a50383 scale_fnv=8329575ff3450383 zero_fnv=2dc0b7c078e19369 golden_fnv=27053e3f77d8f783 roundtrip=1 exact=1 isolation=1 SF_ATTEMPT shape=64x1024x5120 ordinal=1/1 symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 SF_FATAL symbol=sf_q12_a32_tm64_tn64_tk128_wm16_wn32_s8_bc0 shape=64x1024x5120 algorithm=NONPERSISTENT state=RAW_FP16_MISMATCH step=RAW_FP16_MISMATCH repeat=0 raw_bad=43712 first_bad=0 want=0xc200 got=0xc7 …
+- (2026-08-20 10:55 UTC) 内容太多了，我如何给你
+- (2026-08-20 11:11 UTC) SUMMARY UNDECODABLE identity=1344/1536,decoded=1344/1536 B_K_COL/even counts={'IDENTITY': 64} delta_top=[(0, 64)] first=[m=0,n=0:0->0, m=0,n=1:0->0, m=0,n=2:0->0, m=0,n=3:0->0, m=0,n=4:0->0, m=0,n=5:0->0, m=0,n=6:0->0, m=0,n=7:0->0] B_K_ROW/even counts={'IDENTITY': 48, 'UNDECODABLE': 16} delta_top=[(0, 48)] first=[m=0,n=0:0->0, m=1,n=0:2->2, m=2,n=0:4->4, m=3,n=0:6->6, m=4,n=0:8->8, m=5,n=0:10->10, m=6,n=0:12->12, m=7,n=0:14->14] B_K_ROW/odd counts={'IDENTITY': 48, 'UNDECODABLE': 16} delta_top=[(0, 48)] first=[m=0,n=0:1->1, m=1,n=0:3->3, m=2,n=0:5->5, m=3,n=0:7->7, m=4,n=0:9->9, m=5,n=0:11->11, m=6,n=0:13->13, m=7,n=0:15->15] B_K_ROW/stage counts={'IDENTITY': 64} delta_top=[(0, 64)] first=[m=0,n=0:11->11, m=1,n=0:139->139, m=2,n=0:267->267, m=3,n=0:395->395, m=4,n=0:523->523, m=5,n=0:651->651, m=6,n=0:779->779, m=7,n=0:907->907] B_N_COL/even counts={'IDENTITY': 64} delta_top=[(0, 64)] first=[m=0,n=0:0->0, m=0,n=1:1->1, m=0,n=2:2->2, m=0,n=3:3->3, m=0,n=4:4->4, m=0,n=5:5->5, m=0,n=6:6->6, m=0,n=7:7->7] B_N_ROW/even counts={'IDENTITY': 48, 'UNDECODABLE': 16} delta_top=[(0, 48)] first=[m=0,n=0:0->0, m=1,n=0:0->0, m=2,n=0:0->0, m=3,n=0:0->0, m=4,n=0:0->0, m=5,n=0:0->0, m=6,n=0:0->0, m=7,n=0:0->0] B_N_ROW/odd counts={'IDENTITY': 48, 'UNDECODABLE': 16} delta_top=[(0, 48)] first=[m=0,n=0:0->0, m=1,n=0:0->0, m=2,n=0:0->0, m=3,n=0:0->0, m=4,n=0:0->0, m=5,n=0:0->0, m=6,n=0:0->0, m=7,n=0:0->0] B_N_ROW/stage counts={'IDENTITY': 64} delta_top=[(0, 64)] first=[m=0,n=0:0->0, m=1,n=0:0->0, m …
+- (2026-08-20 11:13 UTC) 所以定位出来了吗
+- (2026-08-20 11:26 UTC) [q4-a32-tags:self-test] PASS: identity; one-bit B and independent zero-map plants=NONIDENTITY; missing denominator, wrong round and marker/data mismatch=RED; shifted-tail live/recurring classified and missing shifted round=RED Q4_A32_TAIL_ROUND round=even-next identity=64/64 prefix=48/48 tail=16/16 tail_got=0x3c00:16 Q4_A32_TAIL_ROUND round=odd-next identity=64/64 prefix=48/48 tail=16/16 tail_got=0x3c00:16 Q4_A32_TAIL_BISECT verdict=NEXT_TILE_LIVE table=/workspace/quactlize-q4-a32-tail-bisect-5bf61dd-20260820T112228Z/results/tail-bisect.tsv [q4-a32-tail] DIAGNOSTIC_COMPLETE: shifted final-delivery slice captured; artifacts=/workspace/quactlize-q4-a32-tail-bisect-5bf61dd-20260820T112228Z artifacts: /workspace/quactlize-q4-a32-tail-bisect-5bf61dd-20260820T112228Z
+- (2026-08-20 11:26 UTC) 还要上box几次？
+- (2026-08-20 11:50 UTC) 还有多久给我command
+- (2026-08-20 12:10 UTC) 所以定位到问题了吗
+- (2026-08-20 12:38 UTC) 看那几行？
+- (2026-08-20 12:39 UTC) Q4_A32_CLOSURE_ARM variant=candidate state=PASS rc=0 binary_sha256=ca3bc74f07fc35e95fb3d701686cf8e460f105538071e5686e69c5b9779b1114 Q4_A32_CLOSURE verdict=PASS legacy=NUMERIC_FAIL typed_old_order=NUMERIC_FAIL raw_consume_first=PASS candidate=PASS tail=PREVIOUS_TILE_STALE [q4-a32-closure] PASS: historical signature reproduced and candidate is raw-bit exact; artifacts=/workspace/quactlize-q4-a32-closure-7a1b4d8-20260820T120940Z
+- (2026-08-20 12:40 UTC) 所以要怎么修改
+- (2026-08-20 12:41 UTC) 啥意思，找到根因了吗？
+- (2026-08-20 12:42 UTC) 为什么只需要修改Q4A32
+- (2026-08-20 12:43 UTC) 其他的都没有触发这个问题吗？
+- (2026-08-20 12:44 UTC) 如何从设计上规避这个问题。
+- (2026-08-20 12:44 UTC) 按照道理不应该触发这个问题啊，prepare肯定在consume之前啊
+- (2026-08-20 12:44 UTC) 你别改了之后影响perf
+- (2026-08-20 12:46 UTC) prepare next覆盖了？如果是这样那要找找我们目前的cute格式存在的问题，逻辑上一定是可以找出来的，不能说cute的格式不可信任，这个是不合理的。
+- (2026-08-20 13:09 UTC) 看看有没有其他的类似的问题这次debug记录到skill
+- (2026-08-20 13:09 UTC) 这次的一些冗余改动remove掉
+- (2026-08-21 01:11 UTC) Q4_A32_CLOSURE verdict=PASS legacy_b_indexed_a=NUMERIC_FAIL candidate=PASS driver=PREPARE_FIRST b_converter=UNCHANGED [q4-a32-closure] PASS: historical signature reproduced and the shared A schedule is raw-bit exact; artifacts=/workspace/quactlize-q4-a32-a-schedule-bf20f3e-20260821T010609Z
+- (2026-08-21 01:15 UTC) 下一步呢？我们之前的sweep应该要重新跑吧
+- (2026-08-21 02:02 UTC) 我们有什么地方的代码是用acquire同步吗？marlin的PPU适配的版本的代码修改： // ppu: use __stcg to ensure ld.global.acquire.gpu.b32 can read new value // if (threadIdx.x == 0) locks[locks_off] = 1 - slice_count; if (threadIdx.x == 0) __stcg(&locks[locks_off], 1 - slice_count);
+- (2026-08-21 02:18 UTC) 速度上有影响吗？
+- (2026-08-21 02:28 UTC) 我放了一个marlin_ppu_sglang.cu到marlin_ppu目录下，可以对比一下我们的实现
+- (2026-08-21 02:33 UTC) 这些有性能上的区分吗？
+- (2026-08-21 05:55 UTC) 之前最新的一次你让我跑的是哪些shape和格式的sweep
+- (2026-08-21 06:02 UTC) deepgemm的moe的做法和我们的repo的区别？
+- (2026-08-21 06:02 UTC) 看一下https://github.com/t-head/DeepGEMM-for-sail.git，拉下来看看
+- (2026-08-21 06:20 UTC) 可以怎么把deepgemm的scheduler接入进来吗？思考一下这个移植计划。
+- (2026-08-21 06:21 UTC) 思考一下是我们把数据格式等等的prologue接入deepgemm简单，还是把deepgemm的scheduler拿过来简单。
+- (2026-08-21 06:27 UTC) 开写。
+- (2026-08-21 06:47 UTC) 继续
+- (2026-08-21 07:17 UTC) 你push了吗
+- (2026-08-21 07:19 UTC) 哪些namespace migration？
+- (2026-08-21 07:20 UTC) 改名的你判断一下是不是正常，如果可以就先commit掉，然后commit你刚才的dg的改动
+- (2026-08-21 07:35 UTC) 为啥会behind，不理解，你看看远端有什么改动
+- (2026-08-21 07:39 UTC) 没有特别理解为什么不同步，你rebase到最新的代码上面吧。
+- (2026-08-21 07:39 UTC) 本地没有看到之前debug数值精度问题的history吗？
+- (2026-08-21 07:40 UTC) 本地没有看到之前debug数值精度问题的history吗？
+- (2026-08-21 07:49 UTC) 你本地的codex历史能看到之前的debug这个精度问题的过程吗？
+- (2026-08-21 07:50 UTC) skill里面可能也记录了
+- (2026-08-21 07:57 UTC) 那就很奇怪了，本地为什么没有呢？
+- (2026-08-21 07:58 UTC) 那就很奇怪了，本地为什么没有这些commit呢？如果memroy里面有，说明就是这台机器做的
+- (2026-08-21 08:00 UTC) push之后，给我测试dg style的scheduler的groupgemm的command，对比我们的实现。
+- (2026-08-21 08:07 UTC) CMake Error at /tmp/quactlize-moe-units-check.UworeS/gen.cmake:389 (message): MoE decode sweep produced no legal shapes Call Stack (most recent call first): /tmp/quactlize-moe-units-check.UworeS/gen.cmake:538 (qz_generate_lowbit_moe_band)
+- (2026-08-21 08:24 UTC) [lowbit-moe output] raw_bytes=40718336 fnv1a64=539a36349c2fcac3 i4 i4 64x64:64 w64x32 s3 bc0->0 348.018 us kernel-span-upper | host-wall 355.966 us | 239.6 TF/s (47.9% MFU) msk=12% <-- fastest, separated 打印的时间的顺序是什么
+- (2026-08-21 08:25 UTC) 第二个：[moe-directory-ab] subject: i4 i4 64x64:64 w64x32 s3 bc0->0 294.784 us scheduler-span-upper | host-wall 295.248 us | 282.9 TF/s (56.6% MFU) msk=12% <-- fastest, separated
+- (2026-08-21 08:29 UTC) 现在只接入了q4k？其他的格式想办法接入，包括不同的layout，应该是简单可以接入的吧
+- (2026-08-21 08:54 UTC) bash tools/run_scalefirst_q4k_real_shapes_pruned_box.sh 跑完了，怎么看结果。
+- (2026-08-21 08:56 UTC) [q4k-prune] FAIL: scheduler board denominator differs: ['FULL_OUTPUT', 'SPLITK_S2_PRODUCER', 'SPLITK_S4_PRODUCER'] artifacts: /workspace/quactlize-q4k-real-shapes-09b6d66-20260821T011852Z
+- (2026-08-21 08:56 UTC) fail会break整个过程吗？
+- (2026-08-21 08:56 UTC) 后续可以resume吗？
+- (2026-08-21 09:08 UTC) resume source authority changed outside analysis-only seam: ['benchmarks/scalefirst_internal_sweep_bench.hpp', 'ci/check_scalefirst_q4k_pruned_runner.py', 'quactlize/include/xplane_offline.hpp', 'tools/plan_scalefirst_q4k_real_shapes.py', 'tools/prune_scalefirst_q4k_pilot.py', 'tools/run_scalefirst_q4k_real_shapes_pruned_box.sh']
+- (2026-08-21 09:11 UTC) 算了不要cherry pick了，直接重新跑，给我command
+- (2026-08-22 00:28 UTC) 跑完了，怎么看结果，你需要哪些结果？我们期望的是1. 能够从这个结果中看到一些offline格式的选择问题。 2. 能够从结果中看到最优的config的选择的heuristic思路。3. 能够记录最优选择
+- (2026-08-22 00:35 UTC) 继续
+- (2026-08-24 00:52 UTC) artifact_tile_k M cells common_configs best_single_config worst_regret mean_regret within_threshold 32 64 5 443 64x64x64_w32x32_s3_bc0 0.3426042510237255 0.22908155888787435 False 32 2048 5 443 128x64x64_w64x32_s3_bc0 0.145916416267035 0.051920569469265085 False 32 4096 5 443 64x128x32_w64x64_s3_bc0 0.09190940937438463 0.04118987437097208 False 64 64 5 1623 64x64x256_w64x16_s2_bc0 0.25911708476289497 0.12470776770506839 False 64 2048 5 1623 64x128x256_w64x16_s2_bc0 0.052580387297148645 0.04086629887854647 False 64 4096 5 1623 64x128x64_w64x16_s6_bc0 0.05382232610481186 0.011584558230627807 False 128 64 5 907 32x128x256_w32x16_s2_bc0 0.1465744047929025 0.10299220586571049 False 128 2048 5 907 64x128x256_w64x16_s2_bc0 0.0 0.0 True 128 4096 5 907 64x128x256_w64x16_s2_bc0 0.027432499001390775 0.005486499800278155 True 256 64 5 341 32x128x256_w32x16_s2_bc0 0.16666661996318788 0.11381758505366357 False 256 2048 5 341 64x128x256_w64x16_s2_bc0 0.0 0.0 True 256 4096 5 341 64x256x256_w64x16_s3_bc0 0.026315738348316797 0.01789083924546575 True SCOPE FULL_OUTPUT is product E2E; SPLITK boards are producer-only and cannot be compared with FULL_OUTPUT or recorded as product latency N K group_size M_values verdict descriptor_winner_changes_with_m physical_layout_winner_changes_with_m ArtifactTileK FoldN_low layout physical_layout_class max_regret max_regret_low max_regret_high runner_ArtifactTileK runner_max_regret 1024 5120 32 64,2048,4096 RESOLVED True True 64 1 xplane-q4k-a64-f1x1-scalefi …
+- (2026-08-24 00:53 UTC) Q4K_POSTPROCESS measurement_sha=d69a0b1d6dd17cf38abda61bfcd9e855a160b995 shapes=15 layout_cells=60 tensor_families=5 OFFLINE_CENSUS verdicts={"RESOLVED":4,"UNRESOLVED":1} selected_A={"32":1,"64":4} per_M_descriptor_changes=5 per_M_physical_layout_changes=5 OFFLINE_HOT N=5120 K=25600 verdict=UNRESOLVED perM_descriptor_change=1 perM_physical_change=1 A=64 max_regret=0.136040 interval=[0.10508141161224605,0.22936721965628815] OFFLINE_HOT N=5120 K=8192 verdict=RESOLVED perM_descriptor_change=1 perM_physical_change=1 A=64 max_regret=0.129139 interval=[0.10630716434788101,0.14597411972270113] OFFLINE_HOT N=1024 K=5120 verdict=RESOLVED perM_descriptor_change=1 perM_physical_change=1 A=64 max_regret=0.117282 interval=[0.10818706354816343,0.13596055816880571] OFFLINE_HOT N=8192 K=5120 verdict=RESOLVED perM_descriptor_change=1 perM_physical_change=1 A=64 max_regret=0.089806 interval=[0.07466332708935242,0.10517586083646668] OFFLINE_HOT N=25600 K=5120 verdict=RESOLVED perM_descriptor_change=1 perM_physical_change=1 A=32 max_regret=0.072749 interval=[0.04647058347487043,0.08883554373848024] HEURISTIC_M_ONLY A=32 M=64 cells=5 config=64x64x64_w32x32_s3_bc0 worst_regret=0.342604 within=0.050=0 HEURISTIC_M_ONLY A=32 M=2048 cells=5 config=128x64x64_w64x32_s3_bc0 worst_regret=0.145916 within=0.050=0 HEURISTIC_M_ONLY A=32 M=4096 cells=5 config=64x128x32_w64x64_s3_bc0 worst_regret=0.091909 within=0.050=0 HEURISTIC_M_ONLY A=64 M=64 cells=5 config=64x64x256_w64x16_s2_bc0 worst_regret=0.259117 with …
+- (2026-08-24 00:56 UTC) 没太理解，物理layout你是按照什么判断是不是变化的？逻辑上Q4K不应该有变化，因为没有foldN
+- (2026-08-24 00:57 UTC) 这些应该都不依赖于我重新跑，你自己本地确认好如何判定，最后给我一个结论以及是不是要上box跑的command
+- (2026-08-24 01:01 UTC) 或者最终的layout是否应该是用cute的某种string表示来判定，这样最合理？判定标准就是cute的某种唯一表示是否相等。
+- (2026-08-24 01:14 UTC) SCOPE FULL_OUTPUT is product E2E; SPLITK boards are producer-only and cannot be compared with FULL_OUTPUT or recorded as product latency Q4K_POSTPROCESS_PASS output=/workspace/quactlize-q4k-real-shapes-d69a0b1-20260821T091338Z/analysis-v2-a886a09 OFFLINE_CENSUS descriptor_verdicts={"RESOLVED":4,"UNRESOLVED":1} xplane_byte_class_verdicts={"RESOLVED":4,"UNRESOLVED":1} selected_descriptor_A={"32":1,"64":4} selected_xplane_byte_class={"xplane-q4k-fold2-a32":1,"xplane-q4k-tile-free-f1-le256":4} per_M_descriptor_changes=5 per_M_xplane_byte_class_changes=5 OFFLINE_HOT N=5120 K=25600 descriptor_verdict=UNRESOLVED xplane_byte_class_verdict=UNRESOLVED perM_descriptor_change=1 perM_xplane_byte_class_change=1 descriptor_A=64 descriptor_blocker_A=256 descriptor_max_regret=0.136040 descriptodescriptor_interval=[0.10508141161224605,0.22936721965628815] xplane_byte_class=xplane-q4k-tile-free-f1-le256 xplane_mapping_sha256=7c0494b42aaa3b7f8fc04dc08616903486ee9e0470d47c27f0679fbebb46d465 xplane_blocker_class=xplane-q4k-fold2-a32 xplane_reader_A=[64,256] xplane_class_max_regret=0.136040 xplane_class_interval=[0.10508141161224605,0.22936721965628815] OFFLINE_HOT N=5120 K=8192 descriptor_verdict=RESOLVED xplane_byte_class_verdict=RESOLVED perM_descriptor_change=1 perM_xplane_byte_class_change=1 descriptor_A=64 descriptor_blocker_A=32 descriptor_max_regret=0.129139 descriptor_interval=[0.10630716434788101,0.14597411972270113] xplane_byte_class=xplane-q4k-tile-free-f1-le256 xplane_mapping_sha256=7c …
+- (2026-08-24 01:18 UTC) 额，不是所有的layer的格式都要统一，每个layer的格式可以不一样，这个你理解吧。不同batch的同一个layer的格式要统一。
+- (2026-08-24 01:35 UTC) 如果某一个layer的多个batch的格式不同，会报错吗？
+- (2026-08-24 01:35 UTC) qwen3-32b-q4_k_m blk.12.ffn_down.weight 1 0 replicated 5120 25600 32 64,2048,4096 UNRESOLVED UNRESOLVED True True 64 1 xplane-q4k-a64-f1x1-scalefirst-fp16 xplane-q4k-tile-free-f1-le256 7c0494b42aaa3b7f8fc04dc08616903486ee9e0470d47c27f0679fbebb46d465 64,256 0.13603980330827747 0.10508141161224605 0.22936721965628815 0.13603980330827747 0.10508141161224605 0.229367
+- (2026-08-24 01:36 UTC) 4k-tile-free-f1-le256 7c0494b42aaa3b7f8fc04dc08616903486ee9e0470d47c27f0679fbebb46d465 64,256 0.13603980330827747 0.10508141161224605 0.22936721965628815 0.13603980330827747 0.10508141161224605 0.22936721965628815 256 0.22806381122367436 256 xplane-q4k-fold2-a32
+- (2026-08-24 01:37 UTC) 等一下，这里的fold指的是什么？
+- (2026-08-24 01:37 UTC) A32的意思是K上只有32？
+- (2026-08-24 01:44 UTC) 或者这么说，小K+foldN，是不是可以兼容大K？
+- (2026-08-24 01:46 UTC) 对于这个layer，符合大的tactictilek的兼容吗？
+- (2026-08-24 01:48 UTC) M=64 reader_A=32 config=32x64x256_w32x32_s2_bc0 algorithm=PERSISTENT M=2048 reader_A=32 config=64x64x64_w64x32_s3_bc0 algorithm=PERSISTENT M=4096 reader_A=32 config=64x128x32_w64x64_s4_bc0 algorithm=PERSISTENT 我的意思是这种情况应该也是能够resolve出一个unified的格式的
+- (2026-08-24 02:04 UTC) 不太理解，对于兼容格式来说性能应该接近的吧
+- (2026-08-24 02:06 UTC) 假设我们只关心小于8的decoding的case，以及2048这种prefill的case呢？
+- (2026-08-24 02:08 UTC) 但是我之前发给你的不是都统一是A32，fold=2吗？
+- (2026-08-24 02:09 UTC) jq -r ' .decisions[] | select( .layer.model_id == "qwen3-32b-q4_k_m" and .layer.tensor == "blk.12.ffn_down.weight" ) | .xplane_byte_class_decision.all_scores[] | .physical_layout_class.name as $class | .per_m[] | [ "M=\(.M)", "class=\($class)", "reader_A=\(.reader_artifact_tile_k)", "median=\(.median_us)", "regret=\(.regret)", "config=\(.config)" ] | @tsv ' "$ANALYSIS/offline-layout-decisions.json" | sort M=2048 class=xplane-q4k-fold2-a32 reader_A=32 median=1497.079968452 regret=0.0 config=64x64x64_w64x32_s3_bc0 M=2048 class=xplane-q4k-tile-free-f1-le256 reader_A=64 median=1591.920018196 regret=0.06335002253892008 config=64x64x64_w64x32_s3_bc0 M=4096 class=xplane-q4k-fold2-a32 reader_A=32 median=2785.360097885 regret=0.0 config=64x128x32_w64x64_s4_bc0 M=4096 class=xplane-q4k-tile-free-f1-le256 reader_A=64 median=3164.279937744 regret=0.13603980330827747 config=64x128x64_w64x32_s4_bc0 M=64 class=xplane-q4k-fold2-a32 reader_A=32 median=149.800002575 regret=0.23028908141577697 config=32x64x256_w32x32_s2_bc0 M=64 class=xplane-q4k-tile-free-f1-le256 reader_A=256 median=121.760003269 regret=0.0 config=32x64x256_w32x16_s3_bc0
+- (2026-08-24 02:12 UTC) 没有特别理解，为什么M64的时候反而希望readerA更大？这里搜索splitk了吗？
+- (2026-08-24 02:15 UTC) splitk要参与，但是我们按照带宽利用率80%计算时间，launchtime忽略
+- (2026-08-24 02:15 UTC) splitk要参与，但是我们按照带宽利用率80%计算reduce的kernel时间，launchtime忽略
+- (2026-08-24 02:24 UTC) 应该也不依赖于我重新跑吧
+- (2026-08-24 02:33 UTC) 我怎么查看每一层有没有unresolved格式
+- (2026-08-24 02:35 UTC) jq -r ' ["model","tensor","M","N","K","descriptor","byte_format","selected_A","selected_class"], ( .decisions[] | select( .verdict != "RESOLVED" or .xplane_byte_class_decision.verdict != "RESOLVED" ) | [ .layer.model_id, .layer.tensor, (.M_values | join(",")), .N, .K, .verdict, .xplane_byte_class_decision.verdict, (.selected.artifact_tile_k // "NONE"), (.xplane_byte_class_decision.selected.physical_layout_class.name // "NONE") ] ) | @tsv ' "$ANALYSIS/offline-layout-decisions.json" model tensor TP M N K byte_format_verdict selected_class blocker_class qwen3-32b-q4_k_m blk.0.attn_k.weight 0/1 64,2048,4096 1024 5120 UNRESOLVED xplane-q4k-fold2-a32 xplane-q4k-tile-free-f1-le256 qwen3-32b-q4_k_m blk.0.attn_q.weight 0/1 64,2048,4096 8192 5120 UNRESOLVED xplane-q4k-tile-free-f1-le256 xplane-q4k-fold2-a32 qwen3-32b-q4_k_m blk.1.attn_k.weight 0/1 64,2048,4096 1024 5120 UNRESOLVED xplane-q4k-fold2-a32 xplane-q4k-tile-free-f1-le256 qwen3-32b-q4_k_m blk.1.attn_q.weight 0/1 64,2048,4096 8192 5120 UNRESOLVED xplane-q4k-tile-free-f1-le256 xplane-q4k-fold2-a32 qwen3-32b-q4_k_m blk.10.attn_k.weight 0/1 64,2048,4096 1024 5120 UNRESOLVED xplane-q4k-fold2-a32 xplane-q4k-tile-free-f1-le256 qwen3-32b-q4_k_m 非常多unrevsolved，看看具体的某一层
+- (2026-08-24 02:37 UTC) MODEL=qwen3-32b-q4_k_m TENSOR=blk.0.attn_k.weight jq -r --arg model "$MODEL" --arg tensor "$TENSOR" ' .decisions[] | select(.layer.model_id == $model and .layer.tensor == $tensor) | . as $d | "DECISION\tverdict=\($d.xplane_byte_class_decision.verdict)\tselected=\($d.xplane_byte_class_decision.selected.physical_layout_class.name // "NONE")\tblocker=\($d.xplane_byte_class_decision.resolution_competitor.physical_layout_class.name // "NONE")", ( [ "class","class_max_regret","class_regret_low","class_regret_high", "M","reader_A","algorithm","S","config", "producer_us","reducer_us","modeled_e2e_us", "regret","regret_low","regret_high" ] | @tsv ), ( $d.xplane_byte_class_decision.all_scores[] as $score | $score.per_m[] | [ $score.physical_layout_class.name, $score.max_regret, $score.max_regret_interval[0], $score.max_regret_interval[1], .M, .reader_artifact_tile_k, .algorithm, .split, .config, .producer_median_us, .modeled_reducer_us, .median_us, .regret, .regret_interval[0], .regret_interval[1] ] | @tsv ) ' "$ANALYSIS/offline-layout-decisions.json".0672309699134257 0.0029675347938569185 0.14482475456551658 xplane-q4k-fold2-a32 0.0672309699134257 0.0029675347938569185 0.14482475456551658 2048 32 PERSISTENT 1 64x64x64_w64x32_s3_bc0 69.320000708 0.0 69.320000708 0.0 0.0 0.03821280672665983 xplane-q4k-fold2-a32 0.0672309699134257 0.0029675347938569185 0.14482475456551658 4096 32 PERSISTENT 1 64x128x32_w64x64_s4_bc0 122.440002859 0.0 122.440002859 0.0 0.0 0.010837475253181461 xplane-q4k- …
+- (2026-08-24 02:38 UTC) 1024 5120 32 64,2048,4096 xplane-q4k-fold2-a32 xplane-q4k-tile-free-f1-le256 8192 5120 32 64,2048,4096 xplane-q4k-tile-free-f1-le256 xplane-q4k-fold2-a32
+- (2026-08-24 02:39 UTC) 我们还是先看decoding的case吧。多跑几个decoding的case。给我一个新的脚本，我们考虑decoding，batch=1，2，4，8，16。然后prefill的我们认为已经跑过了，就是当前的数据。我们archive一下。
+- (2026-08-24 02:39 UTC) MODEL=qwen3-32b-q4_k_m TENSOR=blk.0.attn_q.weight jq -r --arg model "$MODEL" --arg tensor "$TENSOR" ' .decisions[] | select(.layer.model_id == $model and .layer.tensor == $tensor) | . as $d | "DECISION\tselected=\($d.xplane_byte_class_decision.selected.physical_layout_class.name)\tblocker=\($d.xplane_byte_class_decision.resolution_competitor.physical_layout_class.name)", ( ["class","M","reader_A","algorithm","S","producer_us", "reducer_us","e2e_us","regret","regret_low","regret_high","config"] | @tsv ), ( $d.xplane_byte_class_decision.all_scores[] as $score | $score.per_m[] | [ $score.physical_layout_class.name, .M, .reader_artifact_tile_k, .algorithm, .split, .producer_median_us, .modeled_reducer_us, .median_us, .regret, .regret_interval[0], .regret_interval[1], .config ] | @tsv ) ' "$ANALYSIS/offline-layout-decisions.json" MODEL=qwen3-32b-q4_k_m TENSOR=blk.0.attn_q.weight jq -r --arg model "$MODEL" --arg tensor "$TENSOR" ' .decisions[] | select(.layer.model_id == $model and .layer.tensor == $tensor) | . as $d | "DECISION\tselected=\($d.xplane_byte_class_decision.selected.physical_layout_class.name)\tblocker=\($d.xplane_byte_class_decision.resolution_competitor.physical_layout_class.name)", ( ["class","M","reader_A","algorithm","S","producer_us", "reducer_us","e2e_us","regret","regret_low","regret_high","config"] | @tsv ), ( $d.xplane_byte_class_decision.all_scores[] as $score | $score.per_m[] | [ $score.physical_layout_class.name, .M, .reader_artifact_tile_k, .algorithm, .s …
+- (2026-08-24 02:48 UTC) simt
+- (2026-08-24 02:48 UTC) simt
+- (2026-08-24 02:49 UTC) simt版本的gemv也要支持batch<8的case
+- (2026-08-24 02:49 UTC) simt版本的gemv也要支持batch<8的case
+- (2026-08-24 02:49 UTC) 然后也参与扫描
+- (2026-08-24 03:19 UTC) [fq-q4k-decode] FAIL: INTERNAL_SWEEP_SPEC must name the COMPLETE inventory-v2 JSON
+- (2026-08-24 03:32 UTC) 这次跑的是什么》
+- (2026-08-24 04:24 UTC) [fq-q4k-decode] FAIL: phase rc=1 preserved=/workspace/quactlize-fq-q4k-decode-7028ea8-20260824T033001Z/raw/a64/m1_n1024_k5120_g32/screen.log.failed.20260824T035703Z-3203670
+- (2026-08-24 04:26 UTC) FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn64_s3_bc0_ap1 tm=8 tn=64 tk=256 wm=8 wn=64 stages=3 provider=packed-row S=1 scope=FULL_OUTPUT provider_capacity_rows=1 state=RAW_FP16_MISMATCH us=0.000000000 raw_bad=512 reducer_untimed=0 failure_step=RAW_FP16_MISMATCH failure_repeat=0 first_bad=32 first_want=0x4e80 first_got=0x7fff shipping_smem=37248 split_smem=37248 partial_bytes=0 samples=[] FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn64_s4_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=64 stages=4 provider=standard-aiu S=1 scope=FULL_OUTPUT provider_capacity_rows=0 state=RAW_FP16_MISMATCH us=0.000000000 raw_bad=512 reducer_untimed=0 failure_step=RAW_FP16_MISMATCH failure_repeat=0 first_bad=32 first_want=0x4e80 first_got=0x6746 shipping_smem=77824 split_smem=77824 partial_bytes=0 samples=[] FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn64_s4_bc0_ap1 tm=8 tn=64 tk=256 wm=8 wn=64 stages=4 provider=packed-row S=1 scope=FULL_OUTPUT provider_capacity_rows=1 state=RAW_FP16_MISMATCH us=0.000000000 raw_bad=512 reducer_untimed=0 failure_step=RAW_FP16_MISMATCH failure_repeat=0 first_bad=32 first_want=0x4e80 first_got=0x0000 shipping_smem=49024 split_smem=49024 partial_bytes=0 samples=[] 还有很多
+- (2026-08-24 04:31 UTC) TM
+- (2026-08-24 04:31 UTC) TM
+- (2026-08-24 04:32 UTC) TM8应该只允许WM在一个小的数值，WN应该没有限制
+- (2026-08-24 05:40 UTC) [fq-tm8-wn64-select:self-test] PASS exact-4; missing-row and axis-contradiction RED [fq-tm8-wn64-check] PASS rows=4 raw_bad=0 providers=2 stages=2 WN=64-retained [fq-tm8-wn64-check:self-test] PASS missing-row, raw_bad and WN-substitution RED [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 raw=11520 provider_expanded=12000 typed=918 static_reject=11082 units=918 [fq-tm8-wn64-select] PASS source_typed=918 selected=4 output=/workspace/quactlize-fq-q4k-tm8-wn64-closure-42d36c9-20260824T051912Z/generated/closure FQ_SHARD q=12 A=64 bchunk=0 shape=1x1024x5120 typed_rows=4 selected_rows=4 only_split=1 bc_mode=skip bc_batch=native-grid-y-m-lt8 iterations=3 correctness_repeats=8 FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn64_s3_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=64 stages=3 provider=standard-aiu S=1 scope=FULL_OUTPUT provider_capacity_rows=0 state=MEASURED us=60.520000756 raw_bad=0 reducer_untimed=0 failure_step=NONE failure_repeat=-1 first_bad=18446744073709551615 first_want=0x0000 first_got=0x0000 shipping_smem=58368 split_smem=58368 partial_bytes=0 samples=[58.959998190,60.520000756,66.919997334] FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn64_s3_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=64 stages=3 provider=standard-aiu S=2 scope=FULL_OUTPUT provider_capacity_rows=0 state=REAL_CAN_IMPLEMENT us=0.000000000 raw_bad=0 reducer_untimed=0 failure_step=NONE failure_repeat=-1 first_bad=18446 …
+- (2026-08-24 05:45 UTC) [fq-tm8-wn64-check] PASS measured_rows=4 census_rows=16 raw_bad=0 providers=2 stages=2 WN=64-retained
+- (2026-08-24 05:47 UTC) 下一步吧。这次是60us是什么？是gemv吗？
+- (2026-08-24 06:15 UTC) TM,TK,TN在搜索空间吗？
+- (2026-08-24 06:18 UTC) TM应该没必要搜索大于8的case
+- (2026-08-24 06:20 UTC) 我们的decoding应该只考虑1到8
+- (2026-08-24 06:20 UTC) 扫描时间大概会有多久
+- (2026-08-24 06:53 UTC) [fq-q4k-decode-analysis] FAIL: /workspace/quactlize-fq-q4k-decode-42266b0-20260824T063257Z/raw/a64/m1_n1024_k5120_g32/screen.log: selected TC denominator differs artifacts: /workspace/quactlize-fq-q4k-decode-42266b0-20260824T063257Z
+- (2026-08-24 08:41 UTC) [fq-q4k-decode] FAIL: INTERNAL_SWEEP_SPEC must name the COMPLETE inventory-v2 JSON
+- (2026-08-24 08:43 UTC) ls /workspace/quactlize-internal-full-sweep-081495f-20260818T044307Z/inputs/in input-state.sha256 inventory/ root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/quactlize-internal-full-sweep-081495f-20260818T044307Z/inputs/inventory/ cells.tsv inventory.json models shape_manifest.json
+- (2026-08-24 08:43 UTC) ls /workspace/quactlize-internal-full-sweep-081495f-20260818T044307Z/inputs/in input-state.sha256 inventory/ root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/quactlize-internal-full-sweep-081495f-20260818T044307Z/inputs/inventory/ cells.tsv inventory.json models shape_manifest.json
+- (2026-08-24 08:47 UTC) FQ_SHAPE_DONE q=12 A=64 bchunk=0 shape=1x1024x5120 typed_rows=144 selected_rows=48 only_split=0 bc_mode=skip bc_batch=native-grid-y-m-lt8 iterations=1 status=FAIL
+- (2026-08-24 08:47 UTC) [fq-q4k-decode] FAIL: phase rc=1 preserved=/workspace/quactlize-fq-q4k-decode-42266b0-20260824T063257Z/raw/a64/m1_n1024_k5120_g32/scheduler.log.failed.20260824T084450Z-586301
+- (2026-08-24 08:49 UTC) 48 S=1 state=MEASURED step=NONE 5 S=2 state=INADMISSIBLE_PIPELINE_DEPTH step=NONE 42 S=2 state=MEASURED step=NONE 1 S=2 state=RAW_FP16_MISMATCH step=POST_TIMING_RAW_FP16_MISMATCH 13 S=4 state=INADMISSIBLE_PIPELINE_DEPTH step=NONE 34 S=4 state=MEASURED step=NONE 1 S=4 state=RAW_FP16_MISMATCH step=POST_TIMING_RAW_FP16_MISMATCH 48 S=8 state=SPLIT_PARTITION step=NONE FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=standard-aiu S=2 scope=PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS provider_capacity_rows=0 state=RAW_FP16_MISMATCH us=17.759999260 raw_bad=32 reducer_untimed=1 failure_step=POST_TIMING_RAW_FP16_MISMATCH failure_repeat=0 first_bad=32 first_want=0x4e80 first_got=0x4fc0 shipping_smem=38912 split_smem=38912 partial_bytes=8192 samples=[17.759999260] FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=standard-aiu S=4 scope=PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS provider_capacity_rows=0 state=RAW_FP16_MISMATCH us=12.439999729 raw_bad=32 reducer_untimed=1 failure_step=POST_TIMING_RAW_FP16_MISMATCH failure_repeat=0 first_bad=960 first_want=0x4e80 first_got=0x4fc0 shipping_smem=38912 split_smem=38912 partial_bytes=16384 samples=[12.439999729]
+- (2026-08-24 09:44 UTC) FQ_SHAPE_DONE q=12 A=64 bchunk=0 shape=1x1024x5120 typed_rows=2 selected_rows=2 only_split=0 bc_mode=skip bc_batch=native-grid-y-m-lt8 split_timing=ordered-close iterations=7 status=FAIL [fq-split-timing] artifacts=/workspace/quactlize-fq-q4k-split-timing-8e7f8f1-20260824T094147Z artifacts: /workspace/quactlize-fq-q4k-split-timing-8e7f8f1-20260824T094147Z
+- (2026-08-24 09:48 UTC) === legacy === FQ_SHARD q=12 A=64 bchunk=0 shape=1x1024x5120 typed_rows=2 selected_rows=2 only_split=0 bc_mode=skip bc_batch=native-grid-y-m-lt8 split_timing=legacy-host-gap iterations=7 correctness_repeats=8 FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=standard-aiu S=1 scope=FULL_OUTPUT provider_capacity_rows=0 state=MEASURED us=27.039999142 raw_bad=0 reducer_untimed=0 failure_step=NONE failure_repeat=-1 first_bad=18446744073709551615 first_want=0x0000 first_got=0x0000 shipping_smem=38912 split_smem=38912 partial_bytes=0 samples=[26.399999857,26.639999822,26.760000736,27.039999142,27.079999447,27.559999377,31.840000302] FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=standard-aiu S=2 scope=PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS provider_capacity_rows=0 state=RAW_FP16_MISMATCH us=0.000000000 raw_bad=64 reducer_untimed=0 failure_step=RAW_FP16_MISMATCH failure_repeat=5 first_bad=64 first_want=0x4e80 first_got=0x4d40 shipping_smem=38912 split_smem=38912 partial_bytes=8192 samples=[] FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=standard-aiu S=4 scope=PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS provider_capacity_rows=0 state=RAW_FP16_MISMATCH us=0.000000000 raw_bad=32 re …
+- (2026-08-24 10:49 UTC) [fq-split-workspace-select] PASS source_typed=144 selected=2 output=/workspace/quactlize-fq-q4k-split-workspace-b9ee6c4-20260824T101156Z/generated/closu [fq-split-workspace-check] FAIL: direct failure lost 32-output stripe signature: {'q': '12', 'A': '64', 'bchunk': '0', 'shape': '1x1024x5120', 'symbol': '8', 'tn': '64', 'tk': '256', 'wm': '8', 'wn': '16', 'stages': '2', 'provider': 'standard-aiu', 'S': '4', 'scope': 'PRODUCER_ONLY_REDUCER_UNTIMED_CORRE_MISMATCH', 'us': '0.000000000', 'raw_bad': '56', 'reducer_untimed': '0', 'failure_step': 'RAW_FP16_MISMATCH', 'failure_repeat': '4', 'first_bad': '352'_smem': '38912', 'split_smem': '38912', 'partial_bytes': '16384', 'samples': '[]'} [fq-split-workspace] artifacts=/workspace/quactlize-fq-q4k-split-workspace-b9ee6c4-20260824T101156Z artifacts: /workspace/quactlize-fq-q4k-split-workspace-b9ee6c4-20260824T101156Z
+- (2026-08-24 10:51 UTC) 你本地没有办法分析吗》之前的错误好像是本地分析出来的。
+- (2026-08-24 10:56 UTC) [fq-split-workspace-check] FAIL: AP1 control is not raw-bit exact: {'q': '12', 'A': '64', 'bchunk': '0', 'shape': '1x1024x5120', 'symbol': 'fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1', 'tm': '8', 'tn': '64', 'tk': '256', 'wm': '8', 'wn': '16', 'stages': '2', 'provider': 'packed-row', 'S': '2', 'scope': 'PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS', 'provider_capacity_rows': '1', 'state': 'RAW_FP16_MISMATCH', 'us': '0.000000000', 'raw_bad': '32', 'reeducer_untimed': '0', 'failure_step': 'RAW_FP16_MISMATCH', 'failure_repeat': '14', 'first_bad': '480', 'first_want': '0x4e80', 'first_got': '0x4fc0', 'shipping_smem': '25472', 'split_smem': '25472', 'partial_bytes': '8192', 'samples': '[]'}
+- (2026-08-24 11:01 UTC) FQ_SPLIT_WORKSPACE_PROVIDER provider=standard-aiu symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 verdict=PRODUCER_OR_PARTIAL_STORE_BAD direct_failure_splits=2,4 samples=32 canary_words=0 host_reduce_raw_bad=128 sync_only_raw_bad=256 observed_reducer_raw_bad=128 FQ_SPLIT_WORKSPACE_PROVIDER provider=packed-row symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1 verdict=SAME_STREAM_PUBLICATION_GAP direct_failure_splits=2 samples=32 canary_words=0 host_reduce_raw_bad=0 sync_only_raw_bad=0 observed_reducer_raw_bad=0 FQ_SPLIT_WORKSPACE_VERDICT verdict=MIXED_PROVIDER_VERDICTS ap0=PRODUCER_OR_PARTIAL_STORE_BAD ap1=SAME_STREAM_PUBLICATION_GAP direct_failures=3 samples_per_cell=16 canary_words=0 host_reduce_raw_bad=128 sync_only_raw_bad=256 observed_reducer_raw_bad=128
+- (2026-08-24 11:20 UTC) [fq-split-workspace-select:self-test] PASS exact AP0/AP1; missing-row and identity negatives RED [fq-split-workspace-check:self-test] PASS exact per-plane oracle, five seam verdicts plus mixed-provider; intermittent AP1, aligned stripe-origin, marker/mask and denominator negatives RED [fq-split-workspace-probe:self-test] PASS: independent exact per-split golden, producer bytes, sync-only/host-observed reducer arms, diagnostic-only allocation, exact AP0/AP1 denominator, and nine negatives [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_[fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_reject=774 static_reject=11082 units=144 [fq-split-workspace-select] PASS source_typed=144 selected=2 output=/workspace/quactlize-fq-q4k-split-slice-43fb02b-20260824T111448Z/generated/closure FQ_SPLIT_WORKSPACE_SLICE provider=standard-aiu symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 S=2 verdict=PRODUCER_PARTIAL_VALUE_BAD samples=64 partial_value_raw_bad=288 bad_plane_mask=0x3 first_plane=0 first_index=416 first_want=0x41c80000 first_got=0x41a00000 host_reduce_raw_bad=288 sync_only_raw_bad=352 observed_reducer_raw_bad=288 FQ_SPLIT_WORKSPACE_SLICE provider=standard-aiu symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 S=4 verdict=PRODUCER_PARTIAL_VALUE_BAD samples=64 partial_va …
+- (2026-08-24 11:21 UTC) 还需要几次box
+- (2026-08-24 12:07 UTC) [fq-split-workspace-select:self-test] PASS exact AP0/AP1; missing-row and identity negatives RED [fq-packed-owner-check:self-test] PASS causal, remaining-gap and refuted verdicts; local-N boundary and denominator negatives RED [fq-packed-owner-source:self-test] PASS: exact guard count, real-layout duplicate negative, build define and local-N boundary; five plants RED [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_reject=774 static_reject=11082 units=144 [fq-split-workspace-select] PASS source_typed=144 selected=2 output=/workspace/quactlize-fq-q4k-packed-owner-60a71b42-20260824T114721Z-2185252/generated/closure [fq-packed-owner-check] FAIL: legacy partial mismatch left local-N=32 boundary: {'q': '12', 'A': '64', 'shape': '1x1024x5120', 'symbol': 'fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0', 'provider': 'standard-aiu', 'S': '2', 'repeat': '30', 'sync_only_raw_bad': '0', 'canary_words': '0', 'host_reduce_raw_bad': '64', 'host_first_bad': '320', 'host_first_want': '0x4e80', 'host_first_got': '0x4fc0', 'partial_fingerprint': '0xb5ceea9a0e5a8d03', 'partial_value_raw_bad': '64', 'partial_bad_plane_mask': '0x2', 'partial_first_bad_plane': '1', 'partial_first_bad_index': '320', 'partial_first_bad_want': '0x3f800000', 'partial_first_bad_got': '0x40c00000', 'observed_reducer_raw_bad': '64'}
+- (2026-08-24 12:09 UTC) FQ_PACKED_OWNER_ARM variant=legacy-modulo-all samples=256 bad_samples=28 partial_value_raw_bad=1024 canary_words=0 local_n_half_mask=0x3 direct_failures=3 FQ_PACKED_OWNER_ARM variant=owner-only samples=512 bad_samples=11 partial_value_raw_bad=352 canary_words=0 host_reduce_raw_bad=352 sync_only_raw_bad=352 observed_reducer_raw_bad=352 direct_failures=2 FQ_PACKED_OWNER_VERDICT verdict=OWNER_ONLY_REFUTED legacy_stripe_origin=32-ALIGNED/PASS changed_semantic=PHYSICAL_PACKED_METADATA_PUBLISHERS_ONLY
+- (2026-08-24 12:14 UTC) | grep 'FQ_PACKED_OWNER_CELL variant=owner-only' cat: /workspace/quactlize-fq-q4k-packed-owner-60a71b42-20260824T114721Z-2185252/results/legacy-artifact.path: No such file or directory [fq-packed-owner-check] FAIL: [Errno 2] No such file or directory: '/results/direct.log'
+- (2026-08-24 12:14 UTC) ls /workspace/quactlize-fq-q4k-packed-owner-60a71b42-20260824T114721Z-2185252/results/ build.log candidate-direct.log candidate-workspace-probe.log verdict.log
+- (2026-08-24 12:14 UTC) FQ_PACKED_OWNER_CELL variant=owner-only provider=packed-row S=2 samples=128 bad_samples=0 partial_value_raw_bad=0 bad_plane_mask=0x0 local_n_half_mask=0x0 stripe_origins=NONE canary_words=0 host_reduce_raw_bad=0 sync_only_raw_bad=0 observed_reducer_raw_bad=0 direct_failed=0 FQ_PACKED_OWNER_CELL variant=owner-only provider=packed-row S=4 samples=128 bad_samples=0 partial_value_raw_bad=0 bad_plane_mask=0x0 local_n_half_mask=0x0 stripe_origins=NONE canary_words=0 host_reduce_raw_bad=0 sync_only_raw_bad=0 observed_reducer_raw_bad=0 direct_failed=0 FQ_PACKED_OWNER_CELL variant=owner-only provider=standard-aiu S=2 samples=128 bad_samples=0 partial_value_raw_bad=0 bad_plane_mask=0x0 local_n_half_mask=0x0 stripe_origins=NONE canary_words=0 host_reduce_raw_bad=0 sync_only_raw_bad=32 observed_reducer_raw_bad=0 direct_failed=1 FQ_PACKED_OWNER_CELL variant=owner-only provider=standard-aiu S=4 samples=128 bad_samples=11 partial_value_raw_bad=352 bad_plane_mask=0xd local_n_half_mask=0x2 stripe_origins=32 canary_words=0 host_reduce_raw_bad=352 sync_only_raw_bad=320 observed_reducer_raw_bad=352 direct_failed=1
+- (2026-08-24 12:14 UTC) FQ_PACKED_OWNER_CELL variant=owner-only provider=packed-row S=2 samples=128 bad_samples=0 partial_value_raw_bad=0 bad_plane_mask=0x0 local_n_half_mask=0x0 stripe_origins=NONE canary_words=0 host_reduce_raw_bad=0 sync_only_raw_bad=0 observed_reducer_raw_bad=0 direct_failed=0 FQ_PACKED_OWNER_CELL variant=owner-only provider=packed-row S=4 samples=128 bad_samples=0 partial_value_raw_bad=0 bad_plane_mask=0x0 local_n_half_mask=0x0 stripe_origins=NONE canary_words=0 host_reduce_raw_bad=0 sync_only_raw_bad=0 observed_reducer_raw_bad=0 direct_failed=0 FQ_PACKED_OWNER_CELL variant=owner-only provider=standard-aiu S=2 samples=128 bad_samples=0 partial_value_raw_bad=0 bad_plane_mask=0x0 local_n_half_mask=0x0 stripe_origins=NONE canary_words=0 host_reduce_raw_bad=0 sync_only_raw_bad=32 observed_reducer_raw_bad=0 direct_failed=1 FQ_PACKED_OWNER_CELL variant=owner-only provider=standard-aiu S=4 samples=128 bad_samples=11 partial_value_raw_bad=352 bad_plane_mask=0xd local_n_half_mask=0x2 stripe_origins=32 canary_words=0 host_reduce_raw_bad=352 sync_only_raw_bad=320 observed_reducer_raw_bad=352 direct_failed=1
+- (2026-08-24 12:18 UTC) 还需要几次box
+- (2026-08-24 12:54 UTC) /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/float8.h:91:10: fatal error: hggc_fp8.h: No such file or directory 91 | #include <hggc_fp8.h> | ^~~~~~~~~~~~
+- (2026-08-24 13:05 UTC) [fq-split-workspace-select:self-test] PASS exact AP0/AP1; missing-row and identity negatives RED [fq-accumulator-bisect:self-test] PASS mainloop/epilogue/control/nonreproduction verdicts and imported exact denominator [fq-accumulator-bisect-source:self-test] PASS post-mainloop seam, actual CuTe direct map, two negatives, committed evidence, two-arm runner and verdicts [fq-accumulator-bisect-source:evidence] PASS committed-local-oracle exact positive and two negatives FQ_ACCUMULATOR_BISECT_ORACLE mode=committed-local-oracle source_sha=bc31c2e33c528a19e9987008ca68db88293515df fresh_box_execution=0 [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_reject=774 static_reject=11082 units=144 [fq-split-workspace-select] PASS source_typed=144 selected=2 output=/workspace/quactlize-fq-q4k-accum-bisect-bc31c2e-20260824T125906Z/generated/closure FQ_ACCUMULATOR_BISECT_ARM arm=shared-epilogue binary_sha256=e32af4c64c33b50512f79a1e8731971ceeb4307d2522ba2de79c98e38c62d141 direct_rc=1 probe_rc=0 repeats=256 FQ_ACCUMULATOR_BISECT_ARM arm=direct-accumulator binary_sha256=0b32ecfdefe5e08efe8e127d358dbb9c7fd00fe842832ae37fe0753caa2b9649 direct_rc=0 probe_rc=0 repeats=256 FQ_ACCUMULATOR_BISECT_CELL arm=shared-epilogue provider=packed-row S=2 samples=256 bad_samples=0 partial_value_raw_bad=0 bad_plane_mask=0x0 local_n_half_mask=0x0 stripe_origins=NONE canary_words=0 host_reduce_raw_bad=0 sync_only …
+- (2026-08-24 13:13 UTC) 已经找到问题了吗？
+- (2026-08-24 13:24 UTC) 没有太理解错误的源头？一句话解释，另外这种改法影响精度吗？另外这种改法对于其他的case有没有影响。
+- (2026-08-24 13:28 UTC) 原来写到shm之后是aiu读取到gmem吗？
+- (2026-08-24 13:29 UTC) 那反而应该变快了
+- (2026-08-24 13:29 UTC) 那原来为什么要那么写呢？
+- (2026-08-24 13:30 UTC) 但是没有找到真正的错误根因
+- (2026-08-24 13:32 UTC) PROBE_REPEATS=512 \ PERF_ITERATIONS=200 \ PERF_CORRECTNESS_REPEATS=32 \ echo "artifacts: $OUT" 不需要重新编译吗？
+- (2026-08-24 13:33 UTC) 我希望找到跟因
+- (2026-08-24 13:38 UTC) echo artifacts: $OUT [fq-split-workspace-select:self-test] PASS exact AP0/AP1; missing-row and identity negatives RED [fq-accumulator-bisect:self-test] PASS mainloop/epilogue/control/nonreproduction verdicts, exact performance A/B and regression RED [fq-accumulator-bisect-source:self-test] PASS post-mainloop seam, production-default CuTe direct map, legacy shared negative, two oracle negatives, committed evidence, two-arm runner and verdicts [fq-accumulator-bisect-source:evidence] PASS committed-local-oracle exact positive and two negatives FQ_ACCUMULATOR_BISECT_ORACLE mode=committed-local-oracle source_sha=219c15ae5cfb3d60d5d437eeeaae53a1b4943999 fresh_box_execution=0 [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_reject=774 static_reject=11082 units=144 [fq-split-workspace-select] PASS source_typed=144 selected=2 output=/workspace/quactlize-fq-q4k-partial-closure-219c15a-20260824T133319Z/generated/closure FQ_ACCUMULATOR_BISECT_ARM arm=shared-epilogue binary_sha256=e81be186bc98ffdf8dc837fa8dc428dfb25d23c1bc503f887f37ac694c80aa4d direct_rc=1 probe_rc=0 repeats=512 FQ_ACCUMULATOR_PERF_ARM arm=shared-epilogue rc=1 iterations=200 correctness_repeats=32 FQ_ACCUMULATOR_BISECT_ARM arm=direct-accumulator binary_sha256=939bb6a27185c0021c5b6840c4dd854fa45d42f4a627d71caa637b4d6cfdeb56 direct_rc=0 probe_rc=0 repeats=512 FQ_ACCUMULATOR_PERF_ARM arm=direct-accumulator rc=0 iterations= …
+- (2026-08-24 14:05 UTC) echo "artifacts: $OUT" [fq-split-workspace-select:self-test] PASS exact AP0/AP1; missing-row and identity negatives RED [fq-shared-sync-root:self-test] PASS ID6, named-barrier and clone-nonreproduction verdicts; exact denominator retained [fq-shared-sync-root-source:self-test] PASS exact two-sync factorial, production-default isolation, L223 oracle and five source-seam negatives [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_reject=774 static_reject=11082 units=144 [fq-split-workspace-select] PASS source_typed=144 selected=2 output=/workspace/quactlize-fq-q4k-shared-sync-root-134b822-20260824T135257Z/generated/closure FQ_SHARED_SYNC_BINARY arm=vendor-user0 defs=PPU_SPLITK_LEGACY_SHARED_PARTIAL_EPILOGUE=1 sha256=53961d1af8f8692d579e40eba38879b5b95ef83a2e229a1d4454abb902b81d31 direct_rc=1 probe_rc=0 repeats=512 FQ_SHARED_SYNC_BINARY arm=clone-user0 defs=PPU_SPLITK_SHARED_SYNC_POLICY=1 sha256=b2f3d6dcf95008a29a1c8dbbd8805765dd7120a98fff91609b2cad92dc687daa direct_rc=1 probe_rc=0 repeats=512 FQ_SHARED_SYNC_BINARY arm=reserved-id1 defs=PPU_SPLITK_SHARED_SYNC_POLICY=2 sha256=5f3b9e43b7c1b74720d9a6d720e4b91a4bd994d51799d69c9f54c21e6314899b direct_rc=1 probe_rc=0 repeats=512 FQ_SHARED_SYNC_BINARY arm=cta defs=PPU_SPLITK_SHARED_SYNC_POLICY=3 sha256=4b6ad05922e967fe034f00694934cd5d223a6481f4202e1cbb34f220707dd1a8 direct_rc=1 probe_rc=0 repeats=512 FQ_SHARED_SYNC_ARM arm=vendor-user …
+- (2026-08-24 14:33 UTC) FQ_SHARED_HANDOFF_ROOT verdict=ACCUMULATOR_OR_COMPILER_FOOTPRINT_REMAINS baseline_bad=1 discard_roundtrip_clean=0 pre_r2s_clean=0 disjoint_storage_clean=0 identity_convert_clean=0 scalar_r2s_clean=0 scalar_s2r_clean=0 scalar_both_clean=0 static_layout=L223-EXACT-BIJECTION sync_policy=CTA-ALL-ARMS [fq-shared-handoff-root] UNADJUDICATED artifacts=/workspace/quactlize-fq-q4k-shared-handoff-root-6c12535-20260824T141530Z artifacts: /workspace/quactlize-fq-q4k-shared-handoff-root-6c12535-20260824T141530Z
+- (2026-08-25 01:09 UTC) MUL_MAT_ID(type_a=bf16,type_b=f32,n_mats=8,n_used=4,b=0,m=256,n=128,k=64): OK [ncp-route] MUL_MAT_ID as T=512 E=8 used=4 -> so-deepgemm-nopad
+- (2026-08-25 01:09 UTC) FQ_SHARED_PREFIX_ROOT verdict=UNADJUDICATED_FULL_SHARED_NEGATIVE_DID_NOT_REPRODUCE production_direct_clean=1 accumulator_opaque_clean=1 clone_opaque_clean=1 cta_only_clean=1 flat_constant_disjoint_clean=0 flat_accumulator_disjoint_clean=0 r2s_vector_disjoint_clean=0 r2s_scalar_disjoint_clean=1 r2s_snapshot_disjoint_clean=0 r2s_s2r_vector_disjoint_clean=0 r2s_s2r_scalar_disjoint_clean=0 full_discard_clean=1 static_layout=L223-EXACT-BIJECTION storage=DISJOINT-EXCEPT-FULL-NEGATIVE publication=PRODUCTION-DIRECT-AFTER-PREFIX
+- (2026-08-25 01:27 UTC) FQ_SHARED_PREFIX_RESOURCE arm=production-direct kernel=1 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=production-direct kernel=2 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=clone-opaque kernel=1 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=clone-opaque kernel=2 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=cta-only kernel=1 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=cta-only kernel=2 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=flat-constant-disjoint kernel=1 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=flat-constant-disjoint kernel=2 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=flat-accumulator-disjoint kernel=1 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=flat-accumulator-disjoint kernel=2 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=r2s-vector-disjoint kernel=1 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=r2s-vector-disjoint kernel=2 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=r2s-scalar-disjoint kernel=1 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=r2s-scalar-disjoint kernel=2 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=r2s-snapshot-disjoint kernel=1 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=r2s-snapshot-disjoint kernel=2 registers=UNKNOWN stack=UNKNOWN FQ_SHARED_PREFIX_RESOURCE arm=full-discard kernel=1 registers= …
+- (2026-08-25 01:41 UTC) gdn怎么还在当前的branch，去掉，完全remove
+- (2026-08-25 01:47 UTC) 找到问题了嘛？还是需要多次box
+- (2026-08-25 01:53 UTC) ac6434b0ce6cb6b5562736e6 [fq-shared-prefix-closure] FAIL: production-direct provider=standard-aiu codegen denominator=2, expected 1 artifacts: /workspace/quactlize-fq-q4k-shared-prefix-closure-240b0c4d-20260825T014715Z grep: /workspace/quactlize-fq-q4k-shared-prefix-closure-240b0c4d-20260825T014715Z/results/verdict.log: No such file or directory FQ_SHARED_PREFIX_CODEGEN arm=production-direct kernel=1 provider=standard-aiu instructions=1620 mma=16 smem_st=0 tsm_st=34 smem_ld=20 tsm_ld=67 vmem_st=4 vmem_ld=3 resource_hint_mode=keywords shared_store_forms=("tsm.st.b16:32","tsm.st.b32x4:2") resource_hints=["stack_phys_idx_en:1","STACK SIZE:0"] binary_sha256=838e12f2720e119befe8b97c1b6aa2fe86863b4995b14926a9d9754a6b6146cd line_sha256=6lf332d99ac8345027971f9ea117a5c16f415e04d078eac3aa1a00c8acd6d9 resource_sha256=5df1d4a584f9bed7a41e0cd3341bd82d61c8695c8befbe632117b49d47d9f693 FQ_SHARED_PREFIX_CODEGEN arm=production-direct kernel=2 provider=standard-aiu instructions=1657 mma=16 smem_st=0 tsm_st=34 smem_ld=20 tsm_ld=67 vmem_st=4 vmem_ld=4 resource_hint_mode=keywords shared_store_forms=("tsm.st.b16:32","tsm.st.b32x4:2") resource_hints=["stack_phys_idx_en:1","STACK SIZE:0"] binary_sha256=56e24d017c15b4f80753b5348d746aeb86834a1cb813835df675f3a4aa5647a4 line_sha256=898c036a6ab4967fd926b1237cbfbfd0d994a0e4c7caf8616dd96e3c774390e1 resource_sha256=fab7299cce429081eadf1703c5c64d7080d0f08c0412f57a8bdade2f558b97 FQ_SHARED_PREFIX_CODEGEN arm=flat-constant-disjoint kernel=1 provider=standard-aiu …
+- (2026-08-25 02:05 UTC) grep: /workspace/quactlize-fq-q4k-shared-prefix-closure-240b0c4d-20260825T014715Z/results/verdict.log: No such file or directory
+- (2026-08-25 02:05 UTC) 505Z/ root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/quactlize-fq-q4k-shared-prefix- quactlize-fq-q4k-shared-prefix-closure-240bc4d-20260825T014715Z/ quactlize-fq-q4k-shared-prefix-root-4288d8f-20260825T004505Z/
+- (2026-08-25 02:05 UTC) 505Z/ root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# ls /workspace/quactlize-fq-q4k-shared-prefix- quactlize-fq-q4k-shared-prefix-closure-240bc4d-20260825T014715Z/ quactlize-fq-q4k-shared-prefix-root-4288d8f-20260825T004505Z/
+- (2026-08-25 02:08 UTC) 不要exit
+- (2026-08-25 02:08 UTC) 代码未更新到包含 ebd9a38 的版本
+- (2026-08-25 02:09 UTC) 你没有push吧
+- (2026-08-25 02:10 UTC) git ls-remote origin refs/heads/develop https://github.com/DrXuQian/quactlize.git ebd9a3838fda6f06cfc2831d3794f48c5e05d113 refs/heads/develop
+- (2026-08-25 02:11 UTC) From https://github.com/DrXuQian/quactlize * branch develop -> FETCH_HEAD branch=develop HEAD=ebd9a38 origin/develop=ebd9a38 ## develop...origin/develop ?? 1
+- (2026-08-25 02:12 UTC) [fq-shared-prefix-closure] ROOT_CAUSE_COMPLETE artifacts=/workspace/quactlize-fq-q4k-shared-prefix-closure-240bc4d-20260825T014715Z FQ_SHARED_SYNC_ARM arm=legacy-shared-output samples=8192 bad_samples=776 partial_value_raw_bad=29504 canary_words=0 host_reduce_raw_bad=29376 sync_only_raw_bad=39504 observed_reducer_raw_bad=29376 direct_failures=4 clean=0 FQ_SHARED_PREFIX_ROOT verdict=SHARED_STORE_BACKEND_OR_FOOTPRINT_CAUSAL production_direct_clean=1 accumulator_opaque_clean=1 clone_opaque_clean=1 cta_only_clean=1 flat_constant_disjoint_clean=0 flat_accumulator_disjoint_clean=0 r2s_vector_disjoint_clean=0 r2s_scalar_disjoint_clean=1 r2s_snapshot_disjoint_clean=0 r2s_s2r_vector_disjoint_clean=0 r2s_s2r_scalar_disjoint_clean=0 legacy_shared_output_clean=0 full_discard_cfull_discard_clean=1 static_layout=L223-EXACT-BIJECTION prefix_data_storage=DISJOINT legacy_storage=SHIPPING full_discard_storage=SHIPPING publication=PRODUCTION-DIRECT-AFTER-PREFIX historical_negative=LEGACY-SHARED-OUTPUT full_discard=COUNTERFACTUAL-NOT-ADMISSION
+- (2026-08-25 02:13 UTC) 所以跟因是什么？
+- (2026-08-25 02:17 UTC) 行吧。记录一下到mem和skill。然后中间的脚手架删掉吧。现在不需要了。太多了。
+- (2026-08-25 02:17 UTC) 另外扫一下看看有没有其他的类似的脆弱点。
+- (2026-08-25 02:25 UTC) 我们应该测试过其他的epilogue，但是没有出错，可能是splitk叠加上epilogue出错
+- (2026-08-25 02:26 UTC) 所以你要重新分析一下为什么splitk的时候这个epilogue就出错了，是不是什么地方没有barrier控制
+- (2026-08-25 02:55 UTC) 所以跟因还是没有找到的意思？
+- (2026-08-25 02:56 UTC) 新增的 tsm.st.b32x4 shared-store lowering / 它引起的编译器或硬件 scoreboard footprint 不能解释为什么其他的epilogue，非splitk的case是对的
+- (2026-08-25 03:10 UTC) 继续
+- (2026-08-25 03:36 UTC) 组件 主许可证 定制发行 特殊边界 llama.cpp MIT ✅ 无 Ollama 主要为 MIT，个别路径 ISC ✅ 无 ComfyUI GPL-3.0 ✅ 改的那部分 ComfyUI，要以 GPL-3.0 给到客户，客户能拿到源码，也能继续往外发。 vLLM 同PPU团队 SGLang Holmes-LLM PyTorch/Tensorflow
+- (2026-08-25 03:37 UTC) ]FQ_SHAPE_DONE q=12 A=64 bchunk=0 shape=1x1024x5120 typed_rows=2 selected_rows=2 only_split=0 bc_mode=skip bc_batch=native-grid-y-m-lt8 split_timing=ordered-close iterations=1 status=FAIL [fq-custom-split-count] FAIL: direct arm rc=1 artifacts=/workspace/quactlize-fq-q4k-custom-split-count-79ff0a3-20260825T033208Z grep: /workspace/quactlize-fq-q4k-custom-split-count-79ff0a3-20260825T033208Z/results/verdict.log: No such file or directory artifacts: /workspace/quactlize-fq-q4k-custom-split-count-79ff0a3-20260825T033208Z
+- (2026-08-25 03:46 UTC) FQ_CUSTOM_SPLIT_COUNT_CELL symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 provider=standard-aiu S=1 kernel=GemmUniversalMixedInputSplitKParallel state=REAL_CAN_IMPLEMENT raw_bad=0 failure_step=NONE failure_repeat=-1 partial_bytes=4096 FQ_CUSTOM_SPLIT_COUNT_CELL symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 provider=standard-aiu S=2 kernel=GemmUniversalMixedInputSplitKParallel state=MEASURED raw_bad=0 failure_step=NONE failure_repeat=-1 partial_bytes=8192 FQ_CUSTOM_SPLIT_COUNT_CELL symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 provider=standard-aiu S=4 kernel=GemmUniversalMixedInputSplitKParallel state=MEASURED raw_bad=0 failure_step=NONE failure_repeat=-1 partial_bytes=16384 FQ_CUSTOM_SPLIT_COUNT_CELL symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1 provider=packed-row S=1 kernel=GemmUniversalMixedInputSplitKParallel state=REAL_CAN_IMPLEMENT raw_bad=0 failure_step=NONE failure_repeat=-1 partial_bytes=4096 FQ_CUSTOM_SPLIT_COUNT_CELL symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1 provider=packed-row S=2 kernel=GemmUniversalMixedInputSplitKParallel state=MEASURED raw_bad=0 failure_step=NONE failure_repeat=-1 partial_bytes=8192 FQ_CUSTOM_SPLIT_COUNT_CELL symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1 provider=packed-row S=4 kernel=GemmUniversalMixedInputSplitKParallel state=RAW_FP16_MISMATCH raw_bad=32 failure_step=RAW_FP16_MISMATCH failure_repeat=2142 partial_bytes=16384
+- (2026-08-25 03:56 UTC) 本地的全cute化的部分你应该可以全部推导精度。你判断一下要不要先做这个事情，还是你已经做过了。然后看没有cute的部分能不能cute化。
+- (2026-08-25 03:58 UTC) splitk本身肯定不涉及同步，因为写的地址不同，所以不应该是同步的问题。应该是你什么地方的cute错了
+- (2026-08-25 04:44 UTC) 找到问题了？
+- (2026-08-25 05:33 UTC) 所以是actlize的一个原生的bug，不是我们改出来的？
+- (2026-08-25 05:36 UTC) 其他的代码有类似的脆弱吗？
+- (2026-08-25 05:37 UTC) https://code.alibaba-inc.com/T-Head-EEC/ncp_flash_lib/codereview/29500852?tab=detail 帮我review 然后通过一下，我改了一下
+- (2026-08-25 05:37 UTC) https://code.alibaba-inc.com/T-Head-EEC/ncp_flash_lib/codereview/29500852?tab=detail 帮我review 然后通过一下，我改了一下
+- (2026-08-25 05:37 UTC) FQ_CUSTOM_SPLIT_COUNT_VERDICT verdict=PRODUCTION_DIRECT_S_GT1_REGRESSION detail=packed-row:S4;locus=PRODUCER_PARTIAL_VALUE_BAD FQ_CUSTOM_SPLIT_COUNT_INTERPRETATION the production direct-store S2/S4 arm is not raw-bit exact; the shipping repair must be re-opened before this causal test; failure localization=PRODUCER_PARTIAL_VALUE_BAD [fq-custom-split-count] FAIL: unadjudicated device result artifacts=/workspace/quactlize-fq-q4k-packed-stage-ca01dc6-20260825T053252Z artifacts: /workspace/quactlize-fq-q4k-packed-stage-ca01dc6-20260825T053252Z r
+- (2026-08-25 05:39 UTC) FQ_SHARD q=12 A=64 bchunk=0 shape=1x1024x5120 typed_rows=2 selected_rows=2 only_split=0 bc_mode=skip bc_batch=native-grid-y-m-lt8 split_timing=ordered-close iterations=1 correctness_repeats=8192 FQ_CUSTOM_SPLIT_COUNT_ORACLE exact=1 S1=0x1e258e395e5b8383 S2=0xe0c678778c24c383 S4=0xd954bebed7ae2383 S8=0x6591b3dbd0850383 FQ_CUSTOM_SPLIT_COUNT_CELL symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1 provider=packed-row S=4 kernel=GemmUniversalMixedInputSplitKParallel state=RAW_FP16_MISMATCH raw_bad=32 failure_step=RAW_FP16_MISMATCH failure_repeat=714 first_bad=32 first_want=0x4e80 first_got=0x4fc0 partial_probe=COMPLETE partial_value_raw_bad=32 partial_bad_plane_mask=0x4 partial_first_bad_plane=2 partial_first_bad_index=32 partial_first_bad_want=0x3f800000 partial_first_bad_got=0x40c00000 reducer_replay_raw_bad=32 reducer_replay_first_bad=32 partial_bytes=16384 0c99df59bee4304c10b1b86810d3fb7efa8e346a9ba9be1dba1aafafa7977bf5 /workspace/quactlize-fq-q4k-packed-stage-ca01dc6-20260825T053252Z/generated/closure/manifest.json 77d1aabfd4d5e5e773cd83dc597c785d1005a733d831179e183cff9d965bf988 /workspace/quactlize-fq-q4k-packed-stage-ca01dc6-20260825T053252Z/results/direct.log d8e8ebab544a6de28c25d6dbc0bc4fb93dfaeb3900787883d781f2ad7e68752e /workspace/quactlize-fq-q4k-packed-stage-ca01dc6-20260825T053252Z/results/legacy-shared.log 77feee834d999b2bcc32ca626276358f122d1cf8cf7f46ab3e1cb763a20119f2 /workspace/quactlize-fq-q4k-packed-stage-ca01dc6-20260825T053252Z/results/verdict.log 5a8f9 …
+- (2026-08-25 06:15 UTC) Open ~/.codex/config.toml and add or update these settings at the top level, before any [section] headers: ``` model = "gpt-5.6-sol" model_context_window = 1000000 model_auto_compact_token_limit = 900000 ``` 上下文设置为372k试试。auto compact的token limit对应修改。
+- (2026-08-25 06:17 UTC) 继续之前的debug
+- (2026-08-25 07:01 UTC) 找到问题了吗
+- (2026-08-25 07:02 UTC) 所以之前的cute的错误也是真的，这个错误是双重的？所以这么难debug
+- (2026-08-25 07:03 UTC) 继续
+- (2026-08-25 07:04 UTC) 这次之后能找到原因吗
+- (2026-08-25 07:06 UTC) 描述一下问题,我让claude也参与
+- (2026-08-25 07:36 UTC) FQ_A_STAGE_ROOT_ARM arm=baseline attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=prepare-after-consume attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=explicit-stage attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=direct-x4 attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=compiler-fence attempts=2 repeats=16384 s_gt1_clean=4/8 producer_partial_bad=4 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=A-before-B attempts=2 repeats=16384 s_gt1_clean=6/8 producer_partial_bad=2 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=separate-A-group attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=synchronous-store attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_VERDICT verdict=ALL_COUNTERFACTUAL_ARMS_REMAIN_DIRTY baseline_target=1 clean_arms=NONE FQ_A_STAGE_ROOT_INTERPRETATION the frozen incident reproduced but none of the seven isolated A-stage seams closed every repeated S2/S4 cell
+- (2026-08-25 07:37 UTC) 我如何读最后的结果，我怎么发给你
+- (2026-08-25 07:40 UTC) ARTIFACT=/workspace/quactlize-fq-q4k-a-stage-root-3e83a45-20260825T070422Z FQ_A_STAGE_ROOT_ARM arm=baseline attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=prepare-after-consume attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=explicit-stage attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=direct-x4 attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=compiler-fence attempts=2 repeats=16384 s_gt1_clean=4/8 producer_partial_bad=4 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=A-before-B attempts=2 repeats=16384 s_gt1_clean=6/8 producer_partial_bad=2 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=separate-A-group attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=synchronous-store attempts=2 repeats=16384 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_VERDICT verdict=ALL_COUNTERFACTUAL_ARMS_REMAIN_DIRTY baseline_target=1 clean_arms=NONE FQ_A_STAGE_ROOT_INTERPRETATION the frozen incident reproduced but none of the seven isolated A-stage seams closed every repeated S2/S4 cell
+- (2026-08-25 07:45 UTC) 找到的可证明缺陷 copy_ppu0010_aiu.hpp:613-632 出货路 + :425-432 的 IMPL: uint32_t physical[kPhysicalRegisters]; // 4 个 PPU0010_TSM_LD_SWZL_IMPL<Element,false>()( reinterpret_cast<int*>(physical), stage_base, …); // ← 地址被取,以 int* 传入 // IMPL 内: asm volatile("ppu.tc01.ldmatrix…x4… {%0,%1,%2,%3}, [%4], {…};" : "=r"(vreg[0]),"=r"(vreg[1]),"=r"(vreg[2]),"=r"(vreg[3]) : "l"(stage_base), …); // ← **只声明了指针值,没声明读了那块内存** logical[0]=physical[0]; logical[1]=physical[1]; 配上生产者侧(copy_ppu.hpp:374/389/401/403)同样缺 clobber,得到: cp.async 写 smem → 编译器认为:什么内存都没写 wait_all → 编译器认为:什么都没做 ldmatrix 读 smem → 编译器认为:读了一个指针值,写了 4 个寄存器 ⟹ 生产者和消费者之间在编译器的模型里没有任何 def-use 边。唯一的约束是三者都是 asm volatile 的程序序。 而 asm volatile 不约束周围的普通算术,包括: stage_base += kCubePitch * cube_in_stage + kStagePitch * stage; // ← stage 是运行期值 这条地址算术没有任何内存依赖强迫它在每个 k-tile 重算。 编译器把它当作纯算术,可以外提、CSE、跨迭代复用。 ⟹ 一个被外提/复用的 stage 会让 prepare 读到上一个 K tile 的 A —— 这与全部观测吻合:偶发(取决于寄存器压力与调度)、整块 A tile(不是单元素)、改 pitch 后指纹不变(pitch 本来就对,错的是 stage 索引)、l224 看不见(它建模布局,不建模代码生成)。
+- (2026-08-25 08:34 UTC) 把六处约束串起来看: // 写者(copy_ppu.hpp:374) asm volatile("ppu.cp.async.cg.shared.global.LLC::128B [%0],[%1],%2,%3;" :: "r"(smem_int_ptr), "l"(gmem_ptr), "n"(sizeof(TS)), "r"(src_size)); // ↑ smem 目的地是一个**整数**,没有输出、没有 memory clobber // 屏障(:389/:401/:403) asm volatile("ppu.cp.async.commit_group;" ::); asm volatile("ppu.cp.async.wait_all;" ::); // 读者(copy_ppu0010_aiu.hpp:427) asm volatile("ppu.tc01.ldmatrix…x4…{%0,%1,%2,%3},[%4],{…};" : "=r"(vreg[0]),…,"=r"(vreg[3]) : "l"(stage_base), …); // ↑ 只声明读了**指针值**,没声明读了那块内存 ⟹ 在编译器的模型里,storage.smem_a 从头到尾没有被任何人写过,也没有被任何人读过 —— 它是一块死存储。 这不是「可能有排序问题」,而是依赖图里根本没有那条边。编译器因此有权:跨这些点重排普通访存、复用陈旧值、外提/下沉 stage_base 的地址算术(kCubePitch*cube_in_stage + kStagePitch*stage,其中 stage 是运行期值)、乃至把该缓冲当未初始化。 而「陈旧的 stage 值被复用」正好产出「整块上一 K tile 的 A」这个指纹 —— 偶发(取决于寄存器压力与调度决策)、整块而非单元素、改 pitch 不变(pitch 本来就对)、l224 看不见(它建模布局,不建模代码生成)。 确切的修法 copy_ppu.hpp:374 :: "r"(smem_int_ptr), "l"(gmem_ptr), "n"(...), "r"(src_size) → 最好把目的地声明成真实写: : "=m"(smem_dst) ,或至少加 ::: "memory" copy_ppu.hpp:389 asm volatile("ppu.cp.async.commit_group;" ::: "memory"); copy_ppu.hpp:401 asm volatile("ppu.cp.async.wait_all;" ::: "memory"); copy_ppu.hpp:403 asm volatile("ppu.cp.async.wait_group %0;" :: "n"(N) : "memory"); copy_ppu0010_aiu.hpp:427 / 448 ldmatrix 加 ::: "memory"(或把 smem 作 "m" 输入) copy_ppu0010_aiu.hpp:64… AIU bulk 加 ::: "memory" 这六处无论修不修得好这个 bug,现在的声明都是错的 —— 它们对编译器撒谎。 因此对 8 臂的修正预测 PPU_PACKED_A_COMPILER_MEMORY_FENCE ← 它的注释自己写着同一个诊断 ("PPU cp.async and swizzle-load helpers are volatile asm without compil …
+- (2026-08-25 08:35 UTC) rc=2 artifacts=/workspace/quactlize-fq-q4k-m8-load-root-25fe271-20260825T083509Z grep: /workspace/quactlize-fq-q4k-m8-load-root-25fe271-20260825T083509Z/results/verdict.log: No such file or directory
+- (2026-08-25 08:49 UTC) [fq-a-stage-root:select] PASS source_typed=144 selected=2 FQ_A_STAGE_ROOT_BINARY arm=baseline defs=NONE sha256=88cfd7d8d40c34b7d8b69961814abc63313e146b95c715443866221439397f60 attempts=2 repeats=32768 FQ_A_STAGE_ROOT_EXECUTION arm=baseline attempt=1 rc=1 FQ_A_STAGE_ROOT_EXECUTION arm=baseline attempt=2 rc=1 有一些结果，rc=1是什么意思
+- (2026-08-25 08:49 UTC) FQ_A_STAGE_ROOT_ARM arm=baseline attempts=2 repeats=32768 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_ARM arm=asm-memory-contract attempts=2 repeats=32768 s_gt1_clean=0/8 producer_partial_bad=8 other_bad=0 clean=0 FQ_A_STAGE_ROOT_VERDICT verdict=BASELINE_AP1_S4_NONREPRODUCTION baseline_target=0 contract_clean=0 FQ_A_STAGE_ROOT_INTERPRETATION the exact packed-row S4 producer-plane 1.0-to-6.0 incident was not observed; clean counterfactual arms cannot be assigned causally
+- (2026-08-25 08:52 UTC) 等一下，到底是什么case会出错。不可能所有的case都出错
+- (2026-08-25 08:53 UTC) grep '^FQ_A_STAGE_ROOT_FAILURE arm=baseline' \ "$OUT/results/verdict.log"FQ_A_STAGE_ROOT_FAILURE arm=baseline attempt=1 provider=standard-aiu S=2 failure_repeat=577 raw_bad=32 first_bad=32 first_want=0x4e80 first_got=0x4d40 partial_value_raw_bad=32 partial_bad_plane_mask=0x1 partial_first_bad_plane=0 partial_first_bad_index=32 partial_first_bad_want=0x41c80000 partial_first_bad_got=0x41a00000 frozen_incident=0 localization=PRODUCER_PARTIAL_VALUE_BAD FQ_A_STAGE_ROOT_FAILURE arm=baseline attempt=1 provider=standard-aiu S=4 failure_repeat=8603 raw_bad=32 first_bad=992 first_want=0x4e80 first_got=0x4fc0 partial_value_raw_bad=32 partial_bad_plane_mask=0x4 partial_first_bad_plane=2 partial_first_bad_index=992 partial_first_bad_want=0x3f800000 partial_first_bad_got=0x40c00000 frozen_incident=0 localization=PRODUCER_PARTIAL_VALUE_BAD FQ_A_STAGE_ROOT_FAILURE arm=baseline attempt=1 provider=packed-row S=2 failure_repeat=342 raw_bad=32 first_bad=672 first_want=0x4e80 first_got=0x4d40 partial_value_raw_bad=32 partial_bad_plane_mask=0x1 partial_first_bad_plane=0 partial_first_bad_index=672 partial_first_bad_want=0x41c80000 partial_first_bad_got=0x41a00000 frozen_incident=0 localization=PRODUCER_PARTIAL_VALUE_BAD FQ_A_STAGE_ROOT_FAILURE arm=baseline attempt=1 provider=packed-row S=4 failure_repeat=2 raw_bad=32 first_bad=672 first_want=0x4e80 first_got=0x4d00 partial_value_raw_bad=32 partial_bad_plane_mask=0x8 partial_first_bad_plane=3 partial_first_bad_index=672 partial_first_bad_want=0x00 …
+- (2026-08-25 08:58 UTC) 靶子应该移到哪 standard-aiu 和 packed-row 共有的东西只剩: split-K 的分解与 plane 索引 ← S=2 和 S=4 都坏,S=1 未见坏 FP32 partial 的写出 ← 每次恰好 32 个元素 pipeline 的 stage ring(Stages=2) ← 两个 provider 共用 run_mixed_pipeline B 侧 / scale 的 stage 绑定 ← consume_stage 那条我上一轮追过,对 B 是**用的** ⟹ 我上一轮追 A 时发现但当时判为「对 A 无影响」的那一条,现在回到台面上: // pipeline:64-66,k_block == KBlocks-1 时 consume_stage = smem_pipe_read; // ring 已在 k_block==KBlocks-2 推进过 prepare(k_block_next, smem_pipe_read, 0); // → copy_B_and_extra_info(…, k_block, read_stage) // → transform_B_kblock(…, read_stage, scale_pf) ← **B 的 scale 用这个 stage** 而 run_mixed_pipeline 的注释自己写着: Keeping the consume-stage token here is correctness-critical. Both deferred B providers once read scale or plane-2 data from the post-advance stage when K_BLOCK_MAX == 1. ⟹ 同一类缺陷已经犯过一次,而这次两个 provider 都坏、错值是固定的小集合、每次恰好 32 个元素 —— 都指向 scale/B 侧的 stage 绑定,而不是 A。
+- (2026-08-25 08:58 UTC) 裁决为什么是 UNADJUDICATED FQ_A_STAGE_ROOT_INTERPRETATION the exact packed-row S4 producer-plane 1.0-to-6.0 incident was not observed; clean counterfactual arms cannot be assigned causally 但看 base attempt=2 packed-row S=4:first_want=0x4e80 first_got=0x4fc0,plane=2,partial want=0x3f800000 got=0x40c00000(1.0→6.0)—— 与冻结指纹逐位相同,只是 index=576 而不是 32。 ⟹ 判据要求 index==32,而同一个缺陷会出现在不同 index 上。这条裁决规则过严,把一次真实复现判成了未复现。 这是「排除守卫与被测效应同向」的同一类问题 —— 建议把 frozen incident 的判据从 (plane, index, want, got) 放宽到 (plane, want→got 值对),index 单独记录。
+- (2026-08-25 08:59 UTC) 另外它说的「旧 parser 把它们都标成 frozen_incident=0」是对的,而我上一轮提的放宽判据现在有更强的理由:8 条里出现了 4 种不同的 Δ(−4/−5/−6/+5),但只有 +5 那一种是冻结指纹。 如果只认 +5,另外三种就永远进不了裁决 —— 而它们很可能是同一机制在不同 sb 上的表现,正是用来验证机制的样本。 ⟹ 判据应当改成:记录全部 (plane, index, Δ),用「Δ 是否等于某个 sb 的 prev−cur」做判据,而不是匹配单一的 (plane=2, index=32, 1.0→6.0)。
+- (2026-08-25 09:03 UTC) 回顾一下整个的问题思考一下是不是走错了路线，你现在debug了非常久了
+- (2026-08-25 09:09 UTC) 思考一下如何设计后续的实现。
+- (2026-08-25 09:19 UTC) /goal 直接本地找到问题在哪里。基于我们已经存在的debug信息，本地的代码应该能够看出bug在哪里。直接瞪眼法。
+- (2026-08-25 09:54 UTC) claude的分析：bug 在 mainloop 的 operand 交付,不在 A/B/accumulator/store 这四选一里 —— 在「谁等谁」。 具体: copy_aiu: 只有 warp 0 发 A 的 AIU bulk,只有 warp 1 发 B 的(ap1 只有 warp 0 发 B) cp_async_wait<Stages-2>: 按线程,只等自己发的 __syncthreads(): 唯一屏障,全树没有任何 shared-store fence warp 2、3 从没发过 A/B,wait_group 对它们是空等。它们读到的权重是否已落地,完全靠 __syncthreads() 兜底 —— 而这个假设代码里没有任何一处断言或测试过。 三条独立证据指向同一处: 粒度:M=1 时全 CTA 只有 16 个线程持有输出(每 warp lane 0–3)。32 个 32 对齐的坏值 = 恰好两个相邻 warp 的全部活输出,只能是 n∈[0,32)(warp 0,1)或 n∈[32,64)(warp 2,3)—— 与观测到的两个 offset 完全吻合。 偏斜:八条失败 offset=32 六次、offset=0 两次,3:1 偏向「既没发也没等」的 warp 2/3。 只在竞争下出现:32768 次 repeat 输入逐字节相同 ⟹ 不可能是数据依赖。 排除的(全部用数字,不是推理):raw_bad 无封顶(32 是真值)、store 路径无 smem 无屏障、scale ownership 不变量成立、scale 写/读两个视图逐格 0/1024 mismatch、A/B 的 stage pitch 都对、pipeline stage 协议 S=1/2/4 零违规、AIU 与 cp.async 共用同一 fence。 唯一的推断项:bar.sync 是否对另一个 warp 的 AIU 写构成内存屏障 —— 这是 ISA 语义,我在 5090 上验不了。 一条实验就能判决:开 PPU_PACKED_SPLIT_GROUPS=1(已实现,让全部线程参与)。如果 offset 的 6:2 偏斜不动,我这条就错了。
+- (2026-08-25 10:27 UTC) 找到问题了吗
+- (2026-08-25 10:30 UTC) 给我box的command吧
+- (2026-08-25 12:39 UTC) 现在找到什么问题了？
+- (2026-08-25 12:42 UTC) 先不管GDN代码，GDN的部分应该要删掉了
+- (2026-08-25 12:46 UTC) AIU的语义继续判定
+- (2026-08-25 12:50 UTC) aiu应该是其中一个thread发就行了。
+- (2026-08-25 12:50 UTC) 其他的还有什么错误的可能性
+- (2026-08-25 12:52 UTC) 逻辑上应该单个warp每个thread都发也不会有问题，除非是发的不同的aiu的descrptor
+- (2026-08-25 12:56 UTC) 严格不重叠应该可以从cute layout推倒，之前的有一个错误就是这个
+- (2026-08-25 13:10 UTC) 啥意思，找到问题了？
+- (2026-08-25 13:14 UTC) 是不是pack-A打开了？
+- (2026-08-25 13:14 UTC) pack-A之前一直有问题来着
+- (2026-08-25 13:15 UTC) 当前的A-AIU也出错了？
+- (2026-08-25 13:16 UTC) 高重复出错是什么意思
+- (2026-08-25 13:17 UTC) 时序敏感类错误，这怎么debug
+- (2026-08-25 13:17 UTC) 肯定不是cute的layout错误了，肯定是什么时序问题导致的。错误的概率是多大？
+- (2026-08-25 13:18 UTC) 我们这样每次都清一下状态重新跑呢？可能是跑的脚本的问题？
+- (2026-08-25 13:36 UTC) 是不是要上box测了？
+- (2026-08-25 13:46 UTC) cute应该没问题啊。如果是偶发的。
+- (2026-08-25 13:56 UTC) root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# FQ_A_STAGE_CANDIDATE=repeat-state \ PROBE_REPEATS=32768 \ PROBE_ATTEMPTS=2 \ JOBS=16 \ bash tools/run_fq_q4k_custom_split_count_box.sh [fq-a-stage-root:source] PASS PPU0010 warp0 issues ordinary A+B; split-groups is metadata-only; exact asm-memory, logical-x2 and async-shared-fence seams; S is runtime data [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_reject=774 static_reject=11082 units=144 [fq-a-stage-root:select] PASS source_typed=144 selected=2 FQ_A_STAGE_ROOT_BINARY arm=baseline defs=NONE sha256=514d346dc6966e712d84bde0fecd808579821561352ca59e514d6461dd8283af attempts=2 repeats=32768 FQ_REPEAT_STATE_EXECUTION mode=reuse S=2 attempt=1 rc=0 FQ_REPEAT_STATE_EXECUTION mode=reuse S=2 attempt=2 rc=0 FQ_REPEAT_STATE_EXECUTION mode=reuse S=4 attempt=1 rc=1 FQ_REPEAT_STATE_EXECUTION mode=reuse S=4 attempt=2 rc=1 FQ_REPEAT_STATE_EXECUTION mode=control-poison S=2 attempt=1 rc=0 FQ_REPEAT_STATE_EXECUTION mode=control-poison S=2 attempt=2 rc=0 FQ_REPEAT_STATE_EXECUTION mode=control-poison S=4 attempt=1 rc=1 FQ_REPEAT_STATE_EXECUTION mode=control-poison S=4 attempt=2 rc=1 FQ_REPEAT_STATE_EXECUTION mode=target-poison S=2 attempt=1 rc=0 FQ_REPEAT_STATE_EXECUTION mode=target-poison S=2 attempt=2 rc=0 FQ_REPEAT_STATE_EXECUTION mode=target-poison S=4 attempt=1 rc=1 FQ_REPEAT_STATE_EXECUTION mode=target-poison S=4 attempt=2 rc=1 FQ_REPEA …
+- (2026-08-25 14:11 UTC) 刚才的box命令是什么，好像刷掉了
+- (2026-08-25 14:13 UTC) 继续，另外是不是可以对比我们可以精度pass的case和我们现在出错的case的区别
+- (2026-08-25 14:19 UTC) root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# FQ_A_STAGE_CANDIDATE=single-aiu-issuer \ PROBE_REPEATS=32768 \ PROBE_ATTEMPTS=2 \ JOBS=16 \ bash tools/run_fq_q4k_custom_split_count_box.sh [fq-a-stage-root:source] PASS PPU0010 AIU atom is one logical issuer while baseline warp0 has 32 physical callers; split-groups is metadata-only; exact single-issuer, asm-memory, logical-x2 and async-shared-fence seams; S is runtime data [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_reject=774 static_reject=11082 units=144 [fq-a-stage-root:select] PASS source_typed=144 selected=2 FQ_A_STAGE_ROOT_BINARY arm=baseline defs=NONE sha256=9edc4328f661417bfd277c6dbcb29d0fcae92f50046d0a4ff56e42df57bc2184 attempts=2 repeats=32768 FQ_A_STAGE_ROOT_EXECUTION arm=baseline attempt=1 rc=1 FQ_A_STAGE_ROOT_EXECUTION arm=baseline attempt=2 rc=1 FQ_A_STAGE_ROOT_BINARY arm=single-aiu-issuer defs=PPU_AIU_SINGLE_LOGICAL_ISSUER=1 sha256=20bcfc4884d091a8143627dbf54f46216494a845fab33315df14ae418f262a68 attempts=2 repeats=32768 FQ_A_STAGE_ROOT_EXECUTION arm=single-aiu-issuer attempt=1 rc=1 FQ_A_STAGE_ROOT_EXECUTION arm=single-aiu-issuer attempt=2 rc=1 FQ_A_STAGE_ROOT_FAILURE arm=baseline attempt=1 provider=packed-row S=1 failure_repeat=6 raw_bad=32 first_bad=736 first_want=0x4e80 first_got=0x4d40 partial_value_raw_bad=32 partial_bad_plane_mask=0x1 partial_first_bad_plane=0 partial_first_bad_index=736 partial_fir …
+- (2026-08-26 00:44 UTC) FQ_A_STAGE_ROOT_VERDICT verdict=PACKED_METADATA_CLEAR_DECODE_RACE_CLOSED baseline_target=1 baseline_target_cells=2/4 baseline_failure_events=3 baseline_failure_attempts=2/2 baseline_exact_fingerprint=0 selection=exact-metadata-publication candidates=exact-metadata-publication clean_candidates=exact-metadata-publication failure_scope=CUSTOM_WRAPPER_OR_DIRECT_PARTIAL_NOT_SHIPPING_S1 shipping_s1_clean=4/4 FQ_A_STAGE_ROOT_VERDICT verdict=PACKED_METADATA_CLEAR_DECODE_RACE_CLOSED baseline_target=1 baseline_target_cells=2/4 baseline_failure_events=3 baseline_failure_attempts=2/2 baseline_exact_fingerprint=0 selection=exact-metadata-publication candidates=exact-metadata-publication clean_candidates=exact-metadata-publication failure_scope=CUSTOM_WRAPPER_OR_DIRECT_PARTIAL_NOT_SHIPPING_S1 shipping_s1_clean=4/4 FQ_A_STAGE_ROOT_INTERPRETATION the same source and tactic pair reproduced with the historical all-thread modulo publishers and missing initialization edge, while production exact ownership plus the one-time pre-prefetch CTA edge closed every custom S1/S2/S4 cell; the repaired contract covers scale/zero initialization, ordinary metadata and packed raw copies [fq-a-stage-root] DIAGNOSTIC_COMPLETE sha=265033f5483f995cadb4ccda3b28a5af8a23d7b4 artifacts=/workspace/quactlize-fq-q4k-a-stage-root-265033f5-20260826T002715Z-2904796
+- (2026-08-26 00:50 UTC) gdn相关的内容都删掉。
+- (2026-08-26 00:50 UTC) 这个bug中间的大量调试代码都删掉。
+- (2026-08-26 01:26 UTC) 所以问题一句话说一下
+- (2026-08-26 01:27 UTC) fp16的metadata清0是什么意思
+- (2026-08-26 01:29 UTC) 但是这个跟我的kernel实现没关系啊，真正kernel执行的时候不会有这个操作
+- (2026-08-26 01:33 UTC) 啥意思，为什么需要clear tsss？不应该直接覆写了吗？
+- (2026-08-26 01:41 UTC) 原来的scheduler的做法是什么？也是clear？
+- (2026-08-26 01:43 UTC) 为什么 - packed metadata：clear 和 decode 使用不同的warp
+- (2026-08-26 01:49 UTC) 这个不太合理，是不是应该clear本地的后续packeddecode负责的tsss？
+- (2026-08-26 01:50 UTC) 更合理的是完整 tile 不 clear；尾块需要清理时，也让 decode owner 清理自己随后要写的区域。 这个修改的影响范围多大？
+- (2026-08-26 01:53 UTC) 修改吧。
+- (2026-08-26 01:53 UTC) 另外claude的评论你看看要不要放到todo： 1. 屏障的门是 Scale_NumThreads > 32。 单 warp 的 CTA 上,clear 和 decode 仍由同一个 warp 的不同线程按两张不同映射写同一块 smem。这只在 warp 严格锁步时安全;若 PPU 有独立线程调度就需要 __syncwarp()。当前单 warp 行是过的,所以这更像是一条该写进注释/断言的依赖声明,而不是要改的代码。 2. ForwardCoordIterator / SplitkCoordIterator 的 Shape const& 悬垂引用还在。 codex 把它判为 non-causal 是对的(shape<2>(gA) rank=1 ⟹ increment 的进位循环为空、idx2crd 是恒等,我打过两条迭代器序列逐项相同)。但它是真缺陷:K 模一旦嵌套成 rank≥2 就会真读那个悬垂引用,而且那时的表现同样是偶发、代码布局敏感。值得单独开一条,不要因为这次判了 non-causal 就当它不存在。
+- (2026-08-26 02:16 UTC) [fq-tm8-wn64] FAIL: exact six-row target did not build rc=1
+- (2026-08-26 02:19 UTC) FQ_FIXTURE_FAIL q=12 A=64 shape=1x992x5120 exact=0 roundtrip=0 [fq-tm8-wn64] FAIL: tail device target rc=1 artifacts=/workspace/quactlize-fq-q4k-tm8-wn64-closure-d557509e-20260826T021632Z-2254120
+- (2026-08-26 02:25 UTC) [fq-tm8-wn64-check] PASS shapes=1 tactics=6 census_rows=24 raw_bad=0 WN64-control=4 WN16-S1/S2/S4=6 tail=LOCAL-L217/CURRENT-ABI-N%256
+- (2026-08-26 02:34 UTC) FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=packed-row S=4 scope=PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS provider_capacity_rows=1 state=MEASURED us=11.239999905 raw_bad=0 reducer_untimed=1 failure_step=NONE failure_repeat=-1 first_bad=18446744073709551615 first_want=0x0000 first_got=0x0000 shipping_smem=FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=packed-row S=2 scope=PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS provider_capacity_rows=1 state=MEASURED us=17.039999366 raw_bad=0 reducer_untimed=1 failure_step=NONE failure_repeat=-1 first_bad=18446744073709551615 first_want=0x0000 first_got=0x0000 shipping_smem=FQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap1 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=packed-row S=1 scope=FULL_OUTPUT provider_capacity_rows=1 state=MEASURED us=29.279999435 raw_bad=0 reducer_untimed=0 failure_step=NONE failure_repeat=-1 first_bad=18446744073709551615 first_want=0x0000 first_got=0x0000 shipping_smem=27392 split_smem=27392 partialFQ_TC_CELL q=12 A=64 bchunk=0 shape=1x1024x5120 symbol=fq_tc_q12_a64_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0 tm=8 tn=64 tk=256 wm=8 wn=16 stages=2 provider=standard-aiu S=4 scope=PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS provider_capacity_rows=0 state=MEASURED us …
+- (2026-08-26 02:42 UTC) OK了，那我们继续之前的decoding的perf sweep
+- (2026-08-26 03:11 UTC) [fq-q4k-decode] build A=64 typed=144 (A32 is intentionally BC-only) [fq-q4k-decode] A=64 shape=1x1024x5120 phase=screen typed=144 [fq-q4k-decode-screen] PASS typed=144 measured=120 retained=48 [fq-q4k-decode] A=64 shape=1x1024x5120 phase=scheduler [fq-q4k-decode-analysis] FAIL: scheduler has no measured S=8 candidate
+- (2026-08-26 04:21 UTC) [fq-q4k-decode] A=256 shape=8x25600x5120 phase=confirm-tc [fq-q4k-decode] A=256 shape=8x25600x5120 phase=confirm-simt [fq-q4k-decode-analysis] FAIL: cell has no measured candidate
+- (2026-08-26 05:05 UTC) INTERNAL_SWEEP_SPEC=/workspace/quactlize-internal-full-sweep-081495f-20260818T044307Z/inputs/inventory/inventory.json \ OUT="$OUT" \ RESUME=1 \ JOBS=16 \ FQ_CONFIGS_PER_UNIT=4 \ bash tools/run_fq_q4k_decode_real_shapes_box.sh[fq-q4k-decode-plan:self-test] PASS: inventory-owned real families, exact M=1/2/4/8 expansion, per-layer source coalescing, and canonical fold2/fold1 byte classes [fq-q4k-decode-analysis:self-test] PASS: 80%-HBM reducer bytes, confirmation-envelope fail-close, native M4 SIMT, M8 negative, complete S1/S2/S4/S8 census separated from S1 measurement, three TC denominator negatives, optional S2/S4/S8 unavailable closure, mandatory S1 and unknown-state negatives, exact A32/M8 structural unavailability with four negatives, and canonical layout classes [fq-q4k-decode:self-test] PASS: M=1/2/4/8, TM8-only TC, native one-launch M<8 SIMT, phase/census separation, analysis-only resume binding, optional scheduler boards with mandatory S1, exact A32/M8 structural unavailability, and fifteen negative plants analysis-only resume audit changed
+- (2026-08-26 05:33 UTC) [fq-q4k-decode] PASS sha=32be0551c40b229ebbbb4d442917fd361e9646bf artifacts=/workspace/quactlize-fq-q4k-decode-f8ee5e1-20260826T025354Z [fq-q4k-decode] summary=/workspace/quactlize-fq-q4k-decode-f8ee5e1-20260826T025354Z/results/summary.tsv
+- (2026-08-26 05:34 UTC) bash: column: command not found bash: column: command not found
+- (2026-08-26 05:34 UTC) N K verdict selected_class max_regret mean_regret runner_class runner_regret 1024 5120 RESOLVED_BY_ALL_M_COVERAGE xplane-q4k-tile-free-f1-le256 0.0 0.0 NONE NONE 5120 8192 RESOLVED_BY_ALL_M_COVERAGE xplane-q4k-tile-free-f1-le256 0.0 0.0 NONE NONE 5120 25600 RESOLVED_BY_ALL_M_COVERAGE xplane-q4k-tile-free-f1-le256 0.0 0.0 NONE NONE 8192 5120 RESOLVED_BY_ALL_M_COVERAGE xplane-q4k-tile-free-f1-le256 0.0 0.0 NONE NONE 25600 5120 RESOLVED_BY_ALL_M_COVERAGE xplane-q4k-tile-free-f1-le256 0.0 0.0 NONE NONE
+- (2026-08-26 05:41 UTC) N K M reader_A algorithm config median_us regret 1024 5120 1 128 TC_SPLITK_S4_MODELED_E2E 8x64x256_w8x16_s2_bc0_apstandard-aiu 10.688330016004338 0.0 1024 5120 2 256 TC_SPLITK_S4_MODELED_E2E 8x64x256_w8x16_s3_bc0_apstandard-aiu 11.016659376008677 0.0 1024 5120 4 256 TC_SPLITK_S4_MODELED_E2E 8x64x256_w8x16_s3_bc0_apstandard-aiu 10.673318865017354 0.0 1024 5120 8 256 TC_SPLITK_S4_MODELED_E2E 8x32x256_w8x16_s2_bc0_apstandard-aiu 10.906637397034707 0.0 5120 8192 1 256 TC_SPLITK_S8_MODELED_E2E 8x64x256_w8x16_s2_bc0_appacked-row 16.598668690929863 0.0 5120 8192 2 64 TC_SPLITK_S4_MODELED_E2E 8x64x256_w8x16_s2_bc0_apstandard-aiu 18.723297553043384 0.0 5120 8192 4 256 TC_SPLITK_S4_MODELED_E2E 8x64x256_w8x16_s2_bc0_apstandard-aiu 19.08659500308677 0.0 5120 8192 8 256 TC_SPLITK_S4_MODELED_E2E 8x64x256_w8x16_s2_bc0_apstandard-aiu 18.773189433173535 0.0 5120 25600 1 64 TC_SPLITK_S4_MODELED_E2E 8x64x256_w8x16_s2_bc0_appacked-row 47.76164873802169 0.0 5120 25600 2 64 TC_SPLITK_S4_MODELED_E2E 8x32x256_w8x16_s2_bc0_apstandard-aiu 49.28329555904338 0.0 5120 25600 4 64 TC_SPLITK_S4_MODELED_E2E 8x32x256_w8x16_s2_bc0_apstandard-aiu 49.00659558508677 0.0 5120 25600 8 128 TC_SPLITK_S4_MODELED_E2E 8x32x256_w8x16_s2_bc0_apstandard-aiu 46.73318813017354 0.0 8192 5120 1 64 TC_SPLITK_S4_MODELED_E2E 8x64x256_w8x16_s2_bc0_appacked-row 16.906637450034708 0.0 8192 5120 2 128 TC_SPLITK_S4_MODELED_E2E 8x128x256_w8x16_s2_bc0_apstandard-aiu 17.173274854069415 0.0 8192 5120 4 128 TC_SPLITK_S4_MODELED_E2E 8x128x2 …
+- (2026-08-26 06:11 UTC) M N K verdict winner winner_A winner_us runner runner_A runner_us gap_pct 1 1024 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 128 10.688330016004338 TC_SPLITK_S4_MODELED_E2E 256 10.688330016004338 0 1 25600 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 256 41.280001402 TC_S1_FULL_OUTPUT 256 41.999999434 1.7441812198318196 M N K verdict winner winner_A winner_us runner runner_A runner_us gap_pct 1 1024 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 128 10.688330016004338 TC_SPLITK_S4_MODELED_E2E 256 10.688330016004338 0 1 25600 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 256 41.280001402 TC_S1_FULL_OUTPUT 256 41.999999434 1.7441812198318196 M N K verdict winner winner_A winner_us runner runner_A runner_us gap_pct 1 1024 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 128 10.688330016004338 TC_SPLITK_S4_MODELED_E2E 256 10.688330016004338 0 1 25600 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 256 41.280001402 TC_S1_FULL_OUTPUT 256 41.999999434 1.7441812198318196 2 1024 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 256 11.016659376008677 TC_SPLITK_S4_MODELED_E2E 256 11.216659037008677 1.815429289168602 2 25600 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 256 42.360000312 TC_S1_FULL_OUTPUT 256 42.559999973 0.472142727872793 2 5120 25600 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 64 49.28329555904338 TC_SPLITK_S4_MODELED_E2E 64 50.28329758504338 2.02908919676 …
+- (2026-08-26 06:15 UTC) OUT=/workspace/quactlize-fq-q4k-decode-f8ee5e1-20260826T025354Z jq -r ' ["M","N","K","verdict","winner","winner_A","winner_config","winner_us", "runner","runner_A","runner_config","runner_us","gap_pct"], ( .shape_winners[] | select(.shape[0] == 1) | [ .shape[0],.shape[1],.shape[2],.verdict, .winner.algorithm,.winner.artifact_tile_k,.winner.config,.winner.median_us, (.runner_up.algorithm // "NONE"), (.runner_up.artifact_tile_k // "NONE"), (.runner_up.config // "NONE"), (.runner_up.median_us // "NONE"), (if .runner_up then ((.runner_up.median_us / .winner.median_us - 1) * 100) else "NONE" end) ] ) | @tsv ' "$OUT/results/summary.json" M N K verdict winner winner_A winner_config winner_us runner runner_A runner_config runner_us gap_pct 1 1024 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 128 8x64x256_w8x16_s2_bc0_apstandard-aiu 10.688330016004338 TC_SPLITK_S4_MODELED_E2E 256 8x64x256_w8x16_s3_bc0_apstandard-aiu 10.688330016004338 0 1 25600 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 256 8x64x256_w8x16_s2_bc0_apstandard-aiu 41.280001402 TC_S1_FULL_OUTPUT 256 8x64x256_w8x16_s3_bc0_appacked-row 41.999999434 1.7441812198318196 1 5120 25600 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 64 8x64x256_w8x16_s2_bc0_appacked-row 47.76164873802169 TC_SPLITK_S4_MODELED_E2E 64 8x64x256_w8x16_s3_bc0_appacked-row 47.921649956021696 0.3349993608420698 1 5120 8192 RESOLVED TC_SPLITK_S8_MODELED_E2E 256 8x64x256_w8x16_s2_bc0_appacked-row 16.598668690929863 TC …
+- (2026-08-26 06:48 UTC) 那这些offline的格式对于prefill表现如何
+- (2026-08-26 06:53 UTC) tile-free-f1的offline可以用fold2的方法读取吗？
+- (2026-08-26 06:55 UTC) F1-native、fold2-style compute 这个实现之后是不是可以recover大部分的性能，并且适用于大部分的shape和格式。这个我记得之前推到过cute层面是可以的
+- (2026-08-26 06:58 UTC) 列一个实现的计划。
+- (2026-08-26 07:00 UTC) 按照计划执行
+- (2026-08-26 07:33 UTC) from /sim/eec/shared/junfu.qx/quactlize/dev/fold_derivation/l224_q4_f1_virtual_f2.cu:21: /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/float8.h:91:10: fatal error: hggc_fp8.h: No such file or directory 91 | #include <hggc_fp8.h> | ^~~~~~~~~~~~
+- (2026-08-26 07:33 UTC) 这个问题除了好几次了，我不希望再出了，写到skill
+- (2026-08-26 08:14 UTC) /sim/eec/shared/junfu.qx/quactlize/quactlize/include/dense_splitk_multiformat_ppu.cuh:126:45: error: no type named 'EpilogueSchedule' in '::fpa_intb_ppu::DenseVirtualFoldKernelTypes<(int)2, ::ppu_mixed_policy::QuantMode::FinegrainedScaleZero, ::cutlass::gemm::KernelAiuMultistageMixedInputFinegrainedGs32, ::cute::packed_tuple< ::cute::C<(int)64>, ::cute::C<(int)128>, ::cute::C<(int)128>>, ::cute::packed_tuple< ::cute::C<(int)128>, ::cute::C<(int)4>>, ::cute::pa
+- (2026-08-26 08:14 UTC) cked_tuple< ::cute::C<(int)64>, ::cute::C<(int)64>, ::cute::C<(int)128>>, (int)3, true, ::cutlass::integer_subbyte<(int)4, true>, (int)64>'
+- (2026-08-26 08:14 UTC) cked_tuple< ::cute::C<(int)64>, ::cute::C<(int)64>, ::cute::C<(int)128>>, (int)3, true, ::cutlass::integer_subbyte<(int)4, true>, (int)64>'
+- (2026-08-26 08:41 UTC) [q4-f1-virtual-f2] host-evidence=committed-local-oracle source-sha=614f297ea55b6af3b33f4e282b29863d0d783a5b fresh-box-execution=0 [q4-vf2-committed] PASS: 11-line proof validated; four positives, two RED controls, default/type/body/performance invariants bound; box uses fresh hgcc with fresh_box_execution=0 [scalefirst-generate] qtype=12 format=Q4_K artifact_tile_k=32 bchunk=0 raw=11520 typed=1 non_typed=11030 units=1 [q4-f1-virtual-f2] build arm=native-f2 A=32 symbol=sf_q12_a32_tm64_tn128_tk128_wm64_wn64_s3_bc0 sha256=f2b9758a44f2a66ba321afa0ee073d126d0c508891136087315e76c777ac83d9 [scalefirst-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 raw=11520 typed=1 non_typed=9696 units=1 [q4-f1-virtual-f2] build arm=f1 A=64 symbol=sf_q12_a64_tm64_tn128_tk128_wm64_wn64_s3_bc0 sha256=cfecac329584db7733ad2e85bcfc0f3bb76765517e092d0b5745a1a76506d1bf [scalefirst-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 raw=11520 typed=1 non_typed=9696 units=1 [q4-f1-virtual-f2] build arm=virtual-f2 A=64 symbol=sf_q12_a64_tm64_tn128_tk128_wm64_wn64_s3_bc0 sha256=fb1588238d1d4f30c5af2599fe27d77286a6efa62d9011c24b9df48717c5506d [q4-f1-virtual-f2-analysis] FAIL: native-f2: performance fingerprint differs from correctness closure
+- (2026-08-26 09:03 UTC) Q4_F1_VIRTUAL_F2_CORRECTNESS PASS fingerprints=1 artifacts=native-f2:A32,f1:A64,virtual-f2:A64 Q4_F1_VIRTUAL_F2_PERF arm=native-f2 shape=4096x5120x8192 algorithm=PERSISTENT policy=capacity grid=216 median_us=2663.840055466 range=[2644.079923630,2677.479982376] cells=6 Q4_F1_VIRTUAL_F2_PERF arm=f1 shape=4096x5120x8192 algorithm=PERSISTENT policy=capacity grid=216 median_us=5589.320182800 range=[5566.959857941,5633.319854736] cells=6 Q4_F1_VIRTUAL_F2_PERF arm=virtual-f2 shape=4096x5120x8192 algorithm=PERSISTENT policy=capacity grid=216 median_us=5934.239864349 range=[5903.719902039,5959.640026093] cells=6 Q4_F1_VIRTUAL_F2_COMPARISON virtual_vs_f1_delta_pct=6.171049 virtual_vs_native_f2_delta_pct=122.770127
+- (2026-08-26 09:11 UTC) 啥意思，什么叫让原生 A32/F2 支持 decode M=1/2/4/8。decoding的时候这几个performance不如A64，对吗？我的迷思是F2不是显然可以兼容decoding的K64吗？
+- (2026-08-26 09:18 UTC) 我的意思是，decoding的时候F2的layout，比如N64*K32的一块，对于decoding的时候加载的是N'32*K'64。因为fold2了，但是加载的逻辑是类似的，
+- (2026-08-26 09:18 UTC) A64/virtual-F2的代码需要去掉吗？这个好像铁定不会变好。
+- (2026-08-26 09:20 UTC) 删掉吧。然后做原生 A32/F2 decode 的 packed-metadata 接入。
+- (2026-08-26 09:38 UTC) 继续
+- (2026-08-26 09:40 UTC) 按照我的分析，应该直接就能读吧，cute已经描述了离线格式，我们按照K=64读取K=32Fold2的权重不行吗？
+- (2026-08-26 09:41 UTC) 所以你刚才就是准备着吗实现，对吗
+- (2026-08-26 09:41 UTC) 继续
+- (2026-08-26 13:08 UTC) 都是pass
+- (2026-08-26 13:09 UTC) artifacts: /workspace/quactlize-fq-q4k-a32-native-20260826T122808Z 是这个路径吗？
+- (2026-08-26 13:15 UTC) 都pass
+- (2026-08-26 13:23 UTC) M N K verdict winner_S producer_us reducer_us e2e_us config runner_S runner_e2e_us gap_pct 1 1024 5120 UNRESOLVED 4 14.640000 0.008330 14.648329 8x64x256_w8x32_s3_apstandard-aiu 4 15.648330 6.827 1 5120 8192 RESOLVED 4 24.280000 0.041649 24.321649 8x64x256_w8x32_s2_apstandard-aiu 8 26.598670 9.366 1 5120 25600 RESOLVED 4 62.799998 0.041649 62.841646 8x64x256_w8x32_s2_apstandard-aiu 4 92.241652 46.784 1 8192 5120 UNRESOLVED 2 24.240000 0.037021 24.277021 8x64x256_w8x32_s2_apstandard-aiu 2 24.357022 0.330 1 25600 5120 UNRESOLVED 1 54.040000 0.000000 54.040000 8x64x256_w8x32_s2_apstandard-aiu 2 58.555690 8.356 2 1024 5120 UNRESOLVED 4 14.520000 0.016659 14.536659 8x64x256_w8x32_s2_apstandard-aiu 4 16.216660 11.557 2 5120 8192 RESOLVED 4 24.639999 0.083297 24.723297 8x64x256_w8x32_s2_apstandard-aiu 8 26.757339 8.227 2 5120 25600 RESOLVED 4 62.120002 0.083297 62.203299 8x64x256_w8x32_s2_apstandard-aiu 4 92.083297 48.036 2 8192 5120 UNRESOLVED 2 24.480000 0.074042 24.554042 8x64x256_w8x32_s2_apstandard-aiu 2 24.554042 0.000 2 25600 5120 RESOLVED 1 54.280002 0.000000 54.280002 8x64x256_w8x32_s2_apstandard-aiu 2 58.671381 8.090 4 1024 5120 UNRESOLVED 4 15.480000 0.033319 15.513318 8x64x256_w8x32_s4_apstandard-aiu 4 15.673319 1.031 4 5120 8192 UNRESOLVED 4 24.560001 0.166594 24.726595 8x64x256_w8x32_s2_apstandard-aiu 8 26.754678 8.202 4 5120 25600 RESOLVED 4 63.040003 0.166594 63.206598 8x64x256_w8x32_s2_apstandard-aiu 2 92.372553 46.144 4 8192 5120 UNRESOLVED 2 24.119999 0.148084 24. …
+- (2026-08-26 13:27 UTC) 啥意思，没有特别理解，为什么会变慢，不理解啊
+- (2026-08-26 13:30 UTC) F2的时候为什么不能是4个warp，每个warp负责16列。只是逻辑上的cute地址不同了
+- (2026-08-26 13:32 UTC) 不不不，我的理解是除了AIU ld到shm的layout不同，后续的mma应该不会有影响才对，毕竟都是从对应的地址读取数据进行mma，最多n和k上也就是16个数，除了地址不同，其他不应该有区别？
+- (2026-08-26 13:37 UTC) 所以我说的是可行的。
+- (2026-08-26 13:37 UTC) 我们反过来想为什么F1的时候perf prefill的时候不佳可能是同样的问题吗？
+- (2026-08-26 13:37 UTC) 反过来可能是不行的，对吧
+- (2026-08-26 13:38 UTC) 反过来可能是不行的，对吧
+- (2026-08-26 13:40 UTC) OK，来吧，F2的目标是能够达到类似的decoding的perf，先看看要怎么改。给我计划， 然后修改，当前的代码如果要revert了，就没有必要保留
+- (2026-08-26 13:45 UTC) 从逻辑上分析一下，改完之后的性能
+- (2026-08-26 13:47 UTC) 读取的字节数应该是一样的啊，和原来的layout一样。
+- (2026-08-26 13:47 UTC) 为什么还会慢呢？不理解
+- (2026-08-26 13:48 UTC) x4 read是16x16的数据啊，也是小于我们的offline的最小tile的大小的啊
+- (2026-08-26 13:49 UTC) 不对啊，现在的x4投影为什么不能适用？现在的tile也比16x16大啊
+- (2026-08-26 13:49 UTC) 不对啊，现在的x4投影为什么不能适用？现在的tile也比16x16大啊
+- (2026-08-26 13:51 UTC) 所以逻辑上不应该有任何的perf degrade
+- (2026-08-26 14:07 UTC) 我还是需要你解释一下，16x16是在我们的一个fold内部的，除了需要prefetch下一个的地址不同，其他的有啥区别？
+- (2026-08-26 14:11 UTC) 这么改完之后应该改动非常非常少，而且perf很明显是接近的。
+- (2026-08-26 23:15 UTC) 可以。关键点是：ldmatrix 虽然语法上只有一个 [addr]，但这个 addr 是每个 lane 各自的寄存器值，并不是整个 warp 共用一个地址。 最常见的 FP16/BF16 形式是： ldmatrix.sync.aligned.m8n8.x1.shared.b16 {d0}, [addr]; ldmatrix.sync.aligned.m8n8.x2.shared.b16 {d0, d1}, [addr]; ldmatrix.sync.aligned.m8n8.x4.shared.b16 {d0, d1, d2, d3}, [addr]; // 转置加载，通常用于 MMA 的 B operand ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {d0, d1, d2, d3}, [addr]; 其中： * m8n8：每个逻辑矩阵是 8×8 * b16：每个元素16 bit，可以是 FP16/BF16 的 bit pattern * x1/x2/x4：一次加载1、2或4个 8×8 * 每个 lane 分别得到1、2或4个32-bit寄存器 * trans：按转置/column-major fragment 形式装入寄存器 * shared::cta 可以替代 shared，明确是当前 CTA 的 shared memory 地址是怎样提供的 以 .m8n8.b16 为例，一行正好是： 8 \times 16\text{ bit}=16\text{ bytes} 不同 lane 提供不同逻辑行的起始地址： 指令 地址提供者 .x1 lane 0-7：矩阵0的row 0-7 .x2 lane 0-7：矩阵0；lane 8-15：矩阵1 .x4 lane 0-7：矩阵0；lane 8-15：矩阵1；lane 16-23：矩阵2；lane 24-31：矩阵3 例如 .x4： lane 0 -> matrix 0, row 0 address lane 1 -> matrix 0, row 1 address ... lane 7 -> matrix 0, row 7 address lane 8 -> matrix 1, row 0 address ... lane 15 -> matrix 1, row 7 address lane 16..23 -> matrix 2 lane 24..31 -> matrix 3 这意味着四个矩阵可以来自完全不同的 shared-memory 区域： int lane = threadIdx.x & 31; int matrix = lane >> 3; // 0, 1, 2, 3 int row = lane & 7; // 0..7 half* base; if (matrix == 0) base = smem_A; // 例如 smem + 0 else if (matrix == 1) base = smem_B; // 例如 smem + 2048 else if (matrix == 2) base = smem_C; // 例如 smem + 4096 else base = smem_D; // 例如 smem + 6144 half* row_ptr = base + row * leading_dimension; 然后每个 lane 把自己的 row_ptr 传入同一条 ldmatrix.x4： uint32_t smem_addr  …
+- (2026-08-26 23:34 UTC) 额本地的actlize中没看到这种ldmatrix吗
+- (2026-08-26 23:52 UTC) 那我们现在的x4的指令是什么指令是什么
+- (2026-08-26 23:54 UTC) 不是吧我们也是要swzl的
+- (2026-08-27 00:18 UTC) 如果要复杂了还不如看一下看一下b矩阵transpose的的在actlize中的处理方式b如果trans就没有粒度不够的问题了
+- (2026-08-27 00:21 UTC) 我的意思是fold本质上是为了解决连续维度上最小粒度不够的问题。但是如果transpose之后，就不存在这个问题了。对吗？好像也不能解决，因为只是从K的限制，变成了N的限制。
+- (2026-08-27 00:22 UTC) 但是也是可以解决的，因为这样就能解耦A矩阵的限制。也可以看一下
+- (2026-08-27 00:24 UTC) 你静态分析一下，不行的话就把分析结果写成文档。
+- (2026-08-27 00:24 UTC) OUT=/workspace/quactlize-swzl-x4-ba14fbd OUT="$OUT" JOBS=16 \ bash tools/run_swzl_ldmatrix_x4_lane_base_probe_box.sh [swzl-x4] sha=ba14fbd6f964f6598065ed64e1a9bc58cc382b96 artifacts=/workspace/quactlize-swzl-x4-ba14fbd lane-local did not consume all cube bases: [0]
+- (2026-08-27 00:39 UTC) 我觉得是合理的，但是要注意WN必须要是64，才能满足最小粒度
+- (2026-08-27 00:40 UTC) 等一下，你的额外的K pack4是work的吗？你推导过了吗？另外我想要知道这个transpose是不是能够解决格式统一的问题
+- (2026-08-27 00:41 UTC) 因为当前的fold2也可以通过ldmatrix x2来解决
+- (2026-08-27 00:46 UTC) 我想要知道transpose从性能上和格式统一性上相对于现有方案的优势和劣势
+- (2026-08-27 00:50 UTC) 但是好像kpack4更合理，没有fold的问题了，并且格式天然统一，因为不管K 多小，都不需要fold
+- (2026-08-27 00:55 UTC) fold2+x2可以列为backup的list，但是我们先论证k-pack4的合理性
+- (2026-08-27 01:18 UTC) 列一个修改的计划，我们支持这个layout
+- (2026-08-27 01:26 UTC) 按照你的计划执行
+- (2026-08-27 02:25 UTC) [fq-q4k-kpack4-select:self-test] PASS exact source row; missing-row, axis-contradiction and denominator plants RED [fq-q4k-kpack4-check] PASS layout=1 mapping=0x51344b5034540001 shape=1x1024x5120 tactics=1 cells=1 S1=RAW-BIT/PASS [fq-q4k-kpack4-check:self-test] PASS exact denominator; layout, mapping, raw-bit, state, A, status and extra-cell plants RED [fq-tc-generate] qtype=12 format=Q4_K artifact_tile_k=64 bchunk=0 tile_m_filter=8 raw=11520 provider_expanded=12000 source_typed=918 typed=144 selection_reject=774 static_reject=110 [fq-q4k-kpack4-select] PASS source_typed=144/918 selected=1 layout=1 mapping=0x51344b5034540001 output=/workspace/quactlize-fq-q4k-kpack4-45c6263-first/generated/closure FQ_FIXTURE_FAIL q=12 A=0 shape=1x1024x5120 exact=0 roundtrip=0 [fq-q4k-kpack4] FAIL: S1 device closure rc=1 artifacts=/workspace/quactlize-fq-q4k-kpack4-45c6263-first artifacts: /workspace/quactlize-fq-q4k-kpack4-45c6263-first
+- (2026-08-27 02:32 UTC) [fq-q4k-kpack4-select] PASS source_typed=144/918 selected=1 layout=1 mapping=0x51344b5034540001 output=/workspace/quactlize-fq-q4k-kpack4-dd456ef-diagnostic/generated/closure FQ_FIXTURE_FAIL q=12 A=0 shape=1x1024x5120 exact=0 roundtrip=0 [fq-q4k-kpack4] FAIL: S1 device closure rc=1 artifacts=/workspace/quactlize-fq-q4k-kpack4-dd456ef-diagnostic artifacts: /workspace/quactlize-fq-q4k-kpack4-dd456ef-diagnostic
+- (2026-08-27 02:45 UTC) [fq-q4k-kpack4-select] PASS source_typed=144/918 selected=1 layout=1 mapping=0x51344b5034540001 output=/workspace/quactlize-fq-q4k-kpack4-5f4d987/generated/closure [fq-q4k-kpack4] FAIL: weight-layout build ABI did not reach build.sh/CMake/target [fq-q4k-kpack4] artifacts=/workspace/quactlize-fq-q4k-kpack4-5f4d987 artifacts: /workspace/quactlize-fq-q4k-kpack4-5f4d987
+- (2026-08-27 02:47 UTC) ?? .repo/ 325: FQ_SWEEP_BCHUNK FQ_SWEEP_PACKED_FORMAT FQ_SWEEP_WEIGHT_LAYOUT \ /workspace/quactlize-fq-q4k-kpack4-5f4d987/results/build.log:24:[build.sh] FQ_SWEEP_WEIGHT_LAYOUT=1 /workspace/quactlize-fq-q4k-kpack4-5f4d987/build/CMakeCache.txt:490:FQ_SWEEP_WEIGHT_LAYOUT:UNINITIALIZED=1
+- (2026-08-27 02:50 UTC) [fq-q4k-kpack4-check] PASS layout=1 mapping=0x51344b5034540001 shape=1x1024x5120 tactics=1 cells=1 S1=RAW-BIT/PASS
+- (2026-08-27 02:55 UTC) [fq-q4k-kpack4-check] PASS layout=1 mapping=0x51344b5034540001 shape=1x1024x5120 tactics=1 cells=1 S1=RAW-BIT/PASS [fq-q4k-kpack4-split-check] PASS layout=1 mapping=0x51344b5034540001 shape=1x1024x5120 tactics=1 cells=4 S1/S2/S4=RAW-BIT/PASS S8=STRUCTURAL-SPLIT-PARTITION
+- (2026-08-27 03:34 UTC) FQ_SHAPE_DONE q=12 A=0 bchunk=0 shape=1x1024x5120 weight_layout=1 weight_mapping_id=0x51344b5034540001 typed_rows=72 selected_rows=72 only_split=1 bc_mode=all bc_batch=native-grid-y-m-lt8 split_timing=ordered-close iterations=2 status=FAIL [fq-q4k-kpack4-pilot] FAIL: screen rc=1 artifacts=/workspace/quactlize-fq-q4k-kpack4-pilot-75bfba1a-20260827T032916Z-762772
+- (2026-08-27 03:38 UTC) CELL_COUNT 72 STATE_CENSUS {'MEASURED': 37, 'RAW_FP16_MISMATCH': 23, 'SHIPPING_SHARED_STORAGE': 12} BAD_GROUP 1 RAW_FP16_MISMATCH 128 64 2 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 128 64 3 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 128 64 4 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 128 64 6 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 128 64 8 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 32 32 12 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 32 32 2 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 32 32 3 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 32 32 4 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 32 32 6 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 32 32 8 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 64 32 12 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 64 32 2 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 64 32 3 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 64 32 4 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 64 32 6 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 64 32 8 RAW_FP16_MISMATCH 512 BAD_GROUP 1 RAW_FP16_MISMATCH 64 64 12 RAW_FP16_MISMATCH 1024 BAD_GROUP 1 RAW_FP16_MISMATCH 64 64 2 RAW_FP16_MISMATCH 1024 BAD_GROUP 1 RAW_FP16_MISMATCH 64 64 3 RAW_FP16_MISMATCH 1024 BAD_GROUP 1 RAW_FP16_MISMATCH 64 64 4 RAW_FP16_MISMATCH 1024 BAD_GROUP 1 RAW_FP16_MISMATCH 64 64 6 RAW_FP16_MISMATCH 1024 BAD_GROUP 1 RAW_FP16_MISMATCH 64 64 8 RAW_FP16_MISMATCH 1024 BAD_EX …
+- (2026-08-27 04:53 UTC) [fq-kpack4-fragment-check] PASS candidate=6/6-RAW-BIT legacy=2/6-clean+4/6-predicted-RED overlap=EXACT-L231 [fq-kpack4-fragment] PASS sha=604feb83c496672515efde2b97775f786a0ab615 candidate=6/6 legacy=2/6 artifacts=/workspace/quactlize-fq-q4k-kpack4-fragment-604feb83-20260827T044520Z-2657230
+- (2026-08-27 05:06 UTC) JOBS=16 \ FQ_CONFIGS_PER_UNIT=4 \ bash tools/run_fq_q4k_kpack4_pilot_box.sh[fq-q4k-kpack4-pilot-final] PASS verdict=UNRESOLVED_OVERLAPPING_ENVELOPES algorithm=TC_SPLITK_S4_MODELED_E2E config=8x32x256_w8x16_s3_bc0_apstandard-aiu e2e_us=10.808329998 confirmed=18 board status verdict measured algorithm S producer_us reducer_us e2e_us config runner_e2e_us gap_pct S1 AVAILABLE UNRESOLVED_OVERLAPPING_ENVELOPES 18 TC_S1_FULL_OUTPUT 1 26.559999213 0.0 26.559999213 8x32x256_w8x16_s2_bc0_apstandard-aiu 26.839999482 1.054217911508637 S2 AVAILABLE UNRESOLVED_OVERLAPPING_ENVELOPES 18 TC_SPLITK_S2_MODELED_E2E 2 16.079999506 0.0046276211135213305 16.08462712711352 8x32x256_w8x16_s3_bc0_apstandard-aiu 16.244628346113522 0.9947462116189909 S4 AVAILABLE UNRESOLVED_OVERLAPPING_ENVELOPES 15 TC_SPLITK_S4_MODELED_E2E 4 10.80000028 0.008329718004338394 10.80832999800434 8x32x256_w8x16_s3_bc0_apstandard-aiu 10.88832967600434 0.7401668714294596 S8 UNAVAILABLE NONE 0 NONE 8 NONE NONE NONE NONE NONE NONE [
+- (2026-08-27 05:31 UTC) PILOT_BUNDLE="$( find /workspace -maxdepth 3 -type f \ -path '/workspace/quactlize-fq-q4k-kpack4-pilot-*/results/summary.json' \ -printf '%T@ %h\n' | sort -nr | awk 'NR==1 {sub(/\/results$/, "", $2); print $2}' )" test -n "$PILOT_BUNDLE" || { echo "completed K-pack4 pilot bundle not found" exit 2 } echo "reusing: $PILOT_BUNDLE" INTERNAL_SWEEP_SPEC=/workspace/quactlize-internal-full-sweep-081495f-20260818T044307Z/inputs/inventory/inventory.json \ PILOT_BUNDLE="$PILOT_BUNDLE" \ JOBS=16 \ bash tools/run_fq_q4k_kpack4_decode_real_shapes_box.sh [fq-q4k-decode-plan:self-test] PASS: inventory-owned real families, exact M=1/2/4/8 expansion, per-layer source coalescing, and canonical fold2/fold1 byte classes [fq-q4k-kpack4-pilot:self-test] PASS native 72-row screen, per-board scheduler union, seven-sample confirmation, 20-shape aggregate, 80%-HBM reducer and structural S8; mapping/missing-cell negatives RED [fq-q4k-kpack4-generator:self-test] PASS xplane=144/918 unchanged Kpack4=72/846 raw=11520 geometry=A64/AP0-exact mapping=0x51344b5034540001; four manifest and four generator negatives RED [fq-kpack4-real:self-test] PASS one reused 72-row binary, exact M=1/2/4/8 x five-family denominator, three phases, aggregate and seven authority plants RED [fq-q4k-decode-plan] PASS families=5 shapes=20 cells=80 output=/workspace/quactlize-fq-q4k-kpack4-real-9bdf6fb5-20260827T052732Z-3697435/plan.json pilot manifest source-authority hash differs
+- (2026-08-27 06:00 UTC) [fq-q4k-decode-plan:self-test] PASS: inventory-owned real families, exact M=1/2/4/8 expansion, per-layer source coalescing, and canonical fold2/fold1 byte classes [fq-q4k-kpack4-pilot:self-test] PASS native 72-row screen, per-board scheduler union, seven-sample confirmation, 20-shape aggregate, 80%-HBM reducer and structural S8; mapping/missing-cell negatives RED [fq-q4k-kpack4-generator:self-test] PASS xplane=144/918 unchanged Kpack4=72/846 raw=11520 geometry=A64/AP0-exact mapping=0x51344b5034540001; four manifest and four generator negatives RED [fq-kpack4-real:self-test] PASS one reused 72-row binary, exact M=1/2/4/8 x five-family denominator, three phases, aggregate and seven authority plants RED pilot manifest source-authority hash differs
+- (2026-08-27 06:26 UTC) 以下是截图内容的文字转录:
+- (2026-08-27 06:26 UTC) [fq-kpack4-real] shape=... phase=confirm [fq-q4k-kpack4-pilot-final] PASS verdict=UNRESOLVED_OVERLAPPING_ENVELOPES algorithm=TC_SPLITK_S4_MODELED_E2E config=8x128x256_w8x16_s2_bc0_apstandard-aiu e2e_us=18.653102091 confirmed=14 [fq-q4k-kpack4-real-final] PASS families=5 shapes=20 layout=q4-kpack4-transpose-v1 表格数据（列:shape | M | N | K | verdict | algorithm | S | producer_us | reducer_us | e2e_us | config | MFU_pct | distinct_MBU_pct）: | shape | M | N | K | verdict | algorithm | S | producer_us | reducer_us | e2e_us | config | MFU_pct | distinct_MBU_pct | |---|---|---|---|---|---|---|---|---|---|---|---|---| | m1_n1024_k5120_g32 | 1 | 1024 | 5120 | UNRESOLVED_OVERLAPPING_ENVELOPES | TC_SPLITK_S4_MODELED_E2E | 4 | 10.99999994 | 0.008329718004338304 | 11.008329658004339 | 8x32x256_w8x16_s3_bc0_apstandard-aiu | 0.1905059228013876 | 9.725784511238817 | | m1_n25600_k5120_g32 | 1 | 25600 | 5120 | UNRESOLVED_OVERLAPPING_ENVELOPES | TC_S1_FULL_OUTPUT | 1 | 43.919999152 | 0.0 | 43.919999152 | 8x64x256_w8x16_s2_bc0_apstandard-aiu | 1.193734084979201 | 60.74068923112207 | | m1_n5120_k25600_g32 | 1 | 5120 | 25600 | UNRESOLVED_OVERLAPPING_ENVELOPES | TC_SPLITK_S4_MODELED_E2E | | 48.280000687 | 0.041648590021691974 | 48.32164927702169 | 8x64x256_w8x16_s2_bc0_apstandard-aiu | 1.0849960790748792 | 55.20778076569829 | | m1_n5120_k8192_g32 | 1 | 5120 | 8192 | UNRESOLVED_OVERLAPPING_ENVELOPES | TC_SPLITK_S4_MODELED_E2E | | 18.71999912 | 0.041648590021691974 | 18.76164771002169 | 8x64x256_w8x16_s2 …
+- (2026-08-27 06:26 UTC) [fq-kpack4-real] shape=... phase=confirm [fq-q4k-kpack4-pilot-final] PASS verdict=UNRESOLVED_OVERLAPPING_ENVELOPES algorithm=TC_SPLITK_S4_MODELED_E2E config=8x128x256_w8x16_s2_bc0_apstandard-aiu e2e_us=18.653102091 confirmed=14 [fq-q4k-kpack4-real-final] PASS families=5 shapes=20 layout=q4-kpack4-transpose-v1 表格数据（列:shape | M | N | K | verdict | algorithm | S | producer_us | reducer_us | e2e_us | config | MFU_pct | distinct_MBU_pct）: | shape | M | N | K | verdict | algorithm | S | producer_us | reducer_us | e2e_us | config | MFU_pct | distinct_MBU_pct | |---|---|---|---|---|---|---|---|---|---|---|---|---| | m1_n1024_k5120_g32 | 1 | 1024 | 5120 | UNRESOLVED_OVERLAPPING_ENVELOPES | TC_SPLITK_S4_MODELED_E2E | 4 | 10.99999994 | 0.008329718004338304 | 11.008329658004339 | 8x32x256_w8x16_s3_bc0_apstandard-aiu | 0.1905059228013876 | 9.725784511238817 | | m1_n25600_k5120_g32 | 1 | 25600 | 5120 | UNRESOLVED_OVERLAPPING_ENVELOPES | TC_S1_FULL_OUTPUT | 1 | 43.919999152 | 0.0 | 43.919999152 | 8x64x256_w8x16_s2_bc0_apstandard-aiu | 1.193734084979201 | 60.74068923112207 | | m1_n5120_k25600_g32 | 1 | 5120 | 25600 | UNRESOLVED_OVERLAPPING_ENVELOPES | TC_SPLITK_S4_MODELED_E2E | | 48.280000687 | 0.041648590021691974 | 48.32164927702169 | 8x64x256_w8x16_s2_bc0_apstandard-aiu | 1.0849960790748792 | 55.20778076569829 | | m1_n5120_k8192_g32 | 1 | 5120 | 8192 | UNRESOLVED_OVERLAPPING_ENVELOPES | TC_SPLITK_S4_MODELED_E2E | | 18.71999912 | 0.041648590021691974 | 18.76164771002169 | 8x64x256_w8x16_s2 …
+- (2026-08-27 06:30 UTC) shape M N K verdict algorithm S producer_us reducer_us e2e_us config MFU_pct distinct_MBU_pct m1_n1024_k5120_g32 1 1024 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 4 10.99999994 0.008329718004338394 11.008329658004339 8x32x256_w8x16_s3_bc0_apstandard-aiu 0.1905059228013876 9.725784511238817 m1_n25600_k5120_g32 1 25600 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 1 43.919999152 0.0 43.919999152 8x64x256_w8x16_s2_bc0_apstandard-aiu 1.193734084979201 60.74068923112207 m1_n5120_k25600_g32 1 5120 25600 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 4 48.280000687 0.041648590021691974 48.32164927702169 8x64x256_w8x16_s2_bc0_apstandard-aiu 1.0849960790748792 55.20778055.20778076569829 m1_n5120_k8192_g32 1 5120 8192 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 4 18.71999912 0.041648590021691974 18.76164771002169 8x64x256_w8x16_s2_bc0_apstandard-aiu 0.894229348045924 45.51442826526012m1_n8192_k5120_g32 1 8192 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 4 17.799999565 0.06663774403470715 17.866637309034708 8x128x256_w8x16_s2_bc0_apstandard-aiu 0.9390248265417123 47.79442566979604 m2_n1024_k5120_g32 2 1024 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_SPLITK_S4_MODELED_E2E 4 10.879999958 0.016659436008676788 10.896659394008678 8x32x256_w8x16_s3_bc0_apstandard-aiu 0.38491650040067865 9.866225034843183 m2_n25600_k5120_g32 2 25600 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 1 43.159998953 0.0 43.159998953 8x64x …
+- (2026-08-27 06:33 UTC) [fq-kpack4-xplane-compare:self-test] PASS 20 shapes/5 families, product-scope envelopes and decode minimax; policy/missing-shape RED KPACK4_XPLANE_SHAPE_CENSUS verdicts={"RESOLVED": 6, "UNRESOLVED_OVERLAPPING_ENVELOPES": 14} median_wins={"kpack4": 5, "xplane": 15} KPACK4_XPLANE_FAMILY N=1024 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.011012548 kpack4_max_regret=0.071205612 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=5120 K=8192 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.004209098 kpack4_max_regret=0.130310392 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=5120 K=25600 selected=kpack4 selected_class=q4-kpack4-transpose-v1 selected_max_regret=0.021398113 kpack4_max_regret=0.021398113 kpack4_within_5pct=1 KPACK4_XPLANE_FAMILY N=8192 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.065217676 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=25600 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.003679795 kpack4_max_regret=0.063953432 kpack4_within_5pct=0
+- (2026-08-27 06:37 UTC) 我不太理解为什么performance会下降？pack4从逻辑上来说只是ldmatrix变成了ldmatrix。trans。其他的没有区别吧
+- (2026-08-27 06:42 UTC) 做同构 A/B：固定 AP0、config、split、shape，仅切换 Xplane/K-pack4，并对比指令数、寄存器、spill 和 kernel 时间。另外没有m8n8。x4。trans吗？
+- (2026-08-27 06:44 UTC) 为什么我们不能走m8n8 trans
+- (2026-08-27 06:45 UTC) - Xplane：16.60 µs，赢家是 packed-row - K-pack4：18.76 µs，只有 standard-aiu 这种不能直接比较，可以把kpack4添加packedrow
+- (2026-08-27 06:49 UTC) 把刚才的对比都拉出来看看表格
+- (2026-08-27 06:52 UTC) 你也没有sweep kpack4的config，对吗？
+- (2026-08-27 06:53 UTC) 继续吧，我们要确定一下transpose是否有代价。最终如果还是有perf差距，需要acu对比
+- (2026-08-27 07:21 UTC) [fq-kpack4-xplane-ab-analysis] FAIL: xplane-ap0 did not lower exclusively through xplane m8x4 reader artifacts: /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d cat: /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/results/summary.tsv: No such file or directory
+- (2026-08-27 07:38 UTC) [fq-kpack4-xplane-ab-analysis] FAIL: xplane-ap1 exact producer schedule differs: kpack=0 ap1=0 cat: /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/results/summary.tsv: No such file or directory
+- (2026-08-27 07:40 UTC) EEENS2_12fixed_splitk24SeparateKernelCompletionEEEEEvNT_6ParamsE [fq-kpack4-xplane-ab-analysis] FAIL: xplane-ap1 exact producer schedule differs: kpack=0 ap1=0 cat: /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/results/summary.tsv: No such file or directory
+- (2026-08-27 07:56 UTC) 逐 shape 对比（AP0/AP1 两个 provider）: FQ_KPACK4_XPLANE_AB shape=m1_n5120_k8192 provider=AP0 xplane_us=19.360000268 kpack4_us=19.039999694 delta_pct=-1.652896 acu_required=0 FQ_KPACK4_XPLANE_AB shape=m1_n5120_k8192 provider=AP1 xplane_us=19.180000760 kpack4_us=19.600000232 delta_pct=2.189778 acu_required=0 FQ_KPACK4_XPLANE_AB shape=m1_n5120_k25600 provider=AP0 xplane_us=51.780000329 kpack4_us=50.200000405 delta_pct=-3.051371 acu_required=1 FQ_KPACK4_XPLANE_AB shape=m1_n5120_k25600 provider=AP1 xplane_us=51.620000973 kpack4_us=50.719998777 delta_pct=-1.743514 acu_required=1 FQ_KPACK4_XPLANE_AB shape=m1_n8192_k5120 provider=AP0 xplane_us=23.439999670 kpack4_us=24.500000291 delta_pct=4.522187 acu_required=1 FQ_KPACK4_XPLANE_AB shape=m1_n8192_k5120 provider=AP1 xplane_us=17.039999366 kpack4_us=17.960000783 delta_pct=5.399070 acu_required=1 FQ_KPACK4_XPLANE_AB shape=m2_n5120_k25600 provider=AP0 xplane_us=51.899999380 kpack4_us=50.560001284 delta_pct=-2.581885 acu_required=0 FQ_KPACK4_XPLANE_AB shape=m4_n5120_k8192 provider=AP0 xplane_us=19.039999694 kpack4_us=18.920000643 delta_pct=-0.630247 acu_required=0 FQ_KPACK4_XPLANE_AB_VERDICT comparisons=8 acu_required=1 acu_targets=3 output=/workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/results/summary.json [fq-kpack4-xplane-ab] ACU shape=m1_n8192_k5120 provider=AP0 arm=xplane-ap0 [fq-kpack4-xplane-ab] ACU shape=m1_n8192_k5120 provider=AP0 arm=xplane-ap0 [fq-kpack4-xplane-ab] ACU shape=m1_n8192_k5120 provider=AP1 arm=xplane-ap1 [fq-kpack4 …
+- (2026-08-27 08:01 UTC) {"Block Size": "(128,1,1)", "CC": "", "Context": "", "Device": "0", "Grid Size": "(1,128,4)", "Host Name": "aiswu95.eng.t-head.cn", "ID": "0", "Kernel Mangled Name": "_ZN7cutlassL13de "Metric Name": "Avg. Active Threads Per Warp", "Metric Unit": "inst", "Metric Value": "16.86", "Process ID": "2996481", "Process Name": "2996481", "Rule Description": "n/a", "Rule Name": "n/a", "Rule Type": "n/a", "Section Name": "Warp State Statistics", "Stream": ""}
+- (2026-08-27 08:04 UTC) shape provider arm report details m1_n8192_k5120 AP0 xplane-ap0 /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/acu/m1_n8192_k5120-ap0-xplane-ap0.report.acurep /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/acu/m1_n8192_k5120-ap0-xplane-ap0.details.csv m1_n8192_k5120 AP0 kpack4-ap0 /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/acu/m1_n8192_k5120-ap0-kpack4-ap0.report.acurep /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/acu/m1_n8192_k5120-ap0-kpack4-ap0.details.csv m1_n8192_k5120 AP1 xplane-ap1 /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/acu/m1_n8192_k5120-ap1-xplane-ap1.report.acurep /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/acu/m1_n8192_k5120-ap1-xplane-ap1.details.csv m1_n8192_k5120 AP1 kpack4-ap1 /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/acu/m1_n8192_k5120-ap1-kpack4-ap1.report.acurep /workspace/quactlize-fq-q4k-kpack4-xplane-ab-657ae5d/acu/m1_n8192_k5120-ap1-kpack4-ap1.details.csv >>
+- (2026-08-27 08:29 UTC) 一句解读:AP0/AP1 两侧都是同一个模式——kpack4 相比 xplane 的 L2 命中率暴跌（L2 Hit Rate 77%→22%、L2 Hit On Miss Rate 掉 90%+、L1/L2 Cache Throughput 掉 48~72%），指令数、寄存器、occupancy、shared mem 几乎不变。也就是 kpack4 布局把数据的 L2 复用性搞没了,导致 DRAM/Memory Throughput 反而略降、CU active cycle 和 Duration 涨了 4~9%——这跟前面看到的 kpack4 在部分 shape 变慢、指令更少但更慢的现象一致,瓶颈定位在 cache locality 而非算力/寄存器。要我从这个角度帮你查 kpack4 布局为什么破坏 L2 复用吗?
+- (2026-08-27 08:30 UTC) AP0（common_metrics=71） section metric unit xplane kpack4 delta_pct Memory Workload Analysis L2 Hit On Miss Rate % 53.63 4.05 -92.448 Memory Workload Analysis L2 Hit Rate % 77.41 22.22 -71.296 PPU Speed Of Light Throughput L1 Cache Throughput % 16.96 4.96 -70.755 PPU Speed Of Light Throughput L2 Cache Throughput % 12.53 6.49 -48.204 Launch Statistics Stack Size Bytes Per Thread byte/thread 152.0 136.0 -10.526 Memory Workload Analysis Mem Pipes Busy % 5.44 4.94 -9.191 Warp State Statistics Warp Cycles Per Executed Instruction cycle 3.86 4.21 9.067 Warp State Statistics Warp Cycles Per Issued Instruction cycle 3.86 4.21 9.067 Memory Workload Analysis Mem Busy % 12.53 11.75 -6.225 Scheduler Statistics Issued Warp Instructions Per WS inst/cycle 0.68 0.64 -5.882 Scheduler Statistics Issued Cycles Per WS unitless 0.54 0.51 -5.556 PPU Compute Workload Analysis Issue Slots Busy % 17.15 16.24 -5.306 PPU Speed Of Light Throughput CU Active Cycles cycle 34690.21 36477.57 5.152 PPU Compute Workload Analysis Executed Ipc Active inst/cycle 2.74 2.6 -5.109 PPU Compute Workload Analysis Issued Ipc Active inst/cycle 2.74 2.6 -5.109 PPU Compute Workload Analysis Executed Ipc Elapsed inst/cycle 2.0 1.9 -5.000 PPU Speed Of Light Throughput Active Cycles cycle 47234.0 49503.0 4.804 PPU Speed Of Light Throughput Duration nsecond 28053.53 29388.24 4.758 PPU Speed Of Light Throughput Elapsed Cycles cycle 47691.0 49960.0 4.758 PPU Speed Of Light Throughput LLC Cache Throughput % 12.31 11.75 -4.549 Sch …
+- (2026-08-27 08:30 UTC) AP1（common_metrics=71） section metric unit xplane kpack4 delta_pct Memory Workload Analysis L2 Hit On Miss Rate % 48.8 4.43 -90.922 PPU Speed Of Light Throughput L1 Cache Throughput % 18.56 5.23 -71.821 Memory Workload Analysis L2 Hit Rate % 77.41 22.27 -71.231 PPU Speed Of Light Throughput L2 Cache Throughput % 17.24 8.78 -49.072 Scheduler Statistics No Eligible % 41.26 47.03 13.984 Launch Statistics Stack Size Bytes Per Thread byte/thread 128.0 112.0 -12.500 Warp State Statistics Warp Cycles Per Executed Instruction cycle 4.39 4.93 12.301 Warp State Statistics Warp Cycles Per Issued Instruction cycle 4.39 4.93 12.301 Scheduler Statistics Issued Cycles Per WS unitless 0.59 0.53 -10.169 Scheduler Statistics One or More Eligible % 58.74 52.97 -9.823 PPU Compute Workload Analysis CU Busy % 58.71 52.95 -9.811 PPU Speed Of Light Throughput Compute (CU) Throughput % 54.83 49.55 -9.630 PPU Compute Workload Analysis Executed Ipc Active inst/cycle 3.06 2.77 -9.477 PPU Compute Workload Analysis Issued Ipc Active inst/cycle 3.06 2.77 -9.477 PPU Compute Workload Analysis Issue Slots Busy % 19.1 17.33 -9.267 Scheduler Statistics Issued Warp Instructions Per WS inst/cycle 0.76 0.69 -9.211 PPU Speed Of Light Throughput CU Active Cycles cycle 31789.54 34513.51 8.569 Memory Workload Analysis Max Bandwidth % 43.56 39.93 -8.333 PPU Speed Of Light Throughput DRAM Throughput % 43.56 39.93 -8.333 PPU Speed Of Light Throughput Memory Throughput % 43.56 39.93 -8.333 Memory Workload Analysis Memory  …
+- (2026-08-27 08:30 UTC) AP0（common_metrics=71） section metric unit xplane kpack4 delta_pct Memory Workload Analysis L2 Hit On Miss Rate % 53.63 4.05 -92.448 Memory Workload Analysis L2 Hit Rate % 77.41 22.22 -71.296 PPU Speed Of Light Throughput L1 Cache Throughput % 16.96 4.96 -70.755 PPU Speed Of Light Throughput L2 Cache Throughput % 12.53 6.49 -48.204 Launch Statistics Stack Size Bytes Per Thread byte/thread 152.0 136.0 -10.526 Memory Workload Analysis Mem Pipes Busy % 5.44 4.94 -9.191 Warp State Statistics Warp Cycles Per Executed Instruction cycle 3.86 4.21 9.067 Warp State Statistics Warp Cycles Per Issued Instruction cycle 3.86 4.21 9.067 Memory Workload Analysis Mem Busy % 12.53 11.75 -6.225 Scheduler Statistics Issued Warp Instructions Per WS inst/cycle 0.68 0.64 -5.882 Scheduler Statistics Issued Cycles Per WS unitless 0.54 0.51 -5.556 PPU Compute Workload Analysis Issue Slots Busy % 17.15 16.24 -5.306 PPU Speed Of Light Throughput CU Active Cycles cycle 34690.21 36477.57 5.152 PPU Compute Workload Analysis Executed Ipc Active inst/cycle 2.74 2.6 -5.109 PPU Compute Workload Analysis Issued Ipc Active inst/cycle 2.74 2.6 -5.109 PPU Compute Workload Analysis Executed Ipc Elapsed inst/cycle 2.0 1.9 -5.000 PPU Speed Of Light Throughput Active Cycles cycle 47234.0 49503.0 4.804 PPU Speed Of Light Throughput Duration nsecond 28053.53 29388.24 4.758 PPU Speed Of Light Throughput Elapsed Cycles cycle 47691.0 49960.0 4.758 PPU Speed Of Light Throughput LLC Cache Throughput % 12.31 11.75 -4.549 Sch …
+- (2026-08-27 08:31 UTC) 主要是迭代的顺序吧，scheduler里面是Nfirst还是Mfirst还是什么有关系
+- (2026-08-27 08:45 UTC) 来吧
+- (2026-08-27 08:50 UTC) 还有什么别的可能性吗？从ncu看差异
+- (2026-08-27 08:52 UTC) 候选放到todo后面继续调优。
+- (2026-08-27 09:40 UTC) FQ_GRID_ORDER_AB shape=m1_n8192_k5120 provider=AP0 layout=xplane native_us=23.240000010 n_on_x_us=23.600000888 delta_pct=1.549057 same_sign=1 FQ_GRID_ORDER_AB shape=m1_n8192_k5120 provider=AP0 layout=kpack4 native_us=24.500000291 n_on_x_us=24.740000256 delta_pct=0.979592 same_sign=1 FQ_GRID_ORDER_AB shape=m1_n8192_k5120 provider=AP1 layout=xplane native_us=17.000000924 n_on_x_us=17.000000924 delta_pct=0.000000 same_sign=0 FQ_GRID_ORDER_AB shape=m1_n8192_k5120 provider=AP1 layout=kpack4 native_us=18.079999834 n_on_x_us=17.620000057 delta_pct=-2.544247 same_sign=1 FQ_GRID_ORDER_AB shape=m1_n5120_k8192 provider=AP0 layout=xplane native_us=18.920000643 n_on_x_us=19.079999998 delta_pct=0.845663 same_sign=0 FQ_GRID_ORDER_AB shape=m1_n5120_k8192 provider=AP0 layout=kpack4 native_us=18.759999424 n_on_x_us=18.759999424 delta_pct=0.000000 same_sign=0 FQ_GRID_ORDER_AB shape=m1_n5120_k8192 provider=AP1 layout=xplane native_us=19.079999998 n_on_x_us=18.999999389 delta_pct=-0.419290 same_sign=1 FQ_GRID_ORDER_AB shape=m1_n5120_k8192 provider=AP1 layout=kpack4 native_us=19.460000098 n_on_x_us=19.200000912 delta_pct=-1.336070 same_sign=1 FQ_GRID_ORDER_AB shape=m1_n5120_k25600 provider=AP0 layout=xplane native_us=51.600001752 n_on_x_us=51.839999855 delta_pct=0.465113 same_sign=1 FQ_GRID_ORDER_AB shape=m1_n5120_k25600 provider=AP0 layout=kpack4 native_us=50.159998238 n_on_x_us=50.439998507 delta_pct=0.558214 same_sign=1 FQ_GRID_ORDER_AB shape=m1_n5120_k25600 provider=AP1 layout=xplane native_us …
+- (2026-08-27 10:18 UTC) [fq-n16-delivery-ab] build arm=kpack4-ap0-native layout=1 provider=AP0 variant=native FQ_N16_DELIVERY_AB shape=m1_n8192_k5120 role=N_WIDE_TARGET provider=AP0 xplane_us=23.479999974 native_us=24.639999494 n16_us=24.240000173 delta_pct=-1.623374 gap_vs_xplane_pct=3.236798 same_sign=1 verdict=NO_MATERIAL_DELIVERY_EFFECT FQ_N16_DELIVERY_AB shape=m1_n8192_k5120 role=N_WIDE_TARGET provider=AP1 xplane_us=17.160000280 native_us=18.039999530 n16_us=17.599999905 delta_pct=-2.439022 gap_vs_xplane_pct=2.564100 same_sign=1 verdict=N16_DELIVERY_GAIN FQ_N16_DELIVERY_AB shape=m1_n5120_k8192 role=BALANCED_CONTROL provider=AP0 xplane_us=18.880000338 native_us=18.739999272 n16_us=19.640000537 delta_pct=4.802568 gap_vs_xplane_pct=4.025425 same_sign=1 verdict=N16_DELIVERY_REGRESSION FQ_N16_DELIVERY_AB shape=m1_n5120_k8192 role=BALANCED_CONTROL provider=AP1 xplane_us=19.239999354 native_us=19.479999319 n16_us=19.360000268 delta_pct=-0.616012 gap_vs_xplane_pct=0.623705 same_sign=1 verdict=NO_MATERIAL_DELIVERY_EFFECT FQ_N16_DELIVERY_AB shape=m1_n5120_k25600 role=K_HEAVY_CONTROL provider=AP0 xplane_us=51.759999245 native_us=50.200000405 n16_us=51.920000464 delta_pct=3.426295 gap_vs_xplane_pct=0.309121 same_sign=1 verdict=N16_DELIVERY_REGRESSION FQ_N16_DELIVERY_AB shape=m1_n5120_k25600 role=K_HEAVY_CONTROL provider=AP1 xplane_us=51.320001483 native_us=50.580000505 n16_us=51.440000534 delta_pct=1.700277 gap_vs_xplane_pct=0.233825 same_sign=1 verdict=NO_MATERIAL_DELIVERY_EFFECT
+- (2026-08-27 10:57 UTC) FQ_STRIDE_PAD_AB shape=m1_n8192_k5120 role=N_WIDE_TARGET provider=AP0 xplane_us=23.280000314 native_us=24.520000443 pad64_us=24.639999494 delta_pct=0.489393 gap_vs_xplane_pct=5.8419 FQ_STRIDE_PAD_AB shape=m1_n8192_k5120 role=N_WIDE_TARGET provider=AP1 xplane_us=17.279999331 native_us=18.120000139 pad64_us=18.200000748 delta_pct=0.441504 gap_vs_xplane_pct=5.3240FQ_STRIDE_PAD_AB shape=m1_n5120_k8192 role=BALANCED_CONTROL provider=AP0 xplane_us=19.019999541 native_us=18.719999120 pad64_us=18.799999729 delta_pct=0.427354 gap_vs_xplane_pct=-1.T FQ_STRIDE_PAD_AB shape=m1_n5120_k8192 role=BALANCED_CONTROL provider=AP1 xplane_us=19.479999319 native_us=19.680000842 pad64_us=19.759999588 delta_pct=0.406498 gap_vs_xplane_pct=1.4FQ_STRIDE_PAD_AB shape=m1_n5120_k25600 role=K_HEAVY_CONTROL provider=AP0 xplane_us=51.679998636 native_us=50.360001624 pad64_us=50.000000745 delta_pct=-0.714855 gap_vs_xplane_pct=-3CT FQ_STRIDE_PAD_AB shape=m1_n5120_k25600 role=K_HEAVY_CONTROL provider=AP1 xplane_us=51.859999075 native_us=50.519999117 pad64_us=50.000000745 delta_pct=-1.029292 gap_vs_xplane_pct=-3CT
+- (2026-08-27 10:59 UTC) 我要打开acu report自己看一下。
+- (2026-08-27 11:09 UTC) 我看到了：bank conflict多了很多，516,096(+50.00%) 98,304(+0.00%) 0(+0.00%) 0(+0.00%) 0.00(+0.00%) 614,400(+38.89%)
+- (2026-08-27 11:09 UTC) 分别是shared load
+- (2026-08-27 11:10 UTC) 分别是shared load,store,store from gloabl load, atomic,other和total。baseline就是xplane,current是kpack4
+- (2026-08-27 11:25 UTC) `kpack4` = K 方向打包 4。先读那份对比分析和最新的 stride 隔离: 数据很清楚,而且**最要紧的一点是 Shared Load 的 instructions / requests / transactions 三个都是 `+0.00%`,只有 bank conflicts +50%**。同时 g2s(Shared Store From Global Load)transactions −71.6% —— 那是 kpack4 想要的收益。 先看 codex 自己的对比工具和最新那个 stride 改动: `SmemLayoutAtom = Layout<Shape<DeliveryN, PhysicalBlockK>, **Stride<_1, DeliveryN>**>` —— **N 是 stride-1 的连续维**,K 走 stride N。kpack4 把 4 个 nibble 打进一个 b16,于是能用 `swzl.trans.b16`(b8 没有 trans,这是我记忆里判过死的那条路的绕法)。 那 shared load 的冲突几乎必然来自「变 k 时按 stride-N 跳」。查两件事:实际 shipped 的 smem layout,和仓库里已有的同类先例: 先把这张表反解一遍(几个数互相对得上,说明读数没错): ``` baseline 复原: shared-load conflicts 516,096/1.5 = 344,064 g2s transactions 466,944/0.2836 = 1,646,592 total transactions 2,457,600+196,608+1,646,592 = 4,300,800 ✓ 对上 −27.43% total conflicts 344,064+98,304+0 = 442,368 ✓ 对上 +38.89% duration 反解: %Peak ∝ transactions/duration Shared Load: 事务比 1.000,%Peak 比 0.9297 → 时长 ×1.076 Total: 事务比 0.7257,%Peak 比 0.6739 → 时长 ×1.077 ``` **⟹ kernel 大约慢 7.6%,而 shared 总事务少了 27.4%。** 这一点先记着,最后再说。 ## 为什么 kpack4 的 bank conflict 更多 **Shared Load 的 instructions / requests / transactions 三个全是 `+0.00%`。** 这三个一起不动、只有 conflicts 动,把原因锁死成一件事:**访问的条数、请求数、数据量都没变,变的只有「地址 → bank」的映射**。不是取多了,不是 cadence 变了,就是摆放。 而 kpack4 的摆放正是这么来的: ```cpp SmemLayoutAtom = Layout<Shape<DeliveryN, PhysicalBlockK>, Stride<_1, DeliveryN>> // ^^^^^^^^^^^^^^^^^^^^ N 连续,K 走 stride N physical_stride = make_stride(_1, physical_n, physical_n * physical_k) ``` kpack4 把 4 个 nibble 打进一个 **b16**(这是它能用 `swzl.trans.b16 …
+- (2026-08-27 11:27 UTC) 我不太理解的为什么会增加bc。分析一下和xplane的区别
+- (2026-08-27 11:30 UTC) 而且为什么是shared ld导致的。这样的话应该是可以解决的？
+- (2026-08-27 11:35 UTC) 思考一下如何解决。给我一个方案，然后直接实施
+- (2026-08-27 11:46 UTC) 改完之后期望bc下降
+- (2026-08-27 11:54 UTC) 计算的结果不一样吗为什么xplane没有这个问题?计算的顺序不同嗎我理解区别不就是b矩阵的offlinelayout吗其他应该一致
+- (2026-08-27 12:48 UTC) FAILED gate/l229_q4_kpack4_production_type: /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/float8.h:91:10: fatal error: hggc_fp8.h: No such file or directory (+1 more) [via from /sim/eec/shared/junfu.qx/quactlize/dev/fold_derivation/l229_q4_kpack4_production_type.cu:9:]
+- (2026-08-27 12:59 UTC) 给我新的command
+- (2026-08-27 13:16 UTC) instructions registers spill tsm_load mma shipping_smem split_smem partial_bytes AP0 0 auto64 24.560000747 [22.639999166,30.680000782] 0.000000 0.000000,0.000000,0.000000 1650 UNKNO WN ZERO 67 16 38912 38912 131072 AP0 32 d32 23.040000349 [22.399999201,27.160000056] -6.188927 -5.510532,-6.372552,-6.372552 1677 UNKNO WN ZERO 67 16 38912 38912 131072 AP0 16 d16 24.119999260 [23.360000923,29.120000079] -1.791537 -3.079417,-1.797384,-0.653592 1708 UNKNO WN ZERO 67 16 38912 38912 131072 AP1 0 auto64 18.279999495 [17.319999635,23.560000584] 0.000000 0.000000,0.000000,0.000000 1675 UNKNO WN ZERO 67 16 27392 27392 131072 AP1 32 d32 17.079999670 [16.599999741,22.600000724] -6.564551 -6.550217,-7.592198,-5.518765 1703 UNKNO WN ZERO 67 16 27392 27392 131072 AP1 16 d16 17.559999600 [16.920000315,22.199999541] -3.938730 -4.148473,-4.989162,-1.986760 1738 UNKNO WN ZERO 67 16 27392 27392 131072AP0 PPU Speed Of Light Throughput Active Cycles cycle 0 48823.0 49012.0 49392.0 0.387113 1.165434 1 AP0 PPU Speed Of Light Throughput CU Active Cycles cycle 0 35837.78 34931.33 37606.85 -2.529314 4.936327 1 AP0 PPU Speed Of Light Throughput Duration nsecond 0 28988.24 29099.41 29322.94 0.383500 1.154606 1 AP0 RAW/PPU Speed Of Light Throughput Active Cycles cycle 0 48823.0 49012.0 49392.0 0.387113 1.165434 1 AP0 RAW/PPU Speed Of Light Throughput CU Active Cycles cycle 0 35837.78 34931.33 37606.85 -2.529314 4.936327 1 AP0 RAW/PPU Speed Of Light Throughput Duration nsecond 0 28988.24 29099.41 29322.94 0. …
+- (2026-08-27 13:18 UTC) FQ_KPACK4_DELIVERY_VERDICT provider=AP0 verdict=RESOLVED winner=d32 runner=d16 gap_pct=4.687495 FQ_KPACK4_DELIVERY_VERDICT provider=AP1 verdict=RESOLVED winner=d32 runner=d16 gap_pct=2.810304
+- (2026-08-27 13:19 UTC) 我要直接看acu文件
+- (2026-08-27 13:23 UTC) ap0是什么
+- (2026-08-27 13:25 UTC) 为什么看到的AP1的结果bank conflict没变。但是时间变快了
+- (2026-08-27 13:28 UTC) 我们还是需要减少bank conflict啊
+- (2026-08-27 13:29 UTC) 应该是scale和zeropoint
+- (2026-08-27 13:29 UTC) 应该是scale和zeropoint
+- (2026-08-27 13:37 UTC) 为什么fma的指令是最多的？没有走fast dequant吗？
+- (2026-08-27 13:38 UTC) OKK，继续前面的工作
+- (2026-08-27 13:39 UTC) OKK，继续前面的工作
+- (2026-08-27 14:21 UTC) [fq-kpack4-scalezero-analysis] FAIL: shared/workspace ABI changed across AP0 artifacts: /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z
+- (2026-08-28 00:48 UTC) FQ_KPACK4_SCALEZERO_RESOURCE provider=AP0 plain=[38912, 38912, 131072] store=[38928, 38928, 131072] load=[38928, 38928, 131072] store_delta=[16, 16, 0] FQ_KPACK4_SCALEZERO_VERDICT provider=AP0 verdict=RESOLVED_FUSED_LOAD_SLOWER winner=store load_vs_store_delta_pct=14.647371 load_vs_plain_delta_pct=12.014136 FQ_KPACK4_SCALEZERO_RESOURCE provider=AP1 plain=[27392, 27392, 131072] store=[27408, 27408, 131072] load=[27408, 27408, 131072] store_delta=[16, 16, 0] FQ_KPACK4_SCALEZERO_VERDICT provider=AP1 verdict=RESOLVED_FUSED_LOAD_SLOWER winner=store load_vs_store_delta_pct=16.995065 load_vs_plain_delta_pct=12.559238
+- (2026-08-28 00:50 UTC) 啥意思，之前的perf不是已经接近xplane了吗？
+- (2026-08-28 00:51 UTC) 现在哪些是手写的？不是cute
+- (2026-08-28 00:53 UTC) performance呢？fused load为什么不能改成cute
+- (2026-08-28 00:53 UTC) 之前跑的时候报错： [fq-kpack4-scalezero-analysis] FAIL: shared/workspace ABI changed across AP0 artifacts: /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z
+- (2026-08-28 00:55 UTC) 我们不是再调整bank conflict吗？你的什么版本能够减少bc
+- (2026-08-28 00:56 UTC) 没有输出
+- (2026-08-28 00:57 UTC) bank
+- (2026-08-28 00:57 UTC) bank conflict要打开acu看， OUT=/workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z for f in \ "$OUT/results/acu-index.tsv" \ "$OUT/results/acu-summary.log" \ "$OUT/results/acu-summary.json" do if test -s "$f"; then echo "PRESENT $f bytes=$(wc -c < "$f")" else echo "MISSING $f" fi done printf 'details_files=' find "$OUT/acu" -maxdepth 1 -type f -name '*.details.csv' | wc -l printf 'reports=' find "$OUT/acu" -maxdepth 1 -type f \ \( -name '*.report' -o -name '*.acurep' \) | wc -l test ! -s "$OUT/results/acu-index.tsv" || awk 'END {print "acu_index_arms=" NR-1}' "$OUT/results/acu-index.tsv"
+- (2026-08-28 00:57 UTC) /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap0-load.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap1-load.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap0-plain.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap1-plain.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap0-store.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap1-store.report.acurep
+- (2026-08-28 00:57 UTC) /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap0-load.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap1-load.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap0-plain.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap1-plain.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap0-store.report.acurep /workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z/acu/kpack4-ap1-store.report.acurep
+- (2026-08-28 00:57 UTC) 是哪一个
+- (2026-08-28 00:57 UTC) 是哪一个
+- (2026-08-28 01:00 UTC) ap1的时间变长了，但是bc确实变少了
+- (2026-08-28 01:01 UTC) 不是，我说的是fused store也变慢了。bc也变少了。相对于原来
+- (2026-08-28 01:01 UTC) fused load相对于fused store的bc没有区别
+- (2026-08-28 01:02 UTC) OUT=/workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z awk -F '\t' ' NR == 1 || ($1 == "AP1" && ($2 == "plain" || $2 == "store")) ' "$OUT/results/summary.tsv"
+- (2026-08-28 01:02 UTC) provider variant median_us range_us delta_vs_plain_pct delta_vs_store_pct paired_vs_plain_pct paired_vs_store_pct instructions registers spill tsm_load mma shipping_smem split_smem partial_bytes resource_delta_vs_plain AP1 plain 16.880000010 [16.400000080,22.080000490] 0.000000 NA 0.000000,0.000000,0.000000,0.000000 NA 1703 UNKNOWN ZERO 67 16 27392 27392 131072 0,0,0 AP1 store 16.240000725 [15.799999237,19.880000502] -3.791465 NA -3.562939,-3.095240,-4.694828,-3.562939 NA 1660 UNKNOWN ZERO 47 16 27408 27408 131072 16,16,0
+- (2026-08-28 01:02 UTC) OUT=/workspace/quactlize-fq-q4k-scalezero-47d271d-20260827T140831Z awk -F '\t' ' NR == 1 || ($1 == "AP1" && ($2 == "plain" || $2 == "store")) ' "$OUT/results/summary.tsv" provider variant median_us range_us delta_vs_plain_pct delta_vs_store_pct paired_vs_plain_pct paired_vs_store_pct instructions registers spill tsm_load mma shipping_smem split_smem partial_bytes resource_delta_vs_plain AP1 plain 16.880000010 [16.400000080,22.080000490] 0.000000 NA 0.000000,0.000000,0.000000,0.000000 NA 1703 UNKNOWN ZERO 67 16 27392 27392 131072 0,0,0 AP1 store 16.240000725 [15.799999237,19.880000502] -3.791465 NA -3.562939,-3.095240,-4.694828,-3.562939 NA 1660 UNKNOWN ZERO 47 16 27408 27408 131072 16,16,0
+- (2026-08-28 01:04 UTC) 按照你说的，删除 fused-load 实验路径，然后在完整 decode shapes 上验证它。我们要扫全部的shape
+- (2026-08-28 01:17 UTC) 之前我记得pack4K的格式不支持的Apack还是什么？所以有一些case差的比较多，和xplane
+- (2026-08-28 01:28 UTC) 我意思是k-pack4现在支持packed-A了吗
+- (2026-08-28 01:29 UTC) 原来的xplane应该也不支持M=2，4，8的packed-A吧
+- (2026-08-28 01:57 UTC) KPACK4_XPLANE_SHAPE_CENSUS verdicts={"RESOLVED": 18, "UNRESOLVED_OVERLAPPING_ENVELOPES": 2} median_wins={"xplane": 20} KPACK4_XPLANE_FAMILY N=1024 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.539663451 kpack4_within_5pct=0 KKPACK4_XPLANE_FAMILY N=5120 K=8192 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=1.394111292 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=5120 K=25600 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.960345331 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=8192 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=2.212763200 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=25600 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.569794191 kpack4_within_5pct=0
+- (2026-08-28 02:00 UTC) KPACK4_XPLANE_SHAPE_CENSUS verdicts={"RESOLVED": 17, "UNRESOLVED_OVERLAPPING_ENVELOPES": 3} median_wins={"xplane": 20} KPACK4_XPLANE_FAMILY N=1024 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.577307492 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=5120 K=8192 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.933596275 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=5120 K=25600 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.903854396 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=8192 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.925161791 kpack4_within_5pct=0 KPACK4_XPLANE_FAMILY N=25600 K=5120 selected=xplane selected_class=xplane-q4k-tile-free-f1-le256 selected_max_regret=0.000000000 kpack4_max_regret=0.967524393 kpack4_within_5pct=0
+- (2026-08-28 02:01 UTC) 为什么要全局D32，应该用跟原来的测出来baseline的结果相同的方法，要不然怎么比较呢
+- (2026-08-28 02:32 UTC) 给我一个command，grep你要看的，要不然结果太多了
+- (2026-08-28 02:34 UTC) FQ_KPACK4_FUSED_STORE_CENSUS shapes=20 families=5 delivery=auto64 verdicts={"STORE_FASTER": 4, "STORE_SLOWER": 1, "WITHIN_THRESHOLD": 15} worst_regression_pct=2.640453 best_gain_pct=-5.644032 STORE_VS_PLAIN_FAMILY N=1024 K=5120 max_delta_pct=0.37564863303078955 mean_delta_pct=-0.541405289544139 STORE_VS_PLAIN_FAMILY N=5120 K=8192 max_delta_pct=-1.0391431142516394 mean_delta_pct=-1.4622391748953496 STORE_VS_PLAIN_FAMILY N=5120 K=25600 max_delta_pct=2.640452638351043 mean_delta_pct=1.1849497033623646 STORE_VS_PLAIN_FAMILY N=8192 K=5120 max_delta_pct=-3.414279965410816 mean_delta_pct=-4.521178713627264 STORE_VS_PLAIN_FAMILY N=25600 K=5120 max_delta_pct=1.8382321785115563 mean_delta_pct=0.04176341938908201 STORE_VS_PLAIN_FAMILY N=5120 K=25600 max_delta_pct=2.640452638351043 mean_delta_pct=1.1849497033623646 STORE_VS_PLAIN_FAMILY N=8192 K=5120 max_delta_pct=-3.414279965410816 mean_delta_pct=-4.521178713627264 STORE_VS_PLAIN_FAMILY N=25600 K=5120 max_delta_pct=1.8382321785115563 mean_delta_pct=0.04176341938908201 STORE_VS_PLAIN_WORST shape=m8_n25600_k5120_g32 delta_pct=1.350132682576155 plain_us=44.440001249 store_us=45.04000023 plain_provider=standard-aiu store_provider=standard-aiu STORE_VS_PLAIN_WORST shape=m1_n1024_k5120_g32 delta_pct=0.37564863303078955 plain_us=10.648329711004338 store_us=10.688330016004338 plain_provider=standard-aiu store_provider=standard-aiu KPACK4_XPLANE_SHAPE_CENSUS verdicts={"RESOLVED": 1, "UNRESOLVED_OVERLAPPING_ENVELOPES": 19} median_wins={"kpack4":  …
+- (2026-08-28 02:38 UTC) fused store是cute版本的吗？
+- (2026-08-28 02:39 UTC) N K selected_family selected_class selected_max_regret runner_family runner_class runner_max_regret kpack4_max_regret kpack4_within_5pct 1024 5120 xplane xplane-q4k-tile-free-f1-le256 0.026078900914086267 kpack4 q4-kpack4-transpose-v1 0.03300741877582514 0.03300741877582514 True 5120 8192 xplane xplane-q4k-tile-free-f1-le256 0.002140965990467647 kpack4 q4-kpack4-transpose-v1 0.01686883895411473 0.01686883895411473 True 5120 25600 xplane xplane-q4k-tile-free-f1-le256 0.021557330624624615 kpack4 q4-kpack4-transpose-v1 0.0316691844750141 0.0316691844750141 True 8192 5120 kpack4 q4-kpack4-transpose-v1 0.0 xplane xplane-q4k-tile-free-f1-le256 0.011783209646532011 0.0 True 25600 5120 xplane xplane-q4k-tile-free-f1-le256 0.0019417623169948328 kpack4 q4-kpack4-transpose-v1 0.05476862660321524 0.05476862660321524 False FUSED_DECISION shape=m1_n5120_k25600_g32 verdict=STORE_SLOWER delta_pct=2.640452638351043 plain_us=46.961650097021696 store_us=48.20165022602169 FUSED_DECISION shape=m1_n8192_k5120_g32 verdict=STORE_FASTER delta_pct=-3.450920197619667 plain_us=17.386637379034706 store_us=16.786638398034707 FUSED_DECISION shape=m2_n8192_k5120_g32 verdict=STORE_FASTER delta_pct=-3.414279965410816 plain_us=17.573276037069416 store_us=16.973275194069416 FUSED_DECISION shape=m4_n8192_k5120_g32 verdict=STORE_FASTER delta_pct=-5.64403205105325 plain_us=18.42655141913883 store_us=17.386550951138826 FUSED_DECISION shape=m8_n8192_k5120_g32 verdict=STORE_FASTER delta_pct=-5.575482640425323 plain_u …
+- (2026-08-28 02:40 UTC) 为了统一格式，我们都选择kpack4，不要xplane了。
+- (2026-08-28 02:41 UTC) OK，prefill我们没有验证？decoding我们可以认为kpack4是速度捷径的
+- (2026-08-28 02:47 UTC) fused store和plain的区别？
+- (2026-08-28 02:47 UTC) 如果都有一定的加速，可以直接fused store作为默认
+- (2026-08-28 02:50 UTC) 先不管这个， 我们先继续看prefill
+- (2026-08-28 03:02 UTC) 我印象中之前跑过kpack4的prefill的时间，好像是略好于xplane，我记错了吗
+- (2026-08-28 03:11 UTC) 你这个值测试单个的seq len
+- (2026-08-28 03:23 UTC) board status verdict measured algorithm S producer_us reducer_us e2e_us config runner_e2e_us gap_pct S1 AVAILABLE RESOLVED 9 TC_S1_FULL_OUTPUT 1 101.75999999 0.0 101.75999999 64x128x256_w64x16_s2_bc0_apstandard-aiu 107.440002263 5.5817632405249284 S2 AVAILABLE RESOLVED 9 TC_SPLITK_S2_MODELED_E2E 2 107.440002263 9.477368040491685 116.91737030349168 64x128x256_w64x16_s2_bc0_apstandard-aiu 124.71736822849168 6.671376464209655 S4 AVAILABLE RESOLVED 9 TC_SPLITK_S4_MODELED_E2E 4 117.279998958 17.05926247288503 134.33926143088502 64x128x256_w64x16_s2_bc0_apstandard-aiu 145.93925662688503 8.63485110193789 S8 UNAVAILABLE NONE 0 NONE 8 NONE NONE NONE NONE NONE NONE
+- (2026-08-28 04:42 UTC) shape M N K verdict algorithm S producer_us reducer_us e2e_us config MFU_pct distinct_MBU_pct m2048_n1024_k5120_g32 2048 1024 5120 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 1 101.36000067 0.0 101.36000067 128x256x256_w64x32_s2_bc0_apstandard-aiu 42.37339451075203 10.028095063377165 m2048_n25600_k5120_g32 2048 25600 5120 RESOLVED TC_S1_FULL_OUTPUT 1 2092.319965363 0.0 2092.319965363 64x128x256_w64x16_s2_bc0_apstandard-aiu 51.31824203635675 3.4481563719976336 m2048_n5120_k25600_g32 2048 5120 25600 RESOLVED TC_S1_FULL_OUTPUT 1 1986.600041389 0.0 1986.600041389 64x128x256_w64x16_s2_bc0_apstandard-aiu 54.049219854503605 3.631655225266142 m2048_n5120_k8192_g32 2048 5120 8192 RESOLVED TC_S1_FULL_OUTPUT 1 663.20002079 0.0 663.20002079 64x128x256_w64x16_s2_bc0_apstandard-aiu 51.80901280291107 4.25852772547004m2048_n8192_k5120_g32 2048 8192 5120 RESOLVED TC_S1_FULL_OUTPUT 1 699.079990387 0.0 699.079990387 64x128x256_w64x16_s2_bc0_apstandard-aiu 49.14993826239966 4.039960683902649 m4096_n1024_k5120_g32 4096 1024 5120 RESOLVED TC_S1_FULL_OUTPUT 1 193.200007081 0.0 193.200007081 64x128x256_w64x16_s2_bc0_apstandard-aiu 44.46135754228327 9.970367410091942 m4096_n25600_k5120_g32 4096 25600 5120 RESOLVED TC_S1_FULL_OUTPUT 1 4144.879817963 0.0 4144.879817963 64x128x256_w64x16_s2_bc0_apstandard-aiu 51.8105166449767 2.8381481724219477 m4096_n5120_k25600_g32 4096 5120 25600 RESOLVED TC_S1_FULL_OUTPUT 1 3981.559991837 0.0 3981.559991837 64x128x256_w64x16_s2_bc0_apstandard-aiu 53.935735048 …
+- (2026-08-28 04:44 UTC) 是全面差吗？
+- (2026-08-28 04:48 UTC) 什么意思？没懂，xplane的优势在哪里，我们的pack4k也可以更小的TK啊。。没有影响啊
+- (2026-08-28 04:53 UTC) 先排除这个限制，然后我们锚定一个shape先把kpack4调上去
+- (2026-08-28 05:47 UTC) [fq-kpack4-prefill-trial] PASS verdict=RESOLVED algorithm=TC_S1_FULL_OUTPUT config=q-64x128x230_w64x16_s2_bc0_apstandard-aiu e2e_us=112.599998713 MFU_pct=55.14532 [fq-kpack4-prefill] TK=64 verdict=RESOLVED candidates=28 algorithm=TC_S1_FULL_OUTPUT S=2 e2e_us=118.759999713 config=64x64x64_w64x32_s2_bc0_apstandard-aiu runner_gap_pct=4.917484 FQ_KPACK4_PREFILL TK=128 verdict=UNRESOLVED_OVERLAPPING_ENVELOPES candidates=12 algorithm=TC_S1_FULL_OUTPUT S=1 e2e_us=125.560000539 config=64x256x128_w64x32_s2_bc0_apstandard-aiu runner_gap_pct=0.095571 FQ_KPACK4_PREFILL TK=256 verdict=RESOLVED candidates=15 algorithm=TC_S1_FULL_OUTPUT S=1 e2e_us=112.599998713 config=64x128x256_w64x16_s2_bc0_apstandard-aiu runner_gap_pct=2.238013 [fq-kpack4-prefill] PASS sha=0474619e44fea5f91ff953c038ea627ad0c86c shape=2048x1024x5120 TM4-630/AP0 TK=64+128+256 auto6/4/plain artifacts=/workspace/quactlize-fq-q4k-subtk-0474619-20260828T053016Z [fq-kpack4-prefill] summary=/workspace/quactlize-fq-q4k-subtk-0474619-20260828T053016Z/results/summary.tsv TK verdict algorithm S e2e_us config runner_gap_pct 128 UNRESOLVED_OVERLAPPING_ENVELOPES TC_S1_FULL_OUTPUT 1 125.560000539 64x256x128_w64x32_s2_bc0_apstandard-aiu 2.238012835526848 256 RESOLVED TC_S1_FULL_OUTPUT 1 112.599998713 64x128x256_w64x16_s2_bc0_apstandard-aiu 0.09557108194008039 64 RESOLVED TC_S1_FULL_OUTPUT 1 118.759999189 64x64x64_w64x32_s2_bc0_apstandard-aiu 4.917483808304536 board status verdict algorithm S producer_us reducer_us e2e_us config runner_e2 …
+- (2026-08-28 05:47 UTC) prefill不需要看splitk。64的case我们先不管。
+- (2026-08-28 05:49 UTC) 这就很疑惑了，这个offline格式应该除了需要trans之外其他的都是对上的。
+- (2026-08-28 05:50 UTC) 我的意思是先看prefill 更大的seq len的case，seq len64的先不管
+- (2026-08-28 05:50 UTC) prefill之前用的都是scalefirst格式。
+- (2026-08-28 06:47 UTC) [sf-kpack4-prefill-ab] summary=/workspace/quactlize-sf-q4k-kpack4-prefill-ab-20260828T062509Z/results/summary.tsv SF_KPACK4_SCALEFIRST_SHAPE shape=2048x1024x5120 xplane_config=64x64x64_w64x32_s3_bc0 xplane_grid=512 xplane_us=71.359999478 kpack4_same_us=71.079999208 same_delta_pct=-0.392377 kpack4_best_config=64x64x64_w64x32_s3_bc0 kpack4_best_grid=512 kpack4_best_us=71.079999208 best_delta_pct=-0.392377 verdict=WITHIN_THRESHOLD SF_KPACK4_SCALEFIRST_SHAPE shape=4096x1024x5120 xplane_config=64x64x64_w64x32_s3_bc0 xplane_grid=512 xplane_us=136.920005083 kpack4_same_us=136.459998786 same_delta_pct=-0.335967 kpack4_best_config=64x64x64_w64x32_s3_bc0 kpack4_best_grid=576 kpack4_best_us=136.120006442 best_delta_pct=-0.584282 verdict=WITHIN_THRESHOLD artifacts=/workspace/quactlize-sf-q4k-kpack4-prefill-ab-20260828T062509Z
+- (2026-08-28 06:48 UTC) 先把kpack4该接入的都接起来。梳理一下有哪些要接，然后一个个接起来。
+- (2026-08-28 08:50 UTC) [q4-kpack4-production] FAIL: python module gguf is required
+- (2026-08-28 09:15 UTC) [q4-kpack4-production] FAIL: packed-format0 build rc=124
+- (2026-08-28 09:29 UTC) resumable artifact not found: 不要exit
+- (2026-08-28 12:38 UTC) err = float(np.max(np.abs(got - reference) / np.maximum(denom, np.finfo(np.float64).tiny))) > assert err < 5e-3, f"K-pack4 grouped disagrees with independent dequant-first ({err:.3e})" E AssertionError: K-pack4 grouped disagrees with independent dequant-first (9.306e-02) E assert 0.09306379538909257 < 0.005 tests/test_gguf_routes.py:877: AssertionError 1 failed, 82 deselected in 2.71s [q4-kpack4-production] FAIL: numeric closure did not run to one unskipped pass rc=1
+- (2026-08-28 12:45 UTC) 现在这个新格式接入的时候有一些非cute化的部分？
+- (2026-08-28 13:01 UTC) np.maximum(denom, np.finfo(np.float64).tiny))) > assert err < 5e-3, f"K-pack4 grouped disagrees with independent dequant-first ({err:.3e})" E AssertionError: K-pack4 grouped disagrees with independent dequant-first (9.306e-02) E assert 0.09306379538909257 < 0.005
+- (2026-08-29 00:23 UTC) inv_err = float(np.max(np.abs(inverse - official_grouped) / inv_denom)) > assert inv_err < 5e-3, f"K-pack4 grouped inverse disagrees with official GGUF ({inv_err:.3e})" E AssertionError: K-pack4 grouped inverse disagrees with official GGUF (1.843e-02) E assert 0.0184326171875 < 0.005 tests/test_gguf_routes.py:883: AssertionError 1 failed, 82 deselected in 3.17s
+- (2026-08-29 00:58 UTC) reusing: /workspace/quactlize-q4-kpack4-production-cc568ebc-20260828T131916Z-954688 Q4_KPACK4_PRODUCTION dense=M1/M4/M64/M2048 grouped_rows=[2, 0, 3, 1] grouped_err=6.054e-05 inverse_err=9.804e-04 inverse_pointwise_max1=1.843e-02 . 1 passed, 82 deselected in 2.96s
+- (2026-08-29 01:07 UTC) prefill的精度测试测试了哪些了？对于pack4k
+- (2026-08-29 01:11 UTC) 我们要测试真实shape上kpack4的性能，看看是不是可以ship了，这样就可以确定offline的格式，并且有好多格式可以archive住，比如foldN的格式，不进入main
+- (2026-08-29 01:13 UTC) prefill之前应该也测试了scalefirst的版本，但是可能是单个shape，你看一下mem
+- (2026-08-29 02:34 UTC) SF_KPACK4_PREFILL_FAMILY N=1024 K=5120 max_regression_pct=0.925145 mean_delta_pct=-0.085558 within_threshold=1 SF_KPACK4_PREFILL_FAMILY N=5120 K=8192 max_regression_pct=2.685136 mean_delta_pct=0.013113 within_threshold=1 SF_KPACK4_PREFILL_FAMILY N=5120 K=25600 max_regression_pct=1.297421 mean_delta_pct=-0.899768 within_threshold=1 SF_KPACK4_PREFILL_FAMILY N=8192 K=5120 max_regression_pct=-0.280789 mean_delta_pct=-1.461139 within_threshold=1 SF_KPACK4_PREFILL_FAMILY N=25600 K=5120 max_regression_pct=-0.889749 mean_delta_pct=-2.019557 within_threshold=1 SF_KPACK4_PREFILL_VERDICT verdict=KPACK4_PREFILL_WITHIN_THRESHOLD shapes=15 families=5 worst_regression_pct=2.685136 threshold_pct=3.000000 artifacts=/workspace/quactlize-sf-q4k-kpack4-prefill-real-91227b8-20260829T013126Z
+- (2026-08-29 02:44 UTC) 继续下一步，但是其他的格式是不是也要验证，比如Q2等格式。
+- (2026-08-29 10:03 UTC) op when inputs consist of FakeScriptObject so we # intercept it here and call TorchBindOpverload instead. if self._has_torchbind_op_overload and _must_dispatch_in_python(args, kwargs): return _call_overload_packet_from_python(self, *args, **kwargs) > return self._op(*args, **kwargs) E RuntimeError: PPU scale-first dense GEMM failed tests/test_gguf_routes.py:1048:
+- (2026-08-29 10:03 UTC) > assert planted_err > bound, f"{name} m={m}: dense oracle missed a zeroed low-code plane ({planted_err:.3e})" E AssertionError: Q4_K m=7: dense oracle missed a zeroed low-code plane (nan) E assert nan > 0.005
+- (2026-08-29 10:03 UTC) if self._has_torchbind_op_overload and _must_dispatch_in_python(args, kwargs): return _call_overload_packet_from_python(self, *args, **kwargs) > return self._op(*args, **kwargs) E RuntimeError: PPU scale-first dense GEMM failed
+- (2026-08-29 10:03 UTC) fault = list(artifact) fault[0] = torch.zeros_like(fault[0]) > planted = routes.matmul_scale_first_dense(at, tuple(fault), qtype).numpy() tests/test_gguf_routes.py:1048: name = 'Q3_K', gt = <GGMLQuantizationType.Q3_K: 11>, hdr = [(108, 110)] qtype = 11 ppu_backend_dense = PosixPath('/workspace/quactlize-nonq4-xplane-16334501-20260829T035309Z/build-default/ppu_targets/libquactlize_ppu.so')
+- (2026-08-29 10:04 UTC) fpA dense disagrees with dequant-first ({err:.3e})" E AssertionError: Q2_K m=7: fpA dense disagrees with dequant-first (nan) E assert nan < 0.005 tests/test_gguf_routes.py:1054: AssertionError def test_scale_first_dense_route_matches_dequant_first_and_rejects_fault(
+- (2026-08-29 10:04 UTC) [nonq4] building default defs=PPU_PACKED_SCALE=1 [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) FFFFF
+- (2026-08-29 10:04 UTC) -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html 5 failed, 5475 warnings in 4.80s NONQ4_XPLANE_DONE rc=1 artifacts=/workspace/quactlize-nonq4-xplane-16334501-20260829T035309Z
+- (2026-08-29 14:12 UTC) # match a view, and then explaining the bend; comparing the stored planes directly removes both. stored = (sf[2], sf[3]) derived = routes.dequantize_scale_from_units(fq[-1], qtype) for i, what in enumerate(("scale", "zero")): a_, b_ = stored[i], derived[i] # SHAPES FIRST, and named. The derivation always returns [E, k/gs, n] -- one expert for a dense weight -- # while the stored path has its own convention. A silent broadcast between two nearly-compatible shapes # would compare something neither route computes. assert a_.numel() == b_.numel(), ( f"{name} {what}: the two paths disagree on SHAPE, not values -- stored {tuple(a_.shape)} vs derived " f"{tuple(b_.shape)}. Reconcile the convention before reading anything into the numbers.") fa, fb = a_.reshape(-1), b_.reshape(-1) bad = int((fa != fb).sum()) if bad: # WHICH KIND OF DIFFERENCE, decided here rather than in another box round trip. "4078 of 4096 differ" # is the same count for two completely different problems, and they have opposite fixes: # # SAME MULTISET -> the two paths produce the same numbers in a DIFFERENT LAYOUT. The derivation is # right and a convention differs; the switch needs a reshape, not a rewrite. Do # NOT "fix" this by sorting in the comparison -- that would also hide the case # below, which is the one this test exists for. # DIFFERENT -> the derivation computes something else. The merge's premise fails on the scale # half and the producer switch must not be made. sa = torch.sort(fa.to(torch.float32))[ …
+- (2026-08-29 14:13 UTC) tests/test_gguf_routes.py:607: AssertionError __________ test_bc_dequant_all_matches_official_gguf[Q2_K-10-hdr0-10] __________ name = 'Q2_K', gt = <GGMLQuantizationType.Q2_K: 10>, hdr = [(80, 82), (82, 84)] qtype = 10 ppu_backend_dense = PosixPath('/workspace/quactlize-nonq4-xplane-clean-199ef181-20260829T130820Z/build-Q2_K/ppu_targets/libquactlize_ppu.s... @pytest.mark.fully_quantized_dense @pytest.mark.parametrize("name,gt,hdr,qtype", FQ_IMPLEMENTED) def test_bc_dequant_all_matches_official_gguf(name, gt, hdr, qtype, ppu_backend_dense): """BC's DEQUANT-ALL against the official package -- the inverse the entry rule requires, made falsifiable. Without this, BC could only be checked end to end, and an end-to-end check mixes a PACKING mistake with a COMPUTATION mistake: a wrong number tells you the pair is wrong and not which half. This compares the artifact's own meaning, elementwise, against what gguf.quants.dequantize says the source bytes mean. THE ROUTE IS A COMPOSITION -- derive the scale planes from the units, then run the existing scale-first dequant-all -- so this test is also a check on the merge's premise from a third direction. If B and C did not really share their weight bytes, the composition would disagree here rather than agreeing with itself. The planted fault zeroes the code plane: an inverse that still returns the right weight from a blanked code plane is reading something other than the codes. """ if not routes.has_op("gguf_packed_scale_prepass"): pytest.ski …
+- (2026-08-29 14:15 UTC) self = <OpOverloadPacket(op='quactlize.gguf_gemv_bc_for_arrangement')> args = (tensor([[-0.3152, -0.3000, -0.0466, 0.0788, -0.0410, -0.2311, 0.2120, -0.0056, 0.0743, -0.2152, 0.1460, ...[ 69, 44, 86, ..., 180, 97, 151], [117, 44, 249, ..., 53, 234, 27]]], dtype=torch.uint8), 10, 1, ...) kwargs = {} def __call__(self, /, *args: _P.args, **kwargs: _P.kwargs) -> _T: # overloading __call__ to ensure torch.ops.foo.bar() # is still callable from JIT # We save the function ptr as the `op` attribute on # OpOverloadPacket to access it here. # Directly calling OverloadPacket goes into C++, which will check # the schema and cause an error for torchbind op when inputs consist of FakeScriptObject so we # intercept it here and call TorchBindOpverload instead. if self._has_torchbind_op_overload and _must_dispatch_in_python(args, kwargs): return _call_overload_packet_from_python(self, *args, **kwargs) > return self._op(*args, **kwargs) E RuntimeError: PPU BC GEMV failed (rc=41) /usr/local/lib/python3.12/site-packages/torch/_ops.py:1255: RuntimeError
+- (2026-08-29 14:15 UTC) __ test_bc_gemv_moe_matches_dequant_first_and_rejects_fault[Q2_K-10-hdr0-10] ___ name = 'Q2_K', gt = <GGMLQuantizationType.Q2_K: 10>, hdr = [(80, 82), (82, 84)] qtype = 10 ppu_backend_dense = PosixPath('/workspace/quactlize-nonq4-xplane-clean-199ef181-20260829T130820Z/build-Q2_K/ppu_targets/libquactlize_ppu.so') @pytest.mark.fully_quantized_dense @pytest.mark.parametrize("name,gt,hdr,qtype", FQ_IMPLEMENTED) def test_bc_gemv_moe_matches_dequant_first_and_rejects_fault(name, gt, hdr, qtype, ppu_backend_dense): """The MoE decode arm, with an EMPTY EXPERT in the fixture. Zero rows is what a cumulative-offset mistake reads straight past and no uniform shape can reach, and the planted fault makes every expert read expert 0 -- the ordering error a shape check cannot see. """ if not routes.has_op("gguf_gemv_bc_moe"): pytest.skip("the BC MoE GEMV op is not in this build yet (INBOX 016)") _require_packed_format(qtype, name) experts, n, k = 4, 256, 512 rows = np.array([2, 0, 3, 1], dtype=np.int32) rng = np.random.default_rng(41000 + qtype) raw = _raw_blocks(gt, hdr, experts * n * (k // 256), rng) blocks = torch.from_numpy(raw) artifact = routes.prepare_fully_quantized_grouped( blocks, n, k, qtype, experts, layout="xplane") official = gguf.quants.dequantize(raw.reshape(-1), gt).reshape(experts, n, k).astype(np.float64) m = int(rows.sum()) a = (rng.standard_normal((m, k)) * .2).astype(np.float16) at, rt = torch.from_numpy(a), torch.from_numpy(rows) independent = routes.matmul_dequant_firs …
+- (2026-08-29 14:15 UTC) self = <OpOverloadPacket(op='quactlize.gguf_gemv_bc_moe')> args = (tensor([[ 0.2534, 0.0674, -0.2301, ..., 0.0526, 0.3914, -0.1656], [ 0.2450, 0.0340, 0.1136, ..., 0.02... [164, 43, 182, ..., 83, 211, 44]]], dtype=torch.uint8), tensor([0, 2, 2, 5, 6], dtype=torch.int32), 10) kwargs = {} def __call__(self, /, *args: _P.args, **kwargs: _P.kwargs) -> _T: # overloading __call__ to ensure torch.ops.foo.bar() # is still callable from JIT # We save the function ptr as the `op` attribute on # OpOverloadPacket to access it here. # Directly calling OverloadPacket goes into C++, which will check # the schema and cause an error for torchbind op when inputs consist of FakeScriptObject so we # intercept it here and call TorchBindOpverload instead. if self._has_torchbind_op_overload and _must_dispatch_in_python(args, kwargs): return _call_overload_packet_from_python(self, *args, **kwargs) > return self._op(*args, **kwargs) E RuntimeError: PPU BC GEMV failed (rc=41) /usr/local/lib/python3.12/site-packages/torch/_ops.py:1255: RuntimeError _ test_fully_quantized_grouped_matches_dequant_first_and_rejects_fault[Q2_K-10-hdr0-10] _
+- (2026-08-30 00:40 UTC) [nonq4-xplane] FAIL: Q2_K device oracle failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-nonq4-xplane-bbf24eb1-20260829T141739Z
+- (2026-08-30 00:41 UTC) === authority === source_sha=bbf24eb1307b6a5354b476f53305e4be15b7f489 hgcc=hgcc(HGGC C/C++ Compiler) hgobjdump=LLVM (http://llvm.org/): === libraries === b761d177b4e99fc4b2ac0d44da9907a3a714305b1bf0d988c57b6ca5591c6696 /workspace/quactlize-nonq4-xplane-bbf24eb1-20260829T141739Z/build-base/ppu_targets/libquactlize_ppu.so 665e41ce2b19ed64ed6e0d264e30d5f97ff0e7d8a10442ddce127e07f9f6d3d8 /workspace/quactlize-nonq4-xplane-bbf24eb1-20260829T141739Z/build-Q2_K/ppu_targets/libquactlize_ppu.so === Q2 failures === ppu_backend_dense = PosixPath('/workspace/quactlize-nonq4-xplane-bbf24eb1-20260829T141739Z/build-base/ppu_targets/libquactlize_ppu.so') E AssertionError: Q2_K scale: the packed-unit derivation and the stored scale-first planes differ in 7686 of 8192 elements. ppu_backend_dense = PosixPath('/workspace/quactlize-nonq4-xplane-bbf24eb1-20260829T141739Z/build-base/ppu_targets/libquactlize_ppu.so') E AssertionError: Q2_K: BC dequant-all disagrees with official gguf (1.000e+00) ppu_backend_dense = PosixPath('/workspace/quactlize-nonq4-xplane-bbf24eb1-20260829T141739Z/build-base/ppu_targets/libquactlize_ppu.so') E RuntimeError: PPU BC GEMV failed (rc=41) ppu_backend_dense = PosixPath('/workspace/quactlize-nonq4-xplane-bbf24eb1-20260829T141739Z/build-base/ppu_targets/libquactlize_ppu.so') E RuntimeError: PPU BC GEMV failed (rc=41) ppu_backend_dense = PosixPath('/workspace/quactlize-nonq4-xplane-bbf24eb1-20260829T141739Z/build-base/ppu_targets/libquactlize_ppu.so') E RuntimeError: PPU  …
+- (2026-08-30 01:12 UTC) [nonq4-xplane] build label=base defs=PPU_PACKED_SCALE=1 PPU_PACKED_UNIT_PREPASS_SERIAL=1 /sim/eec/shared/junfu.qx/quactlize/csrc/device/ppu_dense_backend.cu:2225:15: note: in instantiation of function template specialization '::_HGGC_ANON_NAMESPACE_ca746f5a00b29235604241f6688l1975::launch_grouped_config<::ppu_mixed_policy::QuantMode::FinegrainedScaleOnly, false, ::cutlass::integer_subbyte<(int)4, true>, ::cutlass::integer_subbyte<(int)4, false>, (int)32, (int)2 56, false>' requested here ? groupedGQM<::FinegrainedScaleOnly, false, cutlass::uint4b_t, cutlass::uint4b_t, 32, /sim/eec/shared/junfu.qx/quactlize/csrc/device/ppu_dense_backend.cu:298:11: warning: enumeration value 'Count' not handled in switch [-Wswitch] switch (config) { /sim/eec/shared/junfu.qx/quactlize/csrc/device/ppu_dense_backend.cu:2160:17: note: in instantiation of function template specialization '::_HGGC_ANON_NAMESPACE_ca746f5a00b29235604241f6688l1975::launch_grouped_config<::ppu_mixed_policy::QuantMode::FinegrainedScaleOnly, false, ::cutlass::integer_subbyte<(int)4, true>, ::cutlass::integer_subbyte<(int)2, false>, (int) 16, (int)128, false>' requested here launch_t = launch_grouped_config<QuantOp, PackedScale, /sim/eec/shared/junfu.qx/quactlize/csrc/device/ppu_dense_backend.cu:2236:11: note: in instantiation of function template specialization '::_HGGC_ANON_NAMESPACE_ca746f5a00b29235604241f6688l1975::launch_grouped_config<::ppu_mixed_policy::QuantMode::FinegrainedScaleOnly, false, ::cutlass::integer_subby …
+- (2026-08-30 01:14 UTC) LOG="$OUT/results/build-base.log" grep -n -B8 -A12 -E \ 'error:|fatal error:|undefined reference|ld\.lld:|LLVM ERROR|Killed|timed out|Segmentation|PLEASE submit' \ "$LOG" | head -16024-[hgcc] /sim/eec/shared/junfu.qx/quactlize/quactlize/csrc/device/ppu_dense_backend.cu 25:/sim/eec/shared/junfu.qx/quactlize/quactlize/csrc/device/ppu_backend.cu:256:70: error: invalid operands to binary expression ('int (int, int, int, int)' and '::gguf_scale::KType') 226- int const grid = gguf_scale::prepass::prepass_unit_serial_grid_size<T>(experts, n, num_superblocks, 256); 27- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~ 28-1 error generated when compiling for host.
+- (2026-08-30 01:53 UTC) 1 failed, 82 deselected, 5482 warnings in 3.07s [nonq4-xplane] FAIL: Q2_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-nonq4-q2-prepass-a913979 NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=FAIL 1 failed, 82 deselected, 5482 warnings in 3.07s [nonq4-xplane] FAIL: Q2_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-nonq4-q2-prepass-a913979 NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=FAIL 1 failed, 82 deselected, 5482 warnings in 3.07s [nonq4-xplane] FAIL: Q2_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-nonq4-q2-prepass-a913979 NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=FAIL f"{host.numel()} elements; host_nonzero={int((host != 0).sum())} " f"device_nonzero={int((device != 0).sum())}. The unit bytes are already frozen, so this is a " "device decode/placement failure, not an Xplane or ScaleFirst layout difference.") E AssertionError: Q2_K scale: host packed-unit decode and PPU packed-unit prepass differ in 7686 of 8192 elements; host_nonzero=7686 device_nonzero=0. The unit bytes are already frozen, so this is a dev …
+- (2026-08-30 02:49 UTC) 1 failed, 82 deselected, 5482 warnings in 3.08s [nonq4-xplane] FAIL: Q2_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-nonq4-q2-prepass-a913979 rroot@aiswu96:/sim/eec/shared/junfu.qx/quactlize# root@aiswu96:/sim/eec/shared/junfu.qx/quactlize# grep '^FQ_PACKED_UNIT_PREPASS_LADDER ' \ > "$OUT"/results/Q2_K.test_packed_unit_scale_derivation_matches_the_scale_first_planes.log~ grep: /workspace/quactlize-nonq4-q2-prepass-a913979/results/Q2_K.test_packed_unit_scale_derivation_matches_the_scale_first_planes.log~: No such file or directory
+- (2026-08-30 02:49 UTC) FQ_PACKED_UNIT_PREPASS_LADDER qtype=10 cells=8192 grid=2 coverage_bad=8192 header_bad=8192 code_bad=8192 product_bad=8192 sentinel=[8192,8192,8192,8192] first=[e0,sb0,n0,g0,want=0x392a,got=0x7bff]
+- (2026-08-30 02:50 UTC) 你本地应该有办法检测出这些问题吧，不用上box。现在是什么问题，讲清楚一点
+- (2026-08-30 03:02 UTC) 你改好了吗？
+- (2026-08-30 03:02 UTC) 什么意思，Q4K事没有问题的，Q2K出问题了？
+- (2026-08-30 03:04 UTC) 如何验证？
+- (2026-08-30 03:15 UTC) 现在是新的kpack格式导致的吗
+- (2026-08-30 03:16 UTC) 也就是原来也有这个问题
+- (2026-08-30 03:21 UTC) 也就是
+- (2026-08-30 03:22 UTC) 也就是q2k的scale fisrt 不对但是q4k的scalefist对的
+- (2026-08-30 03:23 UTC) 啥意思 没懂是一种新的格式
+- (2026-08-30 03:25 UTC) 静态分析一下
+- (2026-08-30 03:49 UTC) 给我一个command
+- (2026-08-30 03:49 UTC) 或者现在的test跟peoduxtion是不是不一致了
+- (2026-08-30 04:31 UTC) 这个测试测试的是什么，如果后续不会测试或者用到。是不是可以去掉。这个新的Q2K的20的pack data后续会用到吗
+- (2026-08-30 06:39 UTC) 1 failed, 82 deselected, 5520 warnings in 4.02s [nonq4-xplane] FAIL: Q4_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-q2-prepass-product-20260830T043045Z [nonq4-xplane] build label=base defs=QUACTLIZE_DENSE_ONLY=10 NONQ4_XPLANE_ORACLE format=Q4_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=FAIL [nonq4-xplane] FAIL: Q4_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-q2-prepass-product-20260830T043045Z
+- (2026-08-30 06:48 UTC) 1 failed, 82 deselected, 5520 warnings in 4.02s [nonq4-xplane] FAIL: Q4_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifactPrefix=/workspace/quactlize-q2-prepass-product-20260830T043045Z [nonq4-xplane] build label=base defs=QUACTLIZE_DENSE_ONLY=10 [NONQ4-XPLANE_ORACLE format=Q4_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=FAIL [nonq4-xplane] FAIL: Q4_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifactPrefix=/workspace/quactlize-q2-prepass-product-20260830T043045Z root@sswu06:/sim/eec/shared/junfu.qx/quactlize# OUT=/workspace/quactlize-q2-prepass-product-20260830T043045Z LOG="$OUT/results/Q4_K.test_packed_unit_scale_derivation_matches_the_scale_first_planes.log" grep -n -B25 -A45 -E \ 'E +(AssertionError|RuntimeError)|AssertionError:|RuntimeError:|device_nonzero|PPU .* failed' \ "$LOG" 78- # the kernel reads -- StrideScale = Stride<Int<1>, ...> with shape (n, scale_k, 1) puts n at stride 1, so 79- # memory is [scale_k][n], i.e. [E, k/gs, n]. The derivation emits the same. Nothing needs transposing. 80- # 81- # An earlier version went through dequantize_scale_first_dense_scales and then transposed to compensate. 82- # That accessor is a PURE TRANSPOSE and says so -- it asserts [experts, k/group_size, n] on input, allocates 83- # [experts, n, scale_k] on output, and its own comment calls the transpose common. It is a d …
+- (2026-08-30 06:51 UTC) 1 failed, 82 deselected, 5520 warnings in 3.76s f"{name} {what}: host packed-unit decode and PPU packed-unit prepass differ in {bad} of " f"device_nonzero={int((device != 0).sum())}. The unit bytes are already frozen, so this is a " E AssertionError: Q2_K scale: host packed-unit decode and PPU packed-unit prepass differ in 307146 of 327680 elements; host_nonzero=307146 device_nonzero=0. The unit bytes are already frozen, so this is a device decode/placement failure, not an Xplane or ScaleFirst layout difference. 1 failed, 82 deselected, 5520 warnings in 3.76s
+- (2026-08-30 06:57 UTC) === kernel symbols === prepass_kernel=10 prepass_unit_kernel=25 Func 202: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE0ELi8EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 203: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE0ELi0EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 204: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE1ELi8EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 205: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE1ELi0EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 206: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE2ELi8EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 207: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE2ELi0EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 208: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE3ELi8EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 209: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE3ELi0EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 210: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE4ELi8EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 211: _ZN10gguf_scale7prepass14prepass_kernelILNS_5KTypeE4ELi0EEEvNS0_9BlockDescENS0_9PlaneDescEii Func 212: _ZN10gguf_scale7prepass19prepass_unit_kernelILNS_5KTypeE0ELin32EEEvPKhNS0_13UnitPlaneDescEiii Func 213: _ZN10gguf_scale7prepass19prepass_unit_kernelILNS_5KTypeE0ELin24EEEvPKhNS0_13UnitPlaneDescEiii Func 214: _ZN10gguf_scale7prepass19prepass_unit_kernelILNS_5KTypeE0ELin4EEEvPKhNS0_13UnitPlaneDescEiii Func 215: _ZN10gguf_scale7prepass19prepass_unit_kernelILNS_5KTypeE0ELi8EEEvPKhNS0_13UnitPlaneDe …
+- (2026-08-30 07:01 UTC) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) RAW_SCALE cells=1024 bad=963 want_nonzero=963 got_nonzero=0 first=0:0x31d6->0x0000 RAW_ZERO cells=1024 bad=1020 want_nonzero=1020 got_nonzero=0 first=0:0x3c3e->0x0000 DEQUANT cells=16384 bad=0 want_nonzero=16109 got_nonzero=16109 first=NONE backend=ppu (loaded /workspace/quactlize-q2-prepass-product-20260830T043045Z/build-base/ppu_targets/libquactlize_ppu.so)
+- (2026-08-30 07:01 UTC) 是不是上传了nvidia的binary
+- (2026-08-30 07:01 UTC) 继续
+- (2026-08-30 07:55 UTC) 1 failed, 82 deselected, 5520 warnings in 3.79s [nonq4-xplane] FAIL: Q2_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-q2-prepass-abi-7c6216d-20260830T071649Z === VERDICT === sha=7c6216d437f96b37f9f4c1710322286a8970581e runner_rc=2 raw_rc=1 /workspace/quactlize-q2-prepass-abi-7c6216d-20260830T071649Z/results/Q2_K.raw-prepass.log:E AssertionError: Q2_K: scale from the unit differs from scale from the GGUF block /workspace/quactlize-q2-prepass-abi-7c6216d-20260830T071649Z/results/Q2_K.raw-prepass.log:1 failed, 57 deselected, 5812 warnings in 3.05s /sha=7c6216d437f96b37f9f4c1710322286a8970581e runner_rc=2 raw_rc=1 /workspace/quactlize-q2-prepass-abi-7c6216d-20260830T071649Z/results/Q2_K.raw-prepass.log:E AssertionError: Q2_K: scale from the unit differs from scale from the GGUF block /workspace/quactlize-q2-prepass-abi-7c6216d-20260830T071649Z/results/Q2_K.raw-prepass.log:1 failed, 57 deselected, 5812 warnings in 3.05s /workspace/quactlize-q2-prepass-abi-7c6216d-20260830T071649Z/results/Q2_K.test.log:NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=FAIL /workspace/quactlize-q2-prepass-abi-7c6216d-20260830T071649Z/results/Q2_K.test_packed_unit_scale_derivation_matches_the_scale_first_planes.log: f"device_nonzero={int((device != 0).sum())}. The unit bytes are already frozen, so this is a " workspace/quactlize-q2-prepass-abi-7c6216 …
+- (2026-08-30 07:56 UTC) 有什么方法可以更准确诊断
+- (2026-08-30 07:57 UTC) 现在太像猜了
+- (2026-08-30 07:57 UTC) 现在太像猜了
+- (2026-08-30 07:59 UTC) 没有更新的push对吧
+- (2026-08-30 08:10 UTC) 描述一下现在的问题，我让claude帮忙分析
+- (2026-08-30 08:17 UTC) • 可以把下面直接发给 Claude： 我们在调试 Q2_K packed-metadata → fp16 scale/zero workspace 的 PPU prepass。 当前代码：quactlize，develop=7c6216d 相关文件： - quactlize/include/gguf_scale_prepass.hpp - quactlize/csrc/device/ppu_backend.cu - quactlize/csrc/preprocess/thop/gguf_prepass_ops.cpp 问题不是 K-pack4/Xplane 权重布局。Q2_K 的 20-byte packed unit 已经由 host round-trip 逐位证明正确。 真实失败 shape： - qtype=Q2_K=10 - N=1024, K=5120, experts=1 - superblocks=5120/256=20 - groups/superblock=16 - 输出 scale plane 元素数 = 1*20*16*1024 = 327680 packed-unit prepass： - host packed-unit decode：307146 个非零 scale - PPU prepass：0 个非零 - bad=307146/327680 - C ABI 返回 rc=0 - 即 kernel launch/sync 没报错，但输出全零 独立 raw-metadata prepass 也失败： - cells=1024 - RAW_SCALE want_nonzero=963, got_nonzero=0 - RAW_ZERO want_nonzero=1020, got_nonzero=0 但同一份 libquactlize_ppu.so、同一个 ppu_backend.cu 里的 Q2 dequant kernel 完全正确： - cells=16384 - bad=0 - want_nonzero=got_nonzero=16109 所以已经排除： 1. Q2 GGUF bit layout 错； 2. packed-unit offline format 错； 3. host packing/round-trip 错； 4. backend 加载错误； 5. 整个 ppu_backend.cu 不能执行； 6. 普通 device allocation、H2D、D2H、fp16 global store 全局失效。 ELF 里 kernel 确实存在： - prepass_kernel：10 个 specialization - prepass_unit_kernel：25 个 specialization - Q2 raw/packed 的对应 ZMul specialization 都能看到 backend 也明确报告加载了 hgcc 构建的 PPU .so。 原始 kernel 签名是： prepass_kernel(BlockDesc, PlaneDesc, int, int) prepass_unit_kernel(uint8_t*, UnitPlaneDesc, int, int, int) 我们曾怀疑是“多个 aggregate 加尾随 scalar”的 PPU kernel ABI。 7c6216d 将每个 kernel 改成只传一个扁平 trivially-copyable aggreg …
+- (2026-08-30 08:18 UTC) • 可以把下面直接发给 Claude： 我们在调试 Q2_K packed-metadata → fp16 scale/zero workspace 的 PPU prepass。 当前代码：quactlize，develop=7c6216d 相关文件： - quactlize/include/gguf_scale_prepass.hpp - quactlize/csrc/device/ppu_backend.cu - quactlize/csrc/preprocess/thop/gguf_prepass_ops.cpp 问题不是 K-pack4/Xplane 权重布局。Q2_K 的 20-byte packed unit 已经由 host round-trip 逐位证明正确。 真实失败 shape： - qtype=Q2_K=10 - N=1024, K=5120, experts=1 - superblocks=5120/256=20 - groups/superblock=16 - 输出 scale plane 元素数 = 1*20*16*1024 = 327680 packed-unit prepass： - host packed-unit decode：307146 个非零 scale - PPU prepass：0 个非零 - bad=307146/327680 - C ABI 返回 rc=0 - 即 kernel launch/sync 没报错，但输出全零 独立 raw-metadata prepass 也失败： - cells=1024 - RAW_SCALE want_nonzero=963, got_nonzero=0 - RAW_ZERO want_nonzero=1020, got_nonzero=0 但同一份 libquactlize_ppu.so、同一个 ppu_backend.cu 里的 Q2 dequant kernel 完全正确： - cells=16384 - bad=0 - want_nonzero=got_nonzero=16109 所以已经排除： 1. Q2 GGUF bit layout 错； 2. packed-unit offline format 错； 3. host packing/round-trip 错； 4. backend 加载错误； 5. 整个 ppu_backend.cu 不能执行； 6. 普通 device allocation、H2D、D2H、fp16 global store 全局失效。 ELF 里 kernel 确实存在： - prepass_kernel：10 个 specialization - prepass_unit_kernel：25 个 specialization - Q2 raw/packed 的对应 ZMul specialization 都能看到 backend 也明确报告加载了 hgcc 构建的 PPU .so。 原始 kernel 签名是： prepass_kernel(BlockDesc, PlaneDesc, int, int) prepass_unit_kernel(uint8_t*, UnitPlaneDesc, int, int, int) 我们曾怀疑是“多个 aggregate 加尾随 scalar”的 PPU kernel ABI。 7c6216d 将每个 kernel 改成只传一个扁平 trivially-copyable aggreg …
+- (2026-08-30 08:18 UTC) 这是最要紧的发现: 成功的 dequant_kernel → ppu_backend.cu:201 (.cu) ladder / bootstrap → ppu_backend.cu:247, 293 (.cu) ──────────────────────────────────────────────────────────── 失败的 prepass_kernel → gguf_scale_prepass.hpp:318 (header) 失败的 prepass_unit_kernel → gguf_scale_prepass.hpp:380 (header) ladder 和「能跑的 dequant」共享「定义在 .cu」这个属性,而和「两个失败的 kernel」不共享「定义在 header」这个属性。 而 header-defined 正是你们自己列在「剩余公共差异」第一条的那个变量。 再核两件事: Ran 3 commands 静态核完了。结论:这个 ladder 设计得很好,但它把「能跑的 kernel」和「不能跑的 kernel」之间仅有的两条差异都去掉了,所以最可能的结果是全绿,而全绿裁决不了任何东西。 1. 够不够严格定位?不够 —— 它没有变化两条轴,而这两条正好把成败分开 定义位置 用 CuTe? 能跑 dequant_kernel ppu_backend.cu:201 0 处 能跑? ladder / bootstrap ppu_backend.cu:247/293 0 处 ─────────────────────────────────────────────────────────── 失败 prepass_kernel gguf_scale_prepass.hpp:318 ┐ 16 处 失败 prepass_unit_kernel gguf_scale_prepass.hpp:380 ┘ cute::/CUTE_/TiledCopy/Layout ladder 在这两条轴上都站在「能跑」那一侧。 而「prepass kernel 都定义在 gguf_scale_prepass.hpp」是你们自己列的剩余公共差异第一条 —— ladder 把这个变量移除了,而不是测试它。 第二条更尖锐:失败 header 里的 16 处 CuTe 主要在 store 路径(你们说的 raw store 用 TiledCopy),而 ladder 把它换成了直接 coverage[o] = ...。ladder 与 production 之间最大的行为差异,恰好是没被测的那一个。 2. ladder 自身的假阴性(逐条静态核过) 成立的部分,先确认(这些没问题): ZMul unit_group 里 if constexpr (ZMul != 0) out.zero = ... —— ZMul 只碰 out.zero,从不碰 out.scale。所以 ladder 硬编 unit_group<T,0>().scale.raw() 对 scale 列是合法且 ZMul 无关的 ✓(尽管 ZMul=0 不在 production 派发集 {-32,-24,-4,8} 里) 覆盖 prepass_unit_serial_grid_size = ⌈experts·sb·cols / 256⌉,与 ladder 的 total = experts·sb·cols 精确匹配,不会短覆盖 ✓ meta 时序 meta 写在 if (tid >=  …
+- (2026-08-30 08:39 UTC) 1 failed, 82 deselected, 5520 warnings in 3.09s [nonq4-xplane] FAIL: Q2_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-q2-prepass-ladder-7c6216d4-20260830T075913Z v=== LADDER VERDICT === FQ_PACKED_UNIT_PREPASS_LADDER qtype=10 cells=8192 grid=2 coverage_bad=8192 header_bad=8192 code_bad=8192 product_bad=8192 sentinel=[8192,8192,8192,8192] meta=[0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff] first=[e0,sb0,n0,g0,want=0x392a,got=0x7bff] sha=7c6216d437f96b37f9f4c1710322286a8970581e rc=2 artifacts=/workspace/quactlize-q2-prepass-ladder-7c6216d4-20260830T075913Z 之前的结果跑出来了，还有价值吗
+- (2026-08-30 08:46 UTC) 还需要几次box
+- (2026-08-30 09:24 UTC) [nonq4-xplane] FAIL: Q2_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-nonq4-xplane-a2346896-20260830T084622Z bash: syntax error near unexpected token `else' wrong HEAD: a234689618e0b58e1fe0018a1bfbafcae02f14e4 bash: syntax error near unexpected token `fi' === LADDER VERDICT === sha=a234689618e0b58e1fe0018a1bfbafcae02f14e4 rc=99 artifacts=/workspace/quactlize-q2-prepass-ladder-a2346896-20260830T084622Z
+- (2026-08-30 09:25 UTC) FQ_PACKED_UNIT_PREPASS_LADDER qtype=10 cells=8192 serial_grid=2 production_grid=8 coverage_bad=8192 header_bad=8192 code_bad=8192 product_bad=8192 half=[scale:8192,zero:8192] header_serial=[scale:8192,zero:8192] header_production=[scale:8192,zero:8192] cu_clone=[scale:8192,zero:8192] cu_scalar=[scale:8192,zero:8192] sentinel=[8192,8192,8192,8192,8192,8192,8192,8192,8192,8192,8192,8192,8192,8192] meta=[0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff] first=[e0,sb0,n0,g0,want=0x392a,got=0x7bff]
+- (2026-08-30 09:27 UTC) dequant_kernel=5 prepass_cu_bootstrap_kernel=1 prepass_header_bootstrap_kernel=1 prepass_device_arch_marker_kernel=1 prepass_unit_kernel_cu_clone=5 prepass_unit_kernel_cu_scalar=5
+- (2026-08-30 10:10 UTC) [nonq4-xplane] FAIL: Q2_K oracle test_packed_unit_scale_derivation_matches_the_scale_first_planes failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-nonq4-xplane-a2346896-20260830T084622Z FQ_PACKED_UNIT_PREPASS_LADDER qtype=10 cells=8192 serial_grid=2 production_grid=8 coverage_bad=8192 header_bad=8192 code_bad=8192 product_bad=8192 half=[scale:8192,zero:8192] header_serial=[scale:8192,zero:8192] header_production=[scale:8192,zero:8192] cu_clone=[scale:8192,zero:8192] cu_scalar=[scale:8192,zero:8192] dequant_control=[bad:256,sentinel:256] sentinel=[8192,81192,8192,8192,8192,8192,8192,8192,8192,8192,8192,8192,8192] meta=[0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff] launch=[200,200,200,200,200,200,200,200,200,200,200,200,200,200,200] first=[e0,sb0,n0,g0,want=0x392a,got=0x7bff] rc=2 artifacts=/workspace/quactlize-nonq4-xplane-a2346896-20260830T084622Z
+- (2026-08-30 11:10 UTC) [nonq4-xplane:launch-audit-source] PASS no diagnostic kernel; exact dequant/raw/packed launch seams [nonq4-xplane] build label=base defs=QUACTLIZE_DENSE_ONLY=10 PPU_PREPASS_LAUNCH_AUDIT=1 FQ_PREPASS_LAUNCH_AUDIT op=raw-prepass qtype=10 before=0:hggcSuccess immediate=200:hggcErrorInvalidKernelImage synchronize=0:hggcSuccess deferred=0:hggcSuccess immediate_text=device kernel image is invalid FQ_PREPASS_LAUNCH_AUDIT op=packed-prepass qtype=10 before=0:hggcSuccess immediate=200:hggcErrorInvalidKernelImage synchronize=0:hggcSuccess deferred=0:hggcSuccess immediate_text=device kernel image is invalid launch audit expected one dequant row in /workspace/quactlize-q2-prepass-launch-5941e3d-20260830T103129Z/results/Q2_K.launch-audit.dequant.log, got 0 [nonq4-xplane] DONE rc=1 artifacts=/workspace/quactlize-q2-prepass-launch-5941e3d-20260830T103129Z FQ_PREPASS_LAUNCH_AUDIT op=packed-prepass qtype=10 before=0:hggcSuccess immediate=200:hggcErrorInvalidKernelImage synchronize=0:hggcSuccess deferred=0:hggcSuccess immediate_text=device kernel image is invalid FQ_PREPASS_LAUNCH_AUDIT op=raw-prepass qtype=10 before=0:hggcSuccess immediate=200:hggcErrorInvalidKernelImage synchronize=0:hggcSuccess deferred=0:hggcSuccess immediate_text=device kernel image is invalid artifacts: /workspace/quactlize-q2-prepass-launch-5941e3d-20260830T103129Z
+- (2026-08-30 11:13 UTC) backend: ppu (loaded /workspace/quactlize-q2-prepass-launch-5941e3d-20260830T103129Z/build-base/ppu_targets/libquactlize_ppu.so) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) FQ_PREPASS_LAUNCH_AUDIT op=dequant qtype=10 before=0:hggcSuccess immediate=200:hggcErrorInvalidKernelImage synchronize=0:hggcSuccess deferred=0:hggcSuccess immediate_text=device kernel image is invalid FQ_PREPASS_DEQUANT_CONTROL rc=41 bad=256 sentinel=256
+- (2026-08-30 11:16 UTC) FQ_PREPASS_LAUNCH_AUDIT op=dequant qtype=10 before=0:hggcSuccess immediate=200:hggcErrorInvalidKernelImage synchronize=0:hggcSuccess deferred=0:hggcSuccess immediate_text=device kernel image is invalid FQ_PURE_C_CONTROL op=dequant rc=41 bad=256 sentinel=256 FQ_PREPASS_LAUNCH_AUDIT op=raw-prepass qtype=10 before=0:hggcSuccess immediate=200:hggcErrorInvalidKernelImage synchronize=0:hggcSuccess deferred=0:hggcSuccess immediate_text=device kernel image is invalid FQ_PURE_C_CONTROL op=raw-scale rc=41 bad=16 sentinel=16 FQ_PURE_C_CONTROL op=raw-zero rc=41 bad=16 sentinel=16 FQ_PREPASS_LAUNCH_AUDIT op=packed-prepass qtype=10 before=0:hggcSuccess immediate=200:hggcErrorInvalidKernelImage synchronize=0:hggcSuccess deferred=0:hggcSuccess immediate_text=device kernel image is invalid FQ_PURE_C_CONTROL op=packed-scale rc=41 bad=8192 sentinel=8192 FQ_PURE_C_CONTROL op=packed-zero rc=41 bad=8192 sentinel=8192
+- (2026-08-30 11:26 UTC) 当前结论：PPU_PREPASS_LAUNCH_AUDIT=1 这个事干啥的/
+- (2026-08-30 11:28 UTC) f918efc [gguf-prepass-isolate:self-test] PASS production header bodies, nonzero oracle, poison and two negatives [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) FQ_PREPASS_PPU_ISOLATE marker_bad=1 marker=[before:0,immediate:200,sync:0] raw_bad=16384 raw_sentinel=16384 raw_red_bad=16384 raw_gold_nonzero=16384 raw=[before:0,immediate:200,sync:0] packed_bad=16384 packed_sentinel=16384 packed_red_bad=16384 packed_gold_nonzero=16384 packed=[before:0,immediate:200,sync:0] FQ_PREPASS_PPU_ISOLATE_VERDICT verdict=FAIL carrier=STANDALONE-HGCC kernel_body=PRODUCTION-HEADER FQ_PREPASS_PPU_ISOLATE_ROOT verdict=STANDALONE_CARRIER_IMAGE_INVALID device_rc=1 one_tu=1 dlopen=0 pytorch=0 copied_kernel_body=0 [gguf-prepass-isolate] DIAGNOSTIC_COMPLETE sha=f918efc888dda3810d4fa51db8025bcdfc81ac91 artifacts=/workspace/quactlize-gguf-prepass-isolate-f918efc-20260830T112649Z [gguf-prepass-isolate] DONE rc=0 artifacts=/workspace/quactlize-gguf-prepass-isolate-f918efc-20260830T112649Z FQ_PREPASS_PPU_ISOLATE marker_bad=1 marker=[before:0,immediate:200,sync:0] raw_bad=16384 raw_sentinel=16384 raw_red_bad=16384 raw_gold_nonzero=16384 raw=[before:0,immediate:200,sync:0] packed_bad=16384 packed_sentinel=16384 packed_red_bad=16384 packed_gold_nonzero=16384 packed=[before:0,immediate:200,sync:0] FQ_PREPASS_PPU_ISOLATE_VERDICT verdict=FAIL carrier=STANDALONE-HGCC kernel_body=PRODUCTION-HEADER FQ_PREPASS_PPU_I …
+- (2026-08-30 11:34 UTC) 现在离真相近了还是远了
+- (2026-08-30 11:40 UTC) 还要多久
+- (2026-08-30 11:43 UTC) [gguf-prepass-image:self-test] PASS four distinct objects, exact raw/packed symbols, inert guards and two negatives cp: '/workspace/quactlize-gguf-prepass-image-75a17d2-20260830T114000Z/results/build-marker.log' and '/workspace/quactlize-gguf-prepass-image-75a17d2-20260830T114000Z/results/build-marker.log' are the same file [gguf-prepass-image] DONE rc=1 artifacts=/workspace/quactlize-gguf-prepass-image-75a17d2-20260830T114000Z grep: /workspace/quactlize-gguf-prepass-image-75a17d2-20260830T114000Z/results/device-*.log: No such file or directory grep: /workspace/quactlize-gguf-prepass-image-75a17d2-20260830T114000Z/results/verdict.log: No such file or directory artifacts: /workspace/quactlize-gguf-prepass-image-75a17d2-20260830T114000Z
+- (2026-08-30 11:47 UTC) 1 file changed, 48 insertions(+), 16 deletions(-) [gguf-prepass-image:self-test] PASS four distinct objects, exact raw/packed symbols, inert guards, two negatives and resumable marker build [gguf-prepass-image] RESUME=1 reusing marker build authority=75a17d2913840cb0f7ad8cea948132377f4ea377 artifacts=/workspace/quactlize-gguf-prepass-image-75a17d2-20260830T114000Z [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) FQ_PREPASS_PPU_IMAGE arm=marker marker_bad=1 marker_value=0x7bff marker=[before:0,immediate:200,sync:0] subject=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_IMAGE_VERDICT arm=marker verdict=FAIL [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) FQ_PREPASS_PPU_IMAGE arm=header marker_bad=1 marker_value=0x7bff marker=[before:0,immediate:200,sync:0] subject=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_IMAGE_VERDICT arm=header verdict=FAIL [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) FQ_PREPASS_PPU_IMAGE arm=raw marker_bad=1 marker_value=0x7bff marker=[before:0,immediate:200,sync:0] subject=[before:0,immediate:200,sync:0] FQ_PREPASS_PPU_IMAGE_VERDICT arm=raw verdict=FAIL [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV  …
+- (2026-08-30 11:48 UTC) 给我一个重新跑的command
+- (2026-08-30 11:48 UTC) 我换一个机器
+- (2026-08-30 11:48 UTC) 我换一个机器
+- (2026-08-30 11:54 UTC) 所以可能是机器的问题嘛
+- (2026-08-30 12:00 UTC) [gguf-prepass-image:self-test] PASS four distinct objects, exact raw/packed symbols, inert guards, inherited SDK environment, two negatives and resumable marker build FQ_PREPASS_PPU_IMAGE arm=marker marker_bad=0 marker_value=0x3c00 marker=[before:0,immediate:0,sync:0] subject=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_IMAGE_VERDICT arm=marker verdict=PASS FQ_PREPASS_PPU_IMAGE arm=header marker_bad=0 marker_value=0x3c00 marker=[before:0,immediate:0,sync:0] subject=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_IMAGE_VERDICT arm=header verdict=PASS FQ_PREPASS_PPU_IMAGE arm=raw marker_bad=0 marker_value=0x3c00 marker=[before:0,immediate:0,sync:0] subject=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_IMAGE_VERDICT arm=raw verdict=PASS FQ_PREPASS_PPU_IMAGE arm=packed marker_bad=0 marker_value=0x3c00 marker=[before:0,immediate:0,sync:0] subject=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_IMAGE_VERDICT arm=packed verdict=PASS FQ_PREPASS_PPU_IMAGE_ROOT marker_clean=1 header_clean=1 raw_clean=1 packed_clean=1 verdict=SPECIALIZATIONS_ADMIT_IN_SEPARATE_IMAGES [gguf-prepass-image] DIAGNOSTIC_COMPLETE sha=f2a7a1b4ce179804a8cd116a956aec1a69abb89 artifacts=/workspace/quactlize-gguf-prepass-image-f2a7a1b-20260830T115659Z [gguf-prepass-image] DONE rc=0 artifacts=/workspace/quactlize-gguf-prepass-image-f2a7a1b-20260830T115659Z FQ_PREPASS_PPU_IMAGE arm=header marker_bad=0 marker_value=0x3c00 marker=[before:0,immediate:0,sync:0] subject=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_IMAGE arm=mark …
+- (2026-08-30 12:02 UTC) FQ_PREPASS_PPU_ISOLATE marker_bad=0 marker=[before:0,immediate:0,sync:0] raw_bad=0 raw_sentinel=0 raw_red_bad=16384 raw_gold_nonzero=16384 raw=[before:0,immediate:0,sync:0] packed_bad=0 packed_sentinel=0 packed_red_bad=16384 packed_gold_nonzero=16384 packed=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_ISOLATE_VERDICT verdict=PASS carrier=STANDALONE-HGCC kernel_body=PRODUCTION-HEADER FQ_PREPASS_PPU_ISOLATE marker_bad=0 marker=[before:0,immediate:0,sync:0] raw_bad=0 raw_sentinel=0 raw_red_bad=16384 raw_gold_nonzero=16384 raw=[before:0,immediate:0,sync:0] packed_bad=0 packed_sentinel=0 packed_red_bad=16384 packed_gold_nonzero=16384 packed=[before:0,immediate:0,sync:0] FQ_PREPASS_PPU_ISOLATE_VERDICT verdict=PASS carrier=STANDALONE-HGCC kernel_body=PRODUCTION-HEADER
+- (2026-08-30 12:45 UTC) [nonq4-xplane:environment] PASS inherited SDK/module environment and fail-closed resume identity [nonq4-xplane] build label=base defs=PPU_PACKED_SCALE=1 NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS NONQ4_XPLANE format=Q2_K verdict=PASS tests=1 scope=prepass prepass_arm=cooperative N=256 K=512 base_defs=PPU_PACKED_SCALE=1 NONQ4_XPLANE_ORACLE format=Q3_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS NONQ4_XPLANE format=Q3_K verdict=PASS tests=1 scope=prepass prepass_arm=cooperative N=256 K=512 base_defs=PPU_PACKED_SCALE=1 NONQ4_XPLANE_ORACLE format=Q4_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS NONQ4_XPLANE format=Q4_K verdict=PASS tests=1 scope=prepass prepass_arm=cooperative N=256 K=512 base_defs=PPU_PACKED_SCALE=1 NONQ4_XPLANE_ORACLE format=Q5_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS NONQ4_XPLANE format=Q5_K verdict=PASS tests=1 scope=prepass prepass_arm=cooperative N=256 K=512 base_defs=PPU_PACKED_SCALE=1 NONQ4_XPLANE_ORACLE format=Q6_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS NONQ4_XPLANE format=Q6_K verdict=PASS tests=1 scope=prepass prepass_arm=cooperative N=256 K=512 base_defs=PPU_PACKED_SCALE=1 NONQ4_XPLANE_ALL verdict=PASS formats=Q2_K,Q3_K,Q4_K,Q5_K,Q6_K [nonq4-xplane] DONE rc=0 artifacts=/workspace/quactlize-nonq4-prepass-c181 …
+- (2026-08-30 12:46 UTC) 这只是功能上吧，没有从性能上验证可以清楚xplane
+- (2026-08-30 12:47 UTC) Q2可能是kpack8等等
+- (2026-08-30 12:50 UTC) 所以现在还没有加上Q2等的kpack格式。
+- (2026-08-30 12:52 UTC) 后续的计划应该是接入Q2，3，5，6的kpack，对应验证正确性和性能。
+- (2026-08-30 14:07 UTC) 1 failed, 82 deselected in 1.32s [nonq4-xplane] FAIL: Q2_K oracle test_fully_quantized_grouped_matches_dequant_first_and_rejects_fault failed [nonq4-xplane] DONE rc=2 artifacts=/workspace/quactlize-nonq4-full-c181202-20260830T124604Z NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_dequant_all_matches_official_gguf verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_gemv_matches_dequant_first_and_rejects_fault verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_gemv_moe_matches_dequant_first_and_rejects_fault verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_fully_quantized_grouped_matches_dequant_first_and_rejects_fault verdict=FAIL
+- (2026-08-30 14:15 UTC) 我要睡觉了， 你先把后面的Q2，3，5，6，接好kpack格式，包括dense和grouped。先移植功能，本地验证做完。
+- (2026-08-30 23:00 UTC) c181202..1c9882f develop -> origin/develop Updating c181202..1c9882f Fast-forward dev/fold_derivation/l140_fake_ppu_backend.cpp | 8 ++++++--- quactlize/csrc/preprocess/thop/gguf_prepass_ops.cpp | 9 ++++++----- tests/test_placed_artifact_abi.py | 45 +++++++++++++++++++++++++++++++++++++++++++++ 3 files changed, 59 insertions(+), 3 deletions(-) /workspace/quactlize-nonq4-q2-grouped-1c9882f-20260830T141424Z.console.log:NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS /workspace/quactlize-nonq4-q2-grouped-1c9882f-20260830T141424Z.console.log:NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_dequant_all_matches_official_gguf verdict=PASS /workspace/quactlize-nonq4-q2-grouped-1c9882f-20260830T141424Z.console.log:NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_gemv_matches_dequant_first_and_rejects_fault verdict=PASS /workspace/quactlize-nonq4-q2-grouped-1c9882f-20260830T141424Z.console.log:NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_gemv_moe_matches_dequant_first_and_rejects_fault verdict=PASS /workspace/quactlize-nonq4-q2-grouped-1c9882f-20260830T141424Z.console.log:NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_fully_quantized_grouped_matches_dequant_first_and_rejects_fault verdict=PASS /workspace/quactlize-nonq4-q2-grouped-1c9882f-20260830T141424Z.console.log:NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_fully_quantized_dense_matches_dequant_first_and_rejects_fault verdict=PASS /workspace/quactlize-nonq4-q2-grouped-1c …
+- (2026-08-31 02:09 UTC) 5f99741 [nonq4-xplane:environment] PASS inherited SDK/module environment and fail-closed resume identity [nonq4-xplane] build label=base defs=PPU_PACKED_SCALE=1 [nonq4-xplane] build label=Q2_K defs=PPU_PACKED_SCALE=1 PPU_PACKED_FORMAT=2 NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_dequant_all_matches_official_gguf verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_gemv_matches_dequant_first_and_rejects_fault verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_bc_gemv_moe_matches_dequant_first_and_rejects_fault verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_fully_quantized_grouped_matches_dequant_first_and_rejects_fault verdict=PASS NONQ4_XPLANE_ORACLE format=Q2_K oracle=test_fully_quantized_dense_matches_dequant_first_and_rejects_fault verdict=PASS NONQ4_XPLANE format=Q2_K verdict=PASS tests=6 scope=full layout=kquant-kpack prepass_arm=cooperative N=256 K=512 base_defs=PPU_PACKED_SCALE=1 [nonq4-xplane] build label=Q3_K defs=PPU_PACKED_SCALE=1 PPU_PACKED_FORMAT=3 NONQ4_XPLANE_ORACLE format=Q3_K oracle=test_packed_unit_scale_derivation_matches_the_scale_first_planes verdict=PASS NONQ4_XPLANE_ORACLE format=Q3_K oracle=test_bc_dequant_all_matches_official_gguf verdict=PASS NONQ4_XPLANE_ORACLE format=Q3_K oracle=test_bc_gemv_matches_dequant_first_and_rejects_fault verdict=PASS NONQ4_XPLANE_ORACLE format=Q3_K oracle=test_bc_gemv_moe_matches_ …
+- (2026-08-31 02:16 UTC) 后面直接性能验证吧。我们看一下是不是可以archive xplane
+- (2026-08-31 03:05 UTC) Q4的groupgemm之前扫过吗？如果没有也要加进去
+- (2026-08-31 04:53 UTC) [moe_grouped] can_implement: Invalid status [moe_grouped] can_implement: Invalid status FQ_KQUANT_LAYOUT_RUN q=10 round=1 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=FAIL [fq-kquant-perf] FAIL: phase rc=1 preserved=/workspace/quactlize-fq-kquant-layout-perf-427fe7e-20260831T031852Z/runs/q10-round1.log.failed.20260831T035757Z-2876804 artifacts: /workspace/quactlize-fq-kquant-layout-perf-427fe7e-20260831T031852Z
+- (2026-08-31 06:10 UTC) [fq-kquant-perf-plan:self-test] PASS formats=5 dense=77/11-family grouped=24/4-family Q4=grouped-only; five plants RED [fq-kquant-perf-plan] PASS dense=77 grouped=24 output=/workspace/quactlize-fq-kquant-layout-perf-210ea80-20260831T053227Z/plan.json [fq-kquant-perf] build q=10 packed_format=2 [fq-kquant-perf] run q=10 round=1 order=xplane-first FQ_KQUANT_LAYOUT_WEIGHT q=10 n=512 k=2048 experts=256 xplane_mapping=0x0000000000000000 kpack_mapping=0x514b504b54000001 low_bytes=67108864 high_bytes=0 unit_bytes=20971520 roundtrip=PASS FQ_KQUANT_LAYOUT_FAILURE q=10 round=1 operator=grouped layout=xplane tokens=1 shape=8x512x2048 experts=256 topk=8 active=8 zero=248 max_rows=1 config=NONE phase=WORKSPACE_QUERY code=-1 FQ_KQUANT_LAYOUT_RUN q=10 round=1 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=FAIL [fq-kquant-perf] FAIL: phase rc=1 preserved=/workspace/quactlize-fq-kquant-layout-perf-210ea80-20260831T053227Z/runs/q10-round1.log.failed.20260831T061007Z-1681458 artifacts: /workspace/quactlize-fq-kquant-layout-perf-210ea80-20260831T053227Z /workspace/quactlize-fq-kquant-layout-perf-210ea80-20260831T053227Z/runs/q10-round1.log.failed.20260831T061007Z-1681458:FQ_KQUANT_LAYOUT_FAILURE q=10 round=1 operator=grouped layout=xplane tokens=1 shape=8x512x2048 experts=256 topk=8 active=8 zero=248 max_rows=1 config=NONE phase=WORKSPACE_QUERY code=-1
+- (2026-08-31 07:26 UTC) [fq-kquant-perf-plan:self-test] PASS formats=5 dense=77/11-family grouped=24/4-family Q4=grouped-only; five plants RED [fq-kquant-perf-plan] PASS dense=77 grouped=24 output=/workspace/quactlize-fq-kquant-layout-perf-656d9b9-20260831T062654Z/plan.json [fq-kquant-perf] build q=10 packed_format=2 [fq-kquant-perf] run q=10 round=1 order=xplane-first FQ_KQUANT_LAYOUT_RUN q=10 round=1 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] run q=10 round=2 order=kpack-first FQ_KQUANT_LAYOUT_RUN q=10 round=2 order=kpack-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] run q=10 round=3 order=xplane-first FQ_KQUANT_LAYOUT_RUN q=10 round=3 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] build q=11 packed_format=3 跑了多少了，现在跑的这个代表什么？
+- (2026-08-31 07:28 UTC) 给我offline的格式转换的代码，从原始的gguf到我们期望的格式，也就是kpack4，其他的格式按照我们的期望转换。，也就是q2k是kpack8，3bit要2-plane等等。
+- (2026-08-31 07:56 UTC) 你看一下https://github.com/t-head/DeepGEMM-for-sail/blob/main/deep_gemm/include/deep_gemm/w4a16_gemm_cutlass3.cuh这个代码，我们是不是可以参考，。本地看看有没有
+- (2026-08-31 08:15 UTC) 656d9b9 [fq-kquant-perf-plan:self-test] PASS formats=5 dense=77/11-family grouped=24/4-family Q4=grouped-only; five plants RED [fq-kquant-perf-plan] PASS dense=77 grouped=24 output=/workspace/quactlize-fq-kquant-layout-perf-656d9b9-20260831T062654Z/plan.json [fq-kquant-perf] build q=10 packed_format=2 [fq-kquant-perf] run q=10 round=1 order=xplane-first FQ_KQUANT_LAYOUT_RUN q=10 round=1 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] run q=10 round=2 order=kpack-first FQ_KQUANT_LAYOUT_RUN q=10 round=2 order=kpack-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] run q=10 round=3 order=xplane-first FQ_KQUANT_LAYOUT_RUN q=10 round=3 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] build q=11 packed_format=3 [fq-kquant-perf] run q=11 round=1 order=xplane-first FQ_KQUANT_LAYOUT_WEIGHT q=11 n=512 k=2048 experts=256 xplane_mapping=0x0000000000000000 kpack_mapping=0x514b504b54000001 low_bytes=67108864 high_bytes=33554432 unit_bytes=14680064 roundtrip=PASS FQ_KQUANT_LAYOUT_GROUPED q=11 round=1 order=xplane-first layout=kpack mapping_id=0x514b504b54000001 tokens=1 shape=8x512x2048 experts=256 topk=8 active=8 zero=248 max_rows=1 config=16x128:16x16:s2 provider=standard-aiu iterations=11 raw_bad=0 median_us=35.000000149 min_us=32.439999282 max_us=43.400000781 samples=[32.439999282,33.360000703,34 …
+- (2026-08-31 08:16 UTC) › 你看一下https://github.com/t-head/DeepGEMM-for-sail/blob/main/deep_gemm/include/deep_gemm/w4a16_gemm_cutlass3.cuh这个代码，我们是不是可以参考，。本地看看有没有
+- (2026-08-31 08:25 UTC) 他这个reader相对于我们的好处？
+- (2026-08-31 08:26 UTC) 我正在确定offline的格式，所以这些输入很重要。
+- (2026-08-31 08:30 UTC) 继续
+- (2026-08-31 08:33 UTC) 可以记录到todo。然后我们继续我们的错误的debug
+- (2026-08-31 08:45 UTC) 继续
+- (2026-08-31 09:16 UTC) 我们现在再review一下，我们的方法可以结合deepgemm的w4a16吗？比如我们可以offline shuffle，然后直接加载吗？然后规避TN的限制。
+- (2026-08-31 09:35 UTC) 额，offline的格式应该也可以从我们替换的cp async来反推？原来的AIU swzl和ldmatrix swzl匹配，现在应该是cp async+read，实际上offline的格式也可以cute 反推。而且如果我们实现的好的话，只需要改reader就行了，比如从aiu swzl改成cp async。其他自动生效。
+- (2026-08-31 10:01 UTC) deepgemm是直接读到到reg吗
+- (2026-08-31 10:02 UTC) 这个玩意在cutlass里应该是一个是一个可以配置的选项, 我们也可以aiuplainload加universalcopy,我的point是读取的方法是无关的可以plugin的的,只要基础代码ready
+- (2026-08-31 10:03 UTC) 我希望的是我们的脚手架是ready的
+- (2026-08-31 10:03 UTC) 制定一个计划实现我的需求
+- (2026-08-31 10:09 UTC) 开始按计划实施
+- (2026-08-31 12:19 UTC) 之前的结果：[build.sh] BINARY: /workspace/quactlize-q3-signed-zero-e5235fe/build/ppu_targets/test_fq_kquant_layout_perf BIN=$(./build.sh --print-bin) is not a thing; copy the line above, or: FQ_KQUANT_LAYOUT_WEIGHT q=11 n=512 k=3072 experts=256 xplane_mapping=0x0000000000000000 kpack_mapping=0x514b504b54000001 low_bytes=100663296 high_bytes=50331648 unit_bytes=22020096 xplane_low_hash=0x7ca5ca506699ec4e8383 xplane_high_hash=0xeea621119038a383 kpack_low_hash=0x9fdf77e08597c383 kpack_high_hash=0x88356a72bdea0a383 unit_hash=0x3a8c0cf04dd0b383 roundtrip=PASS FQ_KQUANT_LAYOUT_GROUPED q=11 round=1 order=xplane-first layout=xplane mapping_id=0x0000000000000000 tokens=1 shape=8x512x3072 experts=256 topk=8 active=8 zero=248 max_rows=1 config=16x128:16x16:s2 provider=standard-aiu iterations=1 raw_bad=0 median_us=57.599999011 min_us=57.599999011 max_us=57.599999011 samples=[57.599999011] FQ_KQUANT_LAYOUT_GROUPED q=11 round=1 order=xplane-first layout=kpack mapping_id=0x514b504b54000001 tokens=1 shape=8x512x3072 experts=256 topk=8 active=8 zero=248 max_rows=1 config=16x128:16x16:s2 provider=standard-aiu iterations=1 raw_bad=0 median_us=49.920000136 min_us=49.920000136 max_us=49.920000136 samples=[49.920000136] FQ_KQUANT_LAYOUT_RUN q=11 round=1 order=xplane-first iterations=1 warmups=1 all_configs=0 dense_cases=0 grouped_cases=1 status=PASS FQ_KQUANT_LAYOUT_WEIGHT q=11 n=512 k=3072 experts=256 xplane_mapping=0x0000000000000000 kpack_mapping=0x514b504b54000001 low_bytes=100663296 high_bytes=5033 …
+- (2026-08-31 13:24 UTC) [fq-kquant-perf] build q=10 packed_format=2 总共几种格式，
+- (2026-08-31 22:59 UTC) [fq-kquant-perf-plan:self-test] PASS formats=5 dense=77/11-family grouped=24/4-family Q4-grouped-only; five plants RED [fq-kquant-perf-plan] PASS dense=77 grouped=24 output=/workspace/quactlize-fq-kquant-layout-perf-40c0875-20260831T122328Z/plan.json [fq-kquant-perf] build q=10 packed_format=2 [fq-kquant-perf] run q=10 round=1 order=xplane-first FQ_KQUANT_LAYOUT_RUN q=10 round=1 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] run q=10 round=2 order=kpack-first FQ_KQUANT_LAYOUT_RUN q=10 round=2 order=kpack-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] run q=10 round=3 order=xplane-first FQ_KQUANT_LAYOUT_RUN q=10 round=3 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] build q=11 packed_format=3 ^[[C[fq-kquant-perf] run q=11 round=1 order=xplane-first FQ_KQUANT_LAYOUT_RUN q=11 round=1 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] run q=11 round=2 order=kpack-first FQ_KQUANT_LAYOUT_RUN q=11 round=2 order=kpack-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] run q=11 round=3 order=xplane-first FQ_KQUANT_LAYOUT_RUN q=11 round=3 order=xplane-first iterations=11 warmups=3 all_configs=0 dense_cases=77 grouped_cases=24 status=PASS [fq-kquant-perf] build q=12 packe …
+- (2026-08-31 23:02 UTC) 还好吧，比我想的要好，可能要看一下为什么变差，但是大体上我觉得可以直接archive，从维护成本上小很多，而且后期我们还可以对于kpack继续优化。
+- (2026-08-31 23:02 UTC) 而且是统一prefill+decode的唯一解法。
+- (2026-08-31 23:05 UTC) 我们要开始把大部分的代码移植到main了，注意几个原则，1。不能出现codex或者claude的信息，2。不能出现一些脚手架代码，移植到main的必须要是真正有用的，3。遵循clean code，有很多flag如果没有用的就去掉。4。入口清晰，脚本清晰展示怎么扫描config等等，5。readme refine一下，写清楚一点。大部分的调试信息去掉，只保留少部分，少而精。6。nvidia平台的兼容代码不要到main。7。main上只有我们需要的格式类型，xplane不要进去。
+- (2026-08-31 23:05 UTC) 给我一个计划。
+- (2026-08-31 23:05 UTC) develop还有什么技术债吗？
+- (2026-08-31 23:08 UTC) 那就先不着急，我们先清理技术债，然后merge到main的原则记录成skill，然后放到todo。另外应该还有新加入的aiu+universal copy没有测试
+- (2026-08-31 23:09 UTC) 先总结技术债到一个表格，然后我们一个个解决
+- (2026-08-31 23:11 UTC) 现在的和xplane的差距也是技术债
+- (2026-08-31 23:22 UTC) 有一些你可以不用上box的你自己解决
+- (2026-08-31 23:42 UTC) ppusdk得地址https://www.flytiger-eco.com/download
+- (2026-08-31 23:42 UTC) https://www.flytiger-eco.com/download https://pkg.flytiger-eco.com/artifactory/generic-local/CUDA_SDK/v2.1.1/PPU_SDK_cuda-13.0.0-ubuntu2404-2.1.1-a5c56e.tar.gz
+- (2026-08-31 23:42 UTC) 可以用这个在本地做更多的事情，可以本地编译了
+- (2026-08-31 23:43 UTC) 大部分，除了数值和性能需要上box，其他应该都可以本地了吧
+- (2026-09-01 01:37 UTC) 现在什么状态了
+- (2026-09-01 01:52 UTC) 格式转换的代码位置在哪里？我说的是offline的gguf的格式转换到我们的期望格式的代码位置。
+- (2026-09-01 01:55 UTC) 另外后续的bin可以你本地编译，我去box只是执行，拿结果和返回，这样简单很多。
+- (2026-09-01 01:55 UTC) 把bin也push
+- (2026-09-01 01:55 UTC) 把bin也push
+- (2026-09-01 02:00 UTC) 用git lfs提交大的编译产物
+- (2026-09-01 02:07 UTC) 我们的技术债还剩哪些？
+- (2026-09-01 03:06 UTC) PPU_B_CHUNK是什么
+- (2026-09-01 03:22 UTC) PPU_B_CHUNK 为什么不是默认打开？
+- (2026-09-01 03:25 UTC) 剩下几个继续解决
+- (2026-09-01 05:11 UTC) 继续
+- (2026-09-01 05:32 UTC) 什么状态了
+- (2026-09-01 05:43 UTC) 大概还要多久
+- (2026-09-01 05:46 UTC) 先告诉我哪几个文件可以复现GGUF到我们的offline的格式的转换，我要让其他同事移植到llama cpp
+- (2026-09-01 06:01 UTC) 可以挪到main吗？
+- (2026-09-01 06:03 UTC) 不对，直接做一个python的代码做一个reference就行了，不需要生产代码。我只需要一个python版本的
+- (2026-09-01 06:04 UTC) 可以有torch依赖，或者说可以用pytorch
+- (2026-09-01 06:04 UTC) 只是reference，保证对齐数据格式就可以
+- (2026-09-01 06:39 UTC) 继续我们之前的残留的工作
+- (2026-09-01 06:40 UTC) 本地编译什么进度了
+- (2026-09-01 06:46 UTC) 继续
+- (2026-09-01 06:46 UTC) 现在是main吗？我们要在dev
+- (2026-09-01 06:46 UTC) 现在是main吗？我们要在dev
+- (2026-09-01 06:46 UTC) 继续
+- (2026-09-01 06:49 UTC) reference/gguf_kpack.py 怎么用？
+- (2026-09-01 06:52 UTC) 啥意思，我给同事，我怎么描述，她要怎么使用
+- (2026-09-01 06:58 UTC) 那不行，你也要提供代码能直接读gguf文件。存gguf，要不然怎么验证
+- (2026-09-01 07:28 UTC) reference部分要放到main
+- (2026-09-01 07:46 UTC) python reference/gguf_kpack.py pack model.gguf model.kpack-reference.gguf python reference/gguf_kpack.py verify model.kpack-reference.gguf --source model.gguf 分别是什么作用
+- (2026-09-01 07:51 UTC) 继续
+- (2026-09-01 08:01 UTC) 关于如何接入llama cpp的在线格式转换，看看对不对：转换点:自定义 buffer type 的 set_tensor llama.cpp 里就这一个地方是为这件事设计的。四个挂接点,全在这棵树上: ① select_weight_buft() src/llama-model-loader.cpp:1034 为每个权重遍历 buft_list,取第一个 weight_buft_supported() 为真的 ⟹ 把 kpack buft 插进 list,对 GGML_OP_MUL_MAT + 你支持的 qtype/shape 返回 true ② 你的 buffer->iface.init_tensor 挂 tensor->extra;get_alloc_size 报重排后大小 (kpack4 与原大小相同 n·k·bits/8,这项零成本) ③ 你的 buffer->iface.set_tensor ★ 转换就在这一行 GGML_ASSERT(offset == 0); GGML_ASSERT(size == ggml_nbytes(tensor)); traits->repack(tensor, data, size); // GGUF → kpack4 ④ 之后 src0->data 自然就是重排后的字节 mmvq-quactlize-ppu.cu:31 那行一个字都不用改 两个现成可抄的先例: ggml/src/ggml-cpu/repack.cpp:4733 ← 规范形状(Q4_0 → Q4_0_4x4 的 ARM 重排) ggml/src/ggml-cuda/ggml-cuda.cu:938 / 988 ← split_buffer,CUDA 侧自带分配+摆放的 buffer type 转换本体直接调 q4_kpack4_offline.hpp 的 host 函数 —— 它自己的头注释就写着 host-only、CUTLASS-free,链进 llama.cpp 不引入任何 PPU SDK,而且和离线打包器共用同一份地址函数(在线/离线天然位一致,不用第二套 oracle)。 为什么不是别处 位置 问题 load_tensors / loader 更早处 不知道会被哪个 backend 消费。llama.cpp 正是为此把这件事下沉到 buffer type 计算图里加一个 transform 节点 每个 token 都会跑一次 .so 内部 拿到的是只读 device 指针,没地方放输出 kpack4 能这么做,fold 不能 set_tensor 只拿得到 tensor 本身(形状 + 类型),拿不到将要消费它的 tile/tactic: kpack4: word_index(n, k, N) = physical_kgroup(k)*N + n ✅ 只依赖 N、K fold: place_from_map<Bits, TM, TN, TK, WM, WN, F, ATK> ❌ 需要 tactic ⟹ 「映射里没有 TileK」不只是让 artifact 可共享,它是 online repack 可行的前提。 一个必须同时做的前置(否则静默算错) .so 的 ABI 契约把权重写死成原始 GGUF: // ppu-quactlize-so.h // b [rows * bpr, block_bytes] raw GGUF blocks, row-major 而 ggml_ppu_quactlize_tactic_query_v1 …
+- (2026-09-01 08:06 UTC) 本地应该是有llama cpp的
+- (2026-09-01 08:14 UTC) 按照这种方式，下次load还需要转换吗？
+- (2026-09-01 08:15 UTC) 我要落盘
+- (2026-09-01 08:21 UTC) 继续
+- (2026-09-01 09:25 UTC) 还有多久
+- (2026-09-01 09:26 UTC) 我现在在让codex移植到llama cpp，需要你这边提供quactlize的库的信息，包括编译的so位置
+- (2026-09-01 09:29 UTC) decoding的fully quantized的so呢？
+- (2026-09-01 09:54 UTC) 你要给claude的信息，都放到一个markdown，每次更新
+- (2026-09-01 09:56 UTC) 参考GEMM 配置选择方法综述与对比markdown文档，然后思考一下如何选择config，要结合我们现在扫描出来的最优的config
+- (2026-09-01 10:03 UTC) 多测一些然后构建heuristic
+- (2026-09-01 10:20 UTC) 之前的几个其他的任务继续这次sweep还需要我box编译吗
+- (2026-09-01 10:47 UTC) 全部的改动收口还要多久
+- (2026-09-01 10:48 UTC) 之前的技术债不需要box测试吗
+- (2026-09-01 10:48 UTC) 继续
+- (2026-09-01 11:07 UTC) 放到autodltmp下面
+- (2026-09-01 12:26 UTC) 我在box上执行的命令是什么
+- (2026-09-01 12:52 UTC) OUT=/workspace/fq-kquant-heuristic-2b513637 cat "$OUT/results/summary.tsv" cat "$OUT/results/config-heuristic.json" cat "$OUT/results/result-authority.json" [prebuilt-fq-kquant] VERIFIED source=2b513637fc3d315077b14ab81784ff1fb21e1bb7 pairs=5 payloads=30 box identity probe: hggc runtime reports 8 visible devices; candidates: ordinal=0 name='PPU-ZW810' pci=0000:08:00.0 cu=72; ordinal=1 name='PPU-ZW810' pci=0000:7e:00.0 cu=72; ordinal=2 name='PPU-ZW810' pci=0000:a2:00.0 cu=72; ordinal=3 name='PPU-ZW810' pci=0000:c6:00.0 cu=72; ordinal=4 name='PPU-ZW810' pci=0001:10:00.0 cu=72; ordinal=5 name='PPU-ZW810' pci=0001:86:00.0 cu=72; ordinal=6 name='PPU-ZW810' pci=0001:aa:00.0 cu=72; ordinal=7 name='PPU-ZW810' pci=0001:ce:00.0 cu=72. Set CUDA_VISIBLE_DEVICES to exactly one ordinal and rerun; operator identity strings do not disambiguate devices. root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# OUT=/workspace/fq-kquant-heuristic-2b513637 cat: /workspace/fq-kquant-heuristic-2b513637/results/summary.tsv: No such file or directory cat: /workspace/fq-kquant-heuristic-2b513637/results/config-heuristic.json: No such file or directory cat: /workspace/fq-kquant-heuristic-2b513637/results/result-authority.json: No such file or directory
+- (2026-09-01 12:53 UTC) [prebuilt-fq-kquant] VERIFIED source=2b513637fc3d315077b14ab81784ff1fb21e1bb7 pairs=5 payloads=30 [prebuilt-fq-kquant] host-floor PASS ubuntu=24.04 glibc 2.39 SDK identity differs: /usr/local/PPU_SDK/release.yaml
+- (2026-09-01 12:53 UTC) sdk不同也无妨，可以跑。
+- (2026-09-01 13:36 UTC) 我先wget 对应的sdk吧，然后source
+- (2026-09-01 13:42 UTC) FQ K-quant SDK identity rejected: cannot open SDK runtime library lib/libhggcrt.13.0.so libhggcrt.13.0.so: [Errno 2] No such file or directory: '/usr/local/PPU_SDK/targets/x86_64-linux/lib/libhggcrt.13.0.so' root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# which nvcc /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/CUDA_SDK/bin/nvcc
+- (2026-09-01 13:42 UTC) FQ K-quant SDK identity rejected: SDK identity differs: compiler.sha256, inspector.sha256 bash: 预检通过后，正式命令中不要再出现: command not found
+- (2026-09-01 13:47 UTC) heuristic=143+52, 11 dense/4 grouped families, Q4=grouped-only; five plants RED [fq-kquant-perf-plan] PASS validated=/workspace/fq-kquant-heuristic-official-sdk/inputs/plan.json [prebuilt-fq-kquant] run q=10 round=1 order=xplane-first 然后在跑什么？不是编译吧
+- (2026-09-01 13:57 UTC) 这玩意怎么跑这么久，是跑了所有的config？
+- (2026-09-01 14:01 UTC) 最后结果你需要什么？
+- (2026-09-01 14:45 UTC) 我上传了，在quactlize目录
+- (2026-09-01 14:47 UTC) 继续
+- (2026-09-01 14:58 UTC) 为什么技术裁决是keep xplane，如果差距不大可以考虑去掉
+- (2026-09-01 14:58 UTC) raw logs可以让我上传
+- (2026-09-01 14:59 UTC) 失败的全局fallback是什么？是我们有一些case 错误了？
+- (2026-09-01 15:00 UTC) 我理解你说的意思，但是为了推进，可以把性能差异记录为技术债，但是还是要先推进后面的heuristic，先不考虑xplane。仅仅考虑kpack。要不然搜索空间太大的了
+- (2026-09-01 15:02 UTC) raw 我也上传了。
+- (2026-09-01 15:02 UTC) 后续的todo 列一下
+- (2026-09-01 15:04 UTC) 继续做直到需要上box为止。
+- (2026-09-01 15:04 UTC) quactlize的so有了吗？可以给claude了吗？
+- (2026-09-01 15:56 UTC) 其他没有todo了吗
+- (2026-09-01 15:57 UTC) 继续做不要停
+- (2026-09-01 22:08 UTC) codex 那边要两样交付和三个回答。已写进 INBOX 179 / 180,但按协议 codex 是请求/响应式的、INBOX 不会自动送达,所以你转述时带上这份: 交付(缺任一个,整条路自己 decline,box 上跑出来的就是今天的 bf16 路) 1. quactlize_ppu_canonical_arrangement_v2 —— ppu_placed_arrangement.hpp 里 q4_kpack4_transpose_v1() / kquant_kpack_transpose_v1(qtype) 已经是规范值,只是没有 C 出口。实现体我在 179 里给了,约 10 行。 2. prepare/recover_fully_quantized_for_arrangement_v2 进五个 fmt .so + 新 bundle 路径。签名按 quactlize_ppu_packed.h,不用改。 前置自检(box 上第一步,不过就别往下跑): nm -D --defined-only libquactlize_ppu_fmt0.so | grep -cE \ 'canonical_arrangement_v2|prepare_fully_quantized_for_arrangement_v2|recover_fully_quantized_for_arrangement_v2' # 必须是 3 回答(决定我那边代码的形状,现在全是我从 ABI 措辞推的) ① 每个专家在三个平面里,是不是同下标的连续切片? 我按专家轴切给多线程就是这么切的。依据是 ABI 自己的尺寸措辞,但它没明说。我没假设它成立 —— round-trip 自检会当场抓住错误分解,抓到就退串行。所以答"不成立"也不会算错,只是慢 N 倍。要的是把答案写进头注释,变成契约。顺带:high_bits == 0 时 high 传 NULL 合不合法(我现在这么传)。 ② inventory 对 M 的依赖是什么形状? supports_op 在加载期判定,而取了 K-pack buffer 就没有 GGUF 副本可退 ⟹ 判定必须对所有 M 成立。我现在拿一条阶梯 {1,8,64,512,4096} 逐个问,全非空才收张量。漏洞很具体:某 shape 在 512 和 4096 有 tactic、偏偏 1024 没有,阶梯就漏过去,运行期只能 abort。 要么说清性质(对固定 shape,合法性对 M 是否单调/无关),要么加个入口一次问完: int32_t quactlize_ppu_grouped_fully_quantized_any_m_valid_for_arrangement_v2( int n, int k, int experts, int qtype, quactlize_ppu_placed_arrangement_v2 const*); 我倾向后者 —— 前者的答案会随 config 表变化,而我这边没有任何东西会在它变化时报警。 ③ device 入口的 config_name = NULL 是不是 shape-selected? 那句 "null/empty is shape-selected" 写在 host 入口那一节。我在 grouped 和 dense 两个 _dev_ 入口都传 NULL —— 理由是选 tactic 这件事 inventory 已经拥有,我再挑一个就是第二个来源。确认一下 device 入口同样接受 NULL …
+- (2026-09-01 22:56 UTC) [prebuilt-box-gate] phase=bundle-manifest-elf [prebuilt-box-gate] FAIL: cannot read SDK release receipt /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/CUDA_SDK/release.yaml: [Errno 2] No such file or directory: '/workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/CUDA_SDK/release.yaml' ls /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/CUDA_SDK/ Interface/ VERSION.txt bin/ compute-sanitizer/ envsetup.sh extras/ include/ lib64/ nvvm/ targets/
+- (2026-09-01 22:56 UTC) 注意系统盘又要满了
+- (2026-09-01 22:57 UTC) [prebuilt-box-gate] FAIL: checkout has untracked runtime inputs: quactlize/include/gemv_lowbit/.nfs80a597100001034c00017095
+- (2026-09-01 22:58 UTC) ssh -p 18388 root@connect.westc.seetacloud.com v/voWnyHW8XK 给你一个纯CPU的扩展的可以利用的编译资源
+- (2026-09-01 23:00 UTC) COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME cpptools- 661359 root 21r REG 0,336 13058 9269981502987371340 quactlize/include/gemv_lowbit/.nfs80a597100001034c00017095
+- (2026-09-01 23:01 UTC) 然后我要怎么执行
+- (2026-09-01 23:01 UTC) 另外heurisitic写好了吗
+- (2026-09-01 23:01 UTC) 忽略远程的cpu资源
+- (2026-09-01 23:02 UTC) 新的bundle的区别？昨天晚上跑出来的不对？
+- (2026-09-01 23:03 UTC) 不要compiled default啊。不应该根据结果自己判断一下中间要不要差值吗？Q4应该是类似的为什么要独立，缺测试就测试。group缺什么？
+- (2026-09-01 23:04 UTC) 把现在在做的几件事情用todo或者其他方式track一下，一个个完成。
+- (2026-09-01 23:05 UTC) 昨天晚上的测试还没有跑，所以你最终交付给我几个东西讲清楚
+- (2026-09-01 23:06 UTC) 新六库包含scale first和fullyquantized吗？
+- (2026-09-01 23:07 UTC) 之前一些技术债的测试还没有测试，所以你应该也要放到todo
+- (2026-09-01 23:07 UTC) 比如aiu+universalcopy
+- (2026-09-01 23:09 UTC) 继续完成所有任务，一个个
+- (2026-09-02 01:18 UTC) 还要多久
+- (2026-09-02 01:24 UTC) 给llama cpp的还有什么block住的吗？
+- (2026-09-02 02:31 UTC) 现在新六库的状态如何
+- (2026-09-02 02:39 UTC) 为什么还没有构建。依赖是什么
+- (2026-09-02 02:39 UTC) Q4 ScaleFirst 新接口是什么
+- (2026-09-02 02:46 UTC) 只有Q4 吗？
+- (2026-09-02 02:47 UTC) 最终还是要都有的，干嘛至做Q4呢？这样后续还要重新编译
+- (2026-09-02 02:47 UTC) 之前的扫描带上这些了吗？scalefirst和fullyquantized？还是只扫描了fullyquantized
+- (2026-09-02 02:48 UTC) 还是要按照交付标准来扫描，要不然生成的heuristic也不可信
+- (2026-09-02 02:52 UTC) 核心标准是能不能扫描到真正的性能最优。你reveiw一下，按照这个标准
+- (2026-09-02 02:56 UTC) modeled reducer现在就够了。
+- (2026-09-02 03:03 UTC) 核心还是要在sweep中扫到我们的最优配置。尤其是之前的最优不能缺席，没扫到
+- (2026-09-02 03:11 UTC) 大概要多久
+- (2026-09-02 03:11 UTC) box 上五格式 × dense/grouped × ScaleFirst/FQ sweep： 怎么会这么久，只是跑，没有编译啊
+- (2026-09-02 03:12 UTC) 继续
+- (2026-09-02 03:51 UTC) 还有多久
+- (2026-09-02 04:09 UTC) 编译的临时产物可以放到autodl tmp吗？
+- (2026-09-02 04:55 UTC) 继续
+- (2026-09-02 05:36 UTC) 还有多久
+- (2026-09-02 05:38 UTC) 现在你不依赖GPU资源对吧，只需要CPU足够多，我准备把GPU拔掉
+- (2026-09-02 06:02 UTC) 继续
+- (2026-09-02 06:04 UTC) 等一下，你是不是没resume最新的历史
+- (2026-09-02 06:05 UTC) 我们的最终sweep的目标是什么讲清楚，我看你是不是不记得
+- (2026-09-02 06:21 UTC) 我之前说的是最终目标是sweep能够扫到最优化的配置。不能之前的最优配置没有扫描到。所以你还是没有resume最新的mem
+- (2026-09-02 06:23 UTC) 你看看最近的commit，pull一下
+- (2026-09-02 06:27 UTC) 继续
+- (2026-09-02 06:27 UTC) 刚才预计还有多久
+- (2026-09-02 06:28 UTC) 做完是神马样子
+- (2026-09-02 06:31 UTC) 继续
+- (2026-09-02 06:44 UTC) 我现在在做： C. 搬到数据盘 + 符号链接(A 做完数据盘才有地方) - /root/miniconda3 7.5 GB —— 实际是 torch 栈(nvidia 4.1 + torch 1.7 + triton 0.5),给 5090 参考测量用的;shebang 走 /root/miniconda3/bin/python,链接后路径不变。 - /root/ppu-sdk 5.2 GB —— envsetup 用逻辑 pwd,链接安全;搬后要用 nvcc 编一个文件验一下 hggc 不用 realpath。 - 系统盘上真正的第二大头其实在 /root 之外:/usr/local/cuda-12.8 6.6 GB + nsight-compute 1.2 GB(5090 的 CUDA),同样可以链接走。
+- (2026-09-02 06:49 UTC) sdk搬完了
+- (2026-09-02 08:34 UTC) 还要多久
+- (2026-09-02 08:44 UTC) 你在编译吗？用多核了吗
+- (2026-09-02 08:58 UTC) 继续
+- (2026-09-02 09:18 UTC) 大概要多久上box
+- (2026-09-02 09:19 UTC) 如果多一台同级别的机器呢？能缩短多长时间，两台呢
+- (2026-09-02 10:02 UTC) ssh -p 32669 root@connect.westb.seetacloud.com 和<REDACTED_KNOWN_SECRET> 机器你可以用
+- (2026-09-02 10:08 UTC) 还有一台机器ssh -p 39656 root@connect.westc.seetacloud.com <REDACTED_PASSWORD>
+- (2026-09-02 10:08 UTC) 这样还需要多长时间。
+- (2026-09-02 10:29 UTC) 多机确认可以加速了吗
+- (2026-09-02 11:00 UTC) 什么状态了
+- (2026-09-02 11:07 UTC) 也就是还没开始编译那你下午都干啥了
+- (2026-09-02 11:44 UTC) 这次对于heuristic够了吧
+- (2026-09-02 11:48 UTC) 其他的一些小优化选项呢比如bchunk
+- (2026-09-02 11:53 UTC) decoding好像也有一个参数来着
+- (2026-09-02 11:55 UTC) 这些可能的优化选项记录一下,另外aiu加上universalcopy是不是要重新推导offline格式，可以跟deepgemm的的格式对比
+- (2026-09-02 11:58 UTC) 如果移植了aiu加universalcopu，逻辑上你是不是比已经有offline格式的shuffle了
+- (2026-09-02 12:00 UTC) 我是说aiu加universalcopy的offlineshuffle你有吗
+- (2026-09-02 12:00 UTC) 你没这个我怎么验证精度
+- (2026-09-02 12:01 UTC) 等一下那精度是怎么pass呢是对比谁
+- (2026-09-02 12:02 UTC) 输入和输出分别是什么
+- (2026-09-02 12:04 UTC) offlineshuffle的格式需要重新推导aiu和universalcopy
+- (2026-09-02 13:04 UTC) 我们推导的格式和deepgemm相同吗
+- (2026-09-02 13:05 UTC) 为什么不同？同样是aiu + universal copy啊。
+- (2026-09-02 13:06 UTC) 我们框架应该可以适配任何的方式，为什么deepgemm上不去
+- (2026-09-02 13:07 UTC) 我们要照搬吗？好处和坏处？
+- (2026-09-02 13:10 UTC) 或者说我们的provider向后覆盖一层的好处？
+- (2026-09-02 13:11 UTC) 我们的性能可能有收益吗？
+- (2026-09-02 13:13 UTC) 还是主要是代码clean程度的
+- (2026-09-02 13:14 UTC) N16DirectProvider是什么
+- (2026-09-02 13:15 UTC) Legacy是Xplane？
+- (2026-09-02 13:16 UTC) OK，I see，但是目前的代码没有什么clean的问题对吧，只是我们现在要接入不同的provider才会有这个问题
+- (2026-09-02 13:17 UTC) 而且现在也不是接入的最好的时间。现在还在编译。是不是不能做这个事情。
+- (2026-09-02 13:17 UTC) OK，放到todo
+- (2026-09-02 13:18 UTC) N16 direct和cp async universal的区别？
+- (2026-09-02 13:21 UTC) Q4N16AiuUniversalProvider 跟DeepGEMM-compatible区别
+- (2026-09-02 13:22 UTC) 我的意思是DeepGEMM-compatible也可以塞到Q4N16AiuUniversalProvider吗？
+- (2026-09-02 13:24 UTC) 我想要理解一下这个provider是什么scope，我理解我们现在改的都还是loader，也就是collective的prologue的数据加载部分？mainloop还没有改？
+- (2026-09-02 13:26 UTC) 我们现在已有的改动涉及到mainloo了吗？
+- (2026-09-02 13:30 UTC) 现在为啥就叫LegacyAiuSwizzleDelivery;
+- (2026-09-02 13:31 UTC) 现在的凑得
+- (2026-09-02 13:32 UTC) 现在的code还有哪些不clean以及后续扩展不适合的代码。思考一下从架构层面，结合我们的扩展性
+- (2026-09-02 13:32 UTC) 然后也放到todo。
+- (2026-09-02 13:51 UTC) 等待当前的编译结束
+- (2026-09-02 14:01 UTC) 之前这些deepgemm之类的方案接入这之后对于decoding有没有好处
+- (2026-09-02 14:08 UTC) 预计时间
+- (2026-09-02 14:11 UTC) 之前不是说12小时吗
+- (2026-09-02 14:12 UTC) 我看cpu利用率没满啊
+- (2026-09-02 14:13 UTC) 都要用满核
+- (2026-09-02 14:15 UTC) 把时间压缩到12小时
+- (2026-09-02 14:16 UTC) 其他两个机器可以打满存储是够的
+- (2026-09-02 14:24 UTC) 数据挪到哪里了
+- (2026-09-02 14:25 UTC) 这个是什么位置
+- (2026-09-02 14:26 UTC) 继续我要十五小时内完成
+- (2026-09-02 22:22 UTC) 什么状态昨天codex被kill了
+- (2026-09-02 22:25 UTC) 等一下昨天晚上编译了多久为什么还剩十二个小时
+- (2026-09-03 00:08 UTC) 什么情况了
+- (2026-09-03 00:47 UTC) 什么阶段了
+- (2026-09-03 00:48 UTC) 你然后检查一下本地的llama cpp的claude的接线状态，看看合不合理。另外online转换的时间太长了，可能要到device memory进行转换，然后替换显存对应的weights，你判断一下方案。只静态，不影响当前的编译过程，
+- (2026-09-03 01:15 UTC) 对于代码的侵入会很多吗？影响后期的rebase吗？
+- (2026-09-03 01:43 UTC) 我们的格式转换有对齐的需求吗？也就是N需要256
+- (2026-09-03 02:06 UTC) 编译怎么样了
+- (2026-09-03 02:11 UTC) 还要多久
+- (2026-09-03 02:12 UTC) 为什么停止了
+- (2026-09-03 02:16 UTC) 需要重启这个编译吗？
+- (2026-09-03 02:20 UTC) 修好了吗？
+- (2026-09-03 02:41 UTC) 还没开始吗？
+- (2026-09-03 03:47 UTC) 还要多久
+- (2026-09-03 03:53 UTC) 现在开一个新的机器，还能加速多少
+- (2026-09-03 04:53 UTC) 还剩多久
+- (2026-09-03 05:50 UTC) 什么状态了
+- (2026-09-03 06:49 UTC) 什么状态了
+- (2026-09-03 07:13 UTC) 还剩多久
+- (2026-09-03 07:39 UTC) 还剩多久
+- (2026-09-03 08:05 UTC) 还剩多久
+- (2026-09-03 08:12 UTC) marlin接入我们的quactlize的时候不需要修改mainloop吗？类似于deepgemm
+- (2026-09-03 08:22 UTC) 我意思是说deepgemm是不是可以参考，而不需要再分多层？看一下todo里面的计划和marlin这种做法的优劣
+- (2026-09-03 08:42 UTC) 也就是现在的marlin还是不能适用其他的dtype？
+- (2026-09-03 08:49 UTC) 也就是marlin如果要接入其他格式，也需要像todo里面这样
+- (2026-09-03 08:52 UTC) BF16你说的是B矩阵BF16？
+- (2026-09-03 08:53 UTC) ssh -p 32669 root@connect.westb.seetacloud.com的CPU只有16%
+- (2026-09-03 09:25 UTC) ssh -p 49150 root@connect.westb.seetacloud.com 好像也降了
+- (2026-09-03 09:31 UTC) ssh -p 49150 root@connect.westb.seetacloud.com <REDACTED_PASSWORD>
+- (2026-09-03 09:33 UTC) 还要多久
+- (2026-09-03 09:33 UTC) 不要迁移之后更久了
+- (2026-09-03 11:11 UTC) 状态
+- (2026-09-03 12:03 UTC) 状态
+- (2026-09-03 12:48 UTC) 状态
+- (2026-09-03 13:04 UTC) 状态
+- (2026-09-03 13:28 UTC) 状态
+- (2026-09-03 22:06 UTC) 好了吗
+- (2026-09-03 22:43 UTC) 是不是可以上box了
+- (2026-09-03 22:43 UTC) 另外两台机器可以关闭了吗
+- (2026-09-03 22:46 UTC) box的命令
+- (2026-09-03 23:25 UTC) 什么意思，还没有传输完成吗？不应该是gitlfs传输吗？box只能git pull
+- (2026-09-04 00:50 UTC) FAIL: PPU_SDK lacks bin/hgobjdump [junfu.qx@aiswu95 ~]$ ls /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/CUDA_SDK ls: cannot access '/workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/CUDA_SDK': No such file or directory
+- (2026-09-04 00:52 UTC) 不要exit1，我实在docker中，你这样我直接docker推出了
+- (2026-09-04 01:03 UTC) /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK
+- (2026-09-04 01:04 UTC) 有一些输出乱码。重新输出
+- (2026-09-04 01:08 UTC) [ec67811-box8] worker=0 started pid=203250 [ec67811-box8] worker=1 started pid=203268 [ec67811-box8] worker=2 started pid=203496 [ec67811-box8] worker=3 started pid=203636 [ec67811-box8] worker=4 started pid=203713 [ec67811-box8] worker=5 started pid=203788 [ec67811-box8] worker=6 started pid=203901 [ec67811-box8] worker=7 started pid=204222 [ec67811-box8] STARTED workers=8 run=/workspace/kpack-discovery-ec67811 launcher rc=0
+- (2026-09-04 01:09 UTC) worker=0 pid=203250 state=EXITED completed=0 kpack discovery worker: fully-quantized:q14-grouped-p03072-03104: payload runtime linkage differs worker=1 pid=203268 state=EXITED completed=0 k
+- (2026-09-04 02:21 UTC) worker=0 pid=1910826 state=RUNNING completed=0 kpack discovery worker: fully-quantized:q14-grouped-p03072-03104: payload runtime linkage differs worker=1 pid=1910871 state=RUNNING completed=0
+- (2026-09-04 02:21 UTC) kpack discovery worker: fully-quantized:q14-grouped-p03072-03104: payload runtime linkage differs worker=1 pid=1910871 state=RUNNING completed=0
+- (2026-09-04 02:22 UTC) worker=0 pid=1910826 state=RUNNING screen=1 confirm=0/0/0
+- (2026-09-04 02:23 UTC) 只占了7张卡，
+- (2026-09-04 02:41 UTC) 大概要跑多久
+- (2026-09-04 02:47 UTC) 给我命令啊
+- (2026-09-04 02:50 UTC) 为什么要这么久是不是跑错了什么？
+- (2026-09-04 02:51 UTC) 怎么还有这么多，我们先跑Q4K呢？
+- (2026-09-04 02:53 UTC) 中间没有任何打印有点虚啊
+- (2026-09-04 03:16 UTC) KPACK_DISCOVERY_ASSIGNMENT PASS items=203952 workers=8 union=MASTER disjoint=1 tail: option used in invalid context -- 8 launcher_rc=1
+- (2026-09-04 03:16 UTC) ===== /workspace/kpack-discovery-ec67811-q4-r1/logs/probe-0.log ===== kpack discovery worker: assigned artifact roots do not contain the exact selected shard union =
+- (2026-09-04 03:32 UTC) KPACK_DISCOVERY_WORKER_PROGRESS worker=2 phase=SCREEN completed=18 total=25532 current=0023e6260aeee942
+- (2026-09-04 03:32 UTC) KPACK_DISCOVERY_WORKER_PROGRESS worker=5 phase=SCREEN completed=15 total=25456 current=002aa84a19b639df kpack discovery worker: prebuilt atom failed rc=1; log=/workspace/kpack-discovery-ec67811-q4-r1/workers/worker-1/results/failures/screen.002c05a4813f8d8f4473b0947f41ee1db4ea28a20883eb696545ffabf61f7249.log.failed.3462121 KPACK_DISCOVERY_WORKER_PROGRESS worker=2 phase=SCREEN completed=18 total=25532 current=0023e6260aeee942 KPACK_DISCOVERY_WORKER_PROGRESS worker=6 phase=SCREEN completed=17 total=25456 current=0026bb4b7aa3ec1b K
+- (2026-09-04 03:33 UTC) === FAILURE LOG === 1620 /workspace/kpack-discovery-ec67811-q4-r1/workers/worker-1/results/failures/screen.002c05a4813f8d8f4473b0947f41ee1db4ea28a20883eb696545ffabf61f7249.log.failed.3462121 FQ_GROUPED_KPACK_SHARD q=12 layout=1 mapping_id=0x51344b5034540001 type_rows=32 selected_rows=32 router=exact-rows-v1 tokens=4 topk=2 experts=256 total_rows=528 max_rows=129 active=9 empty=247 workload=grouped_ccontrol_tilem-boundary_n3072_k512_e256 router_profile=tilem-boundary rows_hash=0x7f12a7352e18ab6b iterations=5 warmups=3 correctness_repeats=1 schedule_seed=0x97ee54e7e036a5b2 roundtrip=PASS metadata=PACKED_UNITS FQ_GROUPED_KPACK_STRUCTURAL q=12 algorithm=SPLITK_S2 status=STRUCTURAL_UNAVAILABLE reason=NO_GROUPED_SPLITK_KERNEL_OR_REDUCER FQ_GROUPED_KPACK_STRUCTURAL q=12 algorithm=SPLITK_S4 status=STRUCTURAL_UNAVAILABLE reason=NO_GROUPED_SPLITK_KERNEL_OR_REDUCER FQ_GROUPED_KPACK_STRUCTURAL q=12 algorithm=SPLITK_S8 status=STRUCTURAL_UNAVAILABLE reason=NO_GROUPED_SPLITK_KERNEL_OR_REDUCER FQ_GROUPED_KPACK_STRUCTURAL q=12 algorithm=BC_FULL_OUTPUT status=STRUCTURAL_UNAVAILABLE reason=NO_CANONICAL_KPACK_BC_READER FQ_GROUPED_KPACK_CELL q=12 layout=1 symbol=fqg_q12_l1_tm8_tn64_tk64_wm8_wn16_s2_ap0_dn16_persistent config=8x64x64_w8x16_s2 algorithm=GROUPED_PERSISTENT policy=capacity+balanced grid=72 occupancy=12 capacity_b_mask=0x2 balanced_b_mask=0x2 state=RAW_FP16_MISMATCH raw_bad=237607 first_bad=24608 want=0x3c00 got=0x0000 failure_repeat=0 median_us=0.000000000 min_us=0.000000000 max_us=0 …
+- (2026-09-04 03:35 UTC) 好像都因为错误停掉了
+- (2026-09-04 03:38 UTC) FQ_GROUPED_KPACK_SHARD q=12 layout=1 mapping_id=0x51344b5034540001 type_rows=32 selected_rows=32 router=exact-rows-v1 tokens=4 topk=2 experts=256 total_rows=528 max_rows=129 active=9 empty=247 workload=grouped_control_tilem-boundary_n3072_k512_e256 router_profile=tilem-boundary rows_hash=0x7f12a7352e18ab6b iterations=5 warmups=3 correctness_repeats=1 schedule_seed=0x97ee54e7e036a5b2 roundtrip=PASS metadata=PACKED_UNITS FQ_GROUPED_KPACK_CELL q=12 layout=1 symbol=fqg_q12_l1_tm8_tn64_tk64_wm8_wn16_s2_ap0_dn16_persistent config=8x64x64_w8x16_s2 algorithm=GROUPED_PERSISTENT policy=capacity+balanced grid=72 occupancy=12 capacity_b_mask=0x2 balanced_b_mask=0x2 state=RAW_FP16_MISMATCH raw_bad=237607 first_bad=24608 want=0x3c00 got=0x0000 failure_repeat=0 median_us=0.000000000 min_us=0.000000000 max_us=0.000000000 execution_ordinal=0 samples=[] FQ_GROUPED_KPACK_CELL q=12 layout=1 symbol=fqg_q12_l1_tm8_tn64_tk64_wm8_wn16_s2_ap0_dn16_persistent config=8x64x64_w8x16_s2 algorithm=GROUPED_PERSISTENT policy=capacity+balanced grid=72 occupancy=12 capacity_b_mask=0x2 balanced_b_mask=0x2 state=RAW_FP16_MISMATCH raw_bad=237607 first_bad=24608 want=0x3c00 got=0x0000 failure_repeat=0 median_us=0.000000000 min_us=0.000000000 max_us=0.000000000 execution_ordinal=0 samples=[] FQ_GROUPED_KPACK_SHARD q=12 layout=1 mapping_id=0x51344b5034540001 type_rows=32 selected_rows=32 router=exact-rows-v1 tokens=4 topk=2 experts=256 total_rows=528 max_rows=129 active=9 empty=247 workload=grouped_control_tilem-bou …
+- (2026-09-04 03:38 UTC) FQ_TC_CELL q=12 A=0 bchunk=0 shape=7x8192x5120 symbol=fqk_tc_q12_l1_a0_tm64_tn128_tk64_wm16_wn16_s12_bc0_ap0_dn64 tm=64 tn=128 tk=64 wm=16 wn=16 stages=12 provider=standard-aiu S=8 scope=PRODUCER_ONLY_REDUCER_UNTIMED_CORRECTNESS resolved_delivery_n=64 provider_capacity_rows=0 scalezero_fused=1 state=INADMISSIBLE_PIPELINE_DEPTH us=0.000000000 raw_bad=0 reducer_untimed=0 failure_step=NONE failure_repeat=-1 first_bad=18446744073709551615 first_want=0x0000 first_got=0x0000 shipping_smem=184336 split_smem=184336 partial_bytes=0 samples=[]
+- (2026-09-04 03:38 UTC) 等等还有很多
+- (2026-09-04 03:39 UTC) 你给我一个去重的命令我去摘给你
+- (2026-09-04 03:46 UTC) 参考error.ext
+- (2026-09-04 03:56 UTC) error.txt
+- (2026-09-04 05:16 UTC) wrong HEAD: c2f9980d52c6b32c955ed75b9bebba302f619aec
+- (2026-09-04 05:16 UTC) 需要重新编译吗？
+- (2026-09-04 05:21 UTC) 不应该你直接编译，给我bin吗
+- (2026-09-04 05:30 UTC) 我在box上执行：[m8n16-g2-contract] PASS -- one 16x64 AIU/x4 payload feeds both maps; historical NVIDIA provider indexing must name exact tags and differ in 124/128 values; 20 regressions rejected
+- (2026-09-04 05:32 UTC) 之前的几个真错误找到问题了吗
+- (2026-09-04 05:37 UTC) 看一下之前的错误分析，可能是类似的原因
+- (2026-09-04 05:39 UTC) 后续如果出错是不是可以直接替换其中的小function，而不需要替换大bundle？
+- (2026-09-04 05:41 UTC) 我的意思是如果fix了，重新编译bundle的时候不需要整个重新编译吧？原来的大so怎么替换？
+- (2026-09-04 05:44 UTC) 先分析问题吧。
+- (2026-09-04 05:45 UTC) local m =8之前限定了使用范围。
+- (2026-09-04 05:46 UTC) 而且我也感觉你sweep的config加的有点多，可能要prune掉一些明显不行的
+- (2026-09-04 05:46 UTC) 比如decoding的case，m小于8，一定是BM=8的
+- (2026-09-04 05:47 UTC) TM8的越界问题之前的memory里面应该也有吧，看看，或者你的历史promtps
+- (2026-09-04 05:51 UTC) dense的TM8应该可以扩展到groupgemm的decoding的case。这个要加的。
+- (2026-09-04 05:52 UTC) 那这么说还是要解决一下这个数值错误的问题
+- (2026-09-04 05:52 UTC) 按照之前的commit看看m=8加入的时候是不是没有考虑兼容性。兼容m大于8的case
+- (2026-09-04 05:54 UTC) 所以是两个问题，一个是m8在m大于8的时候的错误，另外一个是能不能扩展到groupgemm
+- (2026-09-04 06:17 UTC) 思考一下如何解决这个问题
+- (2026-09-04 07:13 UTC) fatal: '/workspace/quactlize-m8-rebase-ab' is a missing but already registered worktree;
+- (2026-09-04 07:14 UTC) M8_SECOND_TILE_REBASE_AB verdict=INFRASTRUCTURE_FAIL reason=output_already_exists logs=/workspace/quactlize-m8-rebase-result
+- (2026-09-04 07:18 UTC) M8_SECOND_TILE_REBASE_ARM arm=xplane-baseline rc=0 == [112:SECOND-TILE] PASS: errors=0 M=9/15/16/17 seams=mainloop-A+ptr-array-epilogue+nonpersistent+persistent == M8_SECOND_TILE_REBASE_ARM arm=xplane-rebase rc=0 == [112:SECOND-TILE] PASS: errors=0 M=9/15/16/17 seams=mainloop-A+ptr-array-epilogue+nonpersistent+persistent == G3 A-TAG-NEGATIVE M=9 replay-oracle-bitdiff=0/288 observed-red=32 expected-red=32 EXPECTED_RED M8_SECOND_TILE_REBASE_ARM arm=kpack-baseline rc=1 FQ_GROUPED_KPACK_SHARD q=12 layout=1 mapping_id=0x51344b5034540001 type_rows=1 selected_rows=1 router=exact-rows-v1 tokens=4 topk=2 experts=256 total_rows=528 max_rows=129 active=9 empty=247 workload=grouped_control_tilem-boundary_n3072_k512_e256 router_profile=tilem-boundary roundtrip=PASS metadata=PACKED_UNITS FQ_GROUPED_KPACK_CELL q=12 layout=1 symbol=fqg_q12_l1_tm8_tn64_tk64_wm8_wn16_s2_ap0_dn16 persistent algorithm=GROUPED_PERSISTENT policy=capacity+balanced grid=72 occupancy=12 state=RAW_FP16_MISMATCH raw_bad=234702 first_bad=24608 want=0x3c00 got=0x0000 M8_SECOND_TILE_REBASE_ARM arm=kpack-rebase rc=1 state=RAW_FP16_MISMATCH raw_bad=236932 first_bad=24608 want=0x3c00 got=0x0000 M8_SECOND_TILE_REBASE_AB verdict=HYPOTHESIS_REJECTED_CANDIDATE_REMAINS_DIRTY xplane=[base_rc:0,a_red:0,rebase_rc:0,clean:1] kpack=[base_rc:1,red:1,rebase_rc:1,clean:0] source=b4436c9befcc3387e371e38c58852c8f8ce768cf logs=/workspace/quactlize-m8-rebase-result-r2
+- (2026-09-04 07:53 UTC) 还没给我？这一轮是要干什么
+- (2026-09-04 07:54 UTC) 从逻辑上分析原因。只是二分感觉不是很靠谱。M8_GROUPED_BISECTION verdict=DIAGNOSTIC_COMPLETE arms=14 mismatch_maps=3 source=c24a896b3a5fd184a7f0d647a7b00e1e7812c670 logs=/workspace/quactlize-m8-grouped-result/run-20260904T075402Z-993902
+- (2026-09-04 08:00 UTC) FQ_GROUPED_KPACK_SHARD q=12 layout=1 mapping_id=0x51344b5034540001 type_rows=2 selected_rows=2 router=exact-rows-v1 tokens=4 topk=2 experts=2 total_rows=8 max_rows=8 active=1 empty=1 workload=tm16-e0-8-n3072 router_profile=e0-8 rows_hash=0xa09e307a7f948acd iterations=1 warmups=1 correctness_repeats=1 schedule_seed=0x6a09e667f3bcc909 roundtrip=PASS metadata=PACKED_UNITS FQ_GROUPED_KPACK_CELL q=12 layout=1 symbol=fqg_q12_l1_tm16_tn64_tk64_wm16_wn16_s2_ap0_dn16_persistent config=16x64x64_w16x16_s2 algorithm=GROUPED_PERSISTENT policy=capacity+balanced grid=48 occupancy=10 capacity_b_mask=0x7fe balanced_b_mask=0x7fe state=MEASURED raw_bad=0 first_bad=18446744073709551615 want=0x0000 got=0x0000 failure_repeat=-1 median_us=19.479999319 min_us=19.479999319 max_us=19.479999319 execution_ordinal=0 samples=[19.479999319] FQ_GROUPED_KPACK_CELL q=12 layout=1 symbol=fqg_q12_l1_tm16_tn64_tk64_wm16_wn16_s2_ap0_dn16_nonpersistent config=16x64x64_w16x16_s2 algorithm=GROUPED_NONPERSISTENT policy=ordinary grid=0 occupancy=0 capacity_b_mask=0x0 balanced_b_mask=0x0 state=MEASURED raw_bad=0 first_bad=18446744073709551615 want=0x0000 got=0x0000 failure_repeat=-1 median_us=15.200000256 min_us=15.200000256 max_us=15.200000256 execution_ordinal=1 samples=[15.200000256] FQ_GROUPED_KPACK_COMPLETE q=12 status=PASS rows=2 cells=2 measured=2 structural=0 correctness=RAW_FP16 timing=AFTER_CORRECTNESS top_n=NONE M8_GROUPED_BISECTION_ARM family=tm8 profile=e0-9 experts=2 n=64 rc=1 FQ_GROUPED_KPACK_SHARD q=12 l …
+- (2026-09-04 08:08 UTC) 编译结束了吗
+- (2026-09-04 08:28 UTC) 编译好了吗？我可以上box了吗？
+- (2026-09-04 08:41 UTC) Exception at function: _ZN12_GLOBAL__N_127g4_epilogue_topology_kernelINS_20G4KpackEpilogueTypesILi64ELi16EEELb0EEEvNT_8Epilogue6ParamsEii Demangled name: void (anonymous namespace)::g4_epilogue_topology_kernel<(anonymous namespace)::G4KpackEpilogueTypes<64, 16>, false>((anonymous namespace)::G4KpackEpilogueTypes<64, 1 6>::Epilogue::Params, int, int) tsm.ld.b32x4 vreg[18:21], [0x0 + vreg15 * 0x4] tsm.ld.b32x4 vreg[22:25], [vreg31 + vreg27 * 0x1] s.nop => s.wait tsmcnt(0) s.blksyn.defer 0x6, 0x80 s.lop.emsk sreg2, sreg3 # 0x8 s.cbr.az emsk, 0x27 s.mull.i32 sreg3, sreg38, sreg19 s.mulw.u64.u32 sreg[20:21], sreg38, sreg18 s.shra.i32 sreg19, sreg38, 0x1f s.add.i32 sreg3, sreg21, sreg3
+- (2026-09-04 08:52 UTC) == [112:EPILOGUE-TOPOLOGY] exact grouped ptr-array coordinate tags == FQ_M8_EPILOGUE_FIRST_TILE_OWNERSHIP arm=tn32-wn32-control M=9 TM=8 TN=32 WM=8 WN=32 ownership_bad=0/576 epilogue_smem=1040 carrier_smem=7680 first8_bad=0/512 guard_bad=0 finite_bad=0 row8_written=0/64 cohort_written=[0,0,0,0] EXACT_OWNER FQ_M8_EPILOGUE_FIRST_TILE_OWNERSHIP arm=tn64-wn16-subject M=9 TM=8 TN=64 WM=8 WN=16 ownership_bad=64/576 epilogue_smem=2064 carrier_smem=11264 first8_bad=0/512 guard_bad=0 finite_bad=0 row8_written=64/64 cohort_written=[16,16,16,16] ILLEGAL_ROW8_WRITE FQ_M8_EPILOGUE_TOPOLOGY arm=tn32-wn32-control M=9 TM=8 TN=32 WM=8 WN=32 cta_threads=32 fragment=8 output_alignment=8 epi_thread_map=8x4 packed_metadata=1 positive_bad=0/576 negative_oracle_bad=0/576 observed_red=288 expected_red=288 cohort_red=[0,0,144,144] EXPECTED_RED FQ_M8_EPILOGUE_TOPOLOGY arm=tn64-wn16-m8-control M=8 TM=8 TN=64 WM=8 WN=16 cta_threads=128 fragment=4 output_alignment=8 epi_thread_map=16x8 packed_metadata=1 positive_bad=0/512 negative_oracle_bad=0/512 observed_red=384 expected_red=384 cohort_red=[0,128,128,128] EXPECTED_RED FQ_M8_EPILOGUE_TOPOLOGY arm=tn64-wn16-subject M=9 TM=8 TN=64 WM=8 WN=16 cta_threads=128 fragment=4 output_alignment=8 epi_thread_map=16x8 packed_metadata=1 positive_bad=64/576 negative_oracle_bad=0/576 observed_red=432 expected_red=432 cohort_red=[0,144,144,144] FAIL FQ_M8_EPILOGUE_TOPOLOGY_AB M=9 N=64 cross_bad=0/576 verdict=DIRTY == [112:EPILOGUE-TOPOLOGY] FAIL errors=128 control=TN32/W …
+- (2026-09-04 09:23 UTC) ？
+- (2026-09-04 09:41 UTC) BIN=/workspace/m8-epilogue-fix-ec57083/build/ppu_targets/test_ppu_m8n16_collective == [112:EPILOGUE-TOPOLOGY] exact grouped ptr-array coordinate tags == FQ_M8_EPILOGUE_FIRST_TILE_OWNERSHIP arm=tn32-wn32-control M=9 TM=8 TN=32 WM=8 WN=32 ownership_bad=0/576 epilogue_smem=1040 carrier_smem=7680 first8_bad=0/512 guard_bad=0 finite_bad=0 row8_written=0/64 cohort_written=[0,0,0,0] EXACT_OWNER FQ_M8_EPILOGUE_FIRST_TILE_OWNERSHIP arm=tn64-wn16-legacy M=9 TM=8 TN=64 WM=8 WN=16 ownership_bad=64/576 epilogue_smem=2064 carrier_smem=11264 first8_bad=0/512 guard_bad=0 finite_bad=0 row8_written=64/64 cohort_written=[16,16,16,16] ILLEGAL_ROW8_WRITE FQ_M8_EPILOGUE_FIRST_TILE_OWNERSHIP arm=tn64-wn16-candidate M=9 TM=8 TN=64 WM=8 WN=16 ownership_bad=0/576 epilogue_smem=2064 carrier_smem=11264 first8_bad=0/512 guard_bad=0 finite_bad=0 row8_written=0/64 cohort_written=[0,0,0,0] EXACT_OWNER FQ_M8_EPILOGUE_TOPOLOGY arm=tn32-wn32-control M=9 TM=8 TN=32 WM=8 WN=32 cta_threads=32 fragment=8 output_alignment=8 epi_thread_map=8x4 packed_metadata=1 positive_bad=0/576 negative_oracle_bad=0/576 observed_red=288 expected_red=288 cohort_red=[0,0,144,144] EXPECTED_RED FQ_M8_EPILOGUE_TOPOLOGY arm=tn64-wn16-candidate-m8-control M=8 TM=8 TN=64 WM=8 WN=16 cta_threads=128 fragment=4 output_alignment=4 epi_thread_map=8x16 packed_metadata=1 positive_bad=0/512 negative_oracle_bad=0/512 observed_red=384 expected_red=384 cohort_red=[0,128,128,128] EXPECTED_RED FQ_M8_EPILOGUE_TOPOLOGY arm=tn64-wn16-candidate M=9 TM=8 T …
+- (2026-09-04 10:06 UTC) runner_rc=0
+- (2026-09-04 10:47 UTC) runner_rc=0
+- (2026-09-04 10:47 UTC) 后续如果要重新编译要多久，我说的是sweep
+- (2026-09-04 10:49 UTC) 不会要大部分重新编译吧，后续大规模的编译上box编译，有192个核
+- (2026-09-04 10:51 UTC) 继续，tm8还需要什么
+- (2026-09-04 12:06 UTC) 可能有性能影响？
+- (2026-09-04 12:08 UTC) FQ_M8_EPILOGUE_RUNTIME arm=baseline libraries=libhggc_wrapper.so [m8-epilogue-perf-ab:self-test] PASS exact M8/AP0/S1 row, ABBA 6x31 finite samples, exact fixture/S1/resource/ISA parsers; eleven negatives RED [m8-epilogue-perf-ab-bundle] VERIFIED arms=baseline,candidate shape=8x3072x512 [m8-epilogue-perf-ab-box] FAIL phase=inspector_identity_differs artifacts=/workspace/quactlize-m8-epilogue-perf-result-20260904T120613Z-4076562 runner_rc=2 artifacts=/workspace/quactlize-m8-epilogue-perf-result-20260904T120613Z-4076562
+- (2026-09-04 12:13 UTC) 还没有好吗？
+- (2026-09-04 13:01 UTC) runner_rc=0 artifacts=/workspace/quactlize-m8-epilogue-perf-result-20260904T130044Z-4076562 console=/workspace/quactlize-m8-epilogue-perf-result-20260904T130044Z-4076562.console.log
+- (2026-09-04 13:08 UTC) CMake Error at third_party/actlize/cmake/PPUToolchain.cmake:260 (add_custom_command): Attempt to add a custom rule to output /workspace/quactlize-m8n16-cross-format-dd7ddf2-20260904T130352Z-4076562/build/q10/ppu_targets/ppu_obj/ppu_dense_layout_dd551cc9.o.rule which already has a custom rule.
+- (2026-09-04 13:33 UTC) M8N16_CROSS_FORMAT_ROUTE q=10 format=Q2_K route=sf-dense expected=2 measured=0 structural=0 out_of_scope_structural=0 status=FAIL
+- (2026-09-04 13:33 UTC) M8N16_CROSS_FORMAT_ROUTE q=11 format=Q3_K route=sf-dense expected=2 measured=0 structural=0 out_of_scope_structural=0 status=FAIL
+- (2026-09-04 13:33 UTC) M8N16_CROSS_FORMAT_ROUTE q=12 format=Q4_K route=sf-dense expected=2 measured=0 structural=0 out_of_scope_structural=0 status=FAIL
+- (2026-09-04 13:33 UTC) M8N16_CROSS_FORMAT_ROUTE q=13 format=Q5_K route=sf-dense expected=2 measured=0 structural=0 out_of_scope_structural=0 status=FAIL
+- (2026-09-04 13:33 UTC) M8N16_CROSS_FORMAT_ROUTE q=14 format=Q6_K route=sf-dense expected=2 measured=0 structural=0 out_of_scope_structural=0 status=FAIL
+- (2026-09-04 13:35 UTC) d=2 occupancy=10 capacity_b_mask=0x7fe balanced_b_mask=0x7fe state=MEASURED raw_bad=0 first_bad=18446744073709551615 want=0x0000 got=0x0000 failure_repeat=-1 median_us=11.520000175 min_us=11.520000175 max_us=11.520000175 execution_ordinal=0 samples=[11.520000175] SF_GROUPED_COMPLETE q=14 status=PASS rows=1 cells=2 measured=2 structural=0 correctness=RAW_FP16 timing=AFTER_CORRECTNESS split=STRUCTURAL_UNAVAILABLE M8N16_CROSS_FORMAT_ROUTE q=10 format=Q2_K route=fq-dense expected=2 measured=2 structural=0 out_of_scope_structural=0 status=PASS M8N16_CROSS_FORMAT_ROUTE q=10 format=Q2_K route=fq-grouped expected=2 measured=2 structural=0 out_of_scope_structural=4 status=PASS M8N16_CROSS_FORMAT_ROUTE q=10 format=Q2_K route=sf-dense expected=2 measured=0 structural=0 out_of_scope_structural=0 status=FAIL M8N16_CROSS_FORMAT_ROUTE q=10 format=Q2_K route=sf-grouped expected=2 measured=2 structural=0 out_of_scope_structural=3 status=PASS M8N16_CROSS_FORMAT_ROUTE q=11 format=Q3_K route=fq-dense expected=2 measured=2 structural=0 out_of_scope_structural=0 status=PASS M8N16_CROSS_FORMAT_ROUTE q=11 format=Q3_K route=fq-grouped expected=2 measured=2 structural=0 out_of_scope_structural=4 status=PASS M8N16_CROSS_FORMAT_ROUTE q=11 format=Q3_K route=sf-dense expected=2 measured=0 structural=0 out_of_scope_structural=0 status=FAIL M8N16_CROSS_FORMAT_ROUTE q=11 format=Q3_K route=sf-grouped expected=2 measured=2 structural=0 out_of_scope_structural=3 status=PASS M8N16_CROSS_FORMAT_ROUTE q=12 format= …
+- (2026-09-04 13:35 UTC) done OUT= bash: /results/q10-sf-dense.rc: No such file or directory
+- (2026-09-04 13:56 UTC) M8N16_CROSS_FORMAT_CORRECTNESS verdict=PASS formats=5 routes=20 cells=40 measured=40 structural=0 repeats=7 out_of_scope_structural=35 source=36848171e086c3ea2911cee117366cb274acf293 build_source=419bbc379edf27383a4128158f96215044060ea7 resume=orchestration-only actlize=423253c00df333ead6fb72ea623d526f24f56b5a artifacts=/workspace/quactlize-m8n16-cross-format-419bbc37-20260904T132551Z-4076562 M8N16_CROSS_FORMAT_CORRECTNESS verdict=PASS formats=5 routes=20 cells=40 measured=40 structural=0 repeats=7 out_of_scope_structural=35 source=36848171e086c3ea2911cee117366cb274acf293 build_source=419bbc379edf27383a4128158f96215044060ea7 resume=orchestration-only actlize=423253c00df333ead6fb72ea623d526f24f56b5a artifacts=/workspace/quactlize-m8n16-cross-format-419bbc37-20260904T132551Z-4076562 SF_GROUPED_COMPLETE q=14 status=PASS rows=1 cells=2 measured=2 structural=0 correctness=RAW_FP16 timing=AFTER_CORRECTNESS splitk=STRUCTURAL_UNAVAILABLE
+- (2026-09-04 13:59 UTC) 如果是长时间任务，直接上box
+- (2026-09-04 14:08 UTC) 上小时级别的上box
+- (2026-09-04 14:11 UTC) 预计还要多久上box
+- (2026-09-04 14:17 UTC) 好了吗
+- (2026-09-04 14:23 UTC) box
+- (2026-09-04 14:23 UTC) box上192核
+- (2026-09-04 14:26 UTC) A09_DEVICE_LIMITS ordinal=0 name=PPU-ZW810 compute_units=1 max_threads_per_block=1024 max_threads_dim=1024,1024,128 A09_BLOCKER_OBSERVATION arm=fq-dense parent=1417 cta_threads=512 process_rc=0 classification=MEASURED state=MEASURED step=NONE cutlass_status=0 runtime_status=0 raw_bad=0 A09_BLOCKER_OBSERVATION arm=sf-subject parent=4738 cta_threads=1024 process_rc=1 classification=INITIALIZE_REJECTED state=INITIALIZE_FAIL step=NONPERSISTENT_INITIALIZE cutlass_status=7 runtime_status=0 raw_bad=0 A09_BLOCKER_OBSERVATION arm=sf-control parent=4750 cta_threads=512 process_rc=0 classification=MEASURED state=MEASURED step=NONE cutlass_status=0 runtime_status=0 raw_bad=0 A09_BLOCKER_VERDICT fq=FRESH_PROCESS_BLOCKER_NOT_REPRODUCED scalefirst=SUBJECT_ONLY_INIT_REJECTION_NOT_DEVICE_THREAD_LIMIT max_threads_per_block=1024 A09_REMAINING_BLOCKERS_DIAGNOSTIC verdict=DIAGNOSTIC_COMPLETE source=0cb6772b2523692d92e06903ed8a7e12a2e362dd actlize=423253c00df333ead6fb72ea623d526f24f56b5a fresh_processes=3 artifacts=/workspace/quactlize-a09-blockers-0cb6772
+- (2026-09-04 14:28 UTC) /workspace/quactlize-a09-blockers-0cb6772/results/sf-subject.run.log:SF_FATAL symbol=sf_q12_a0_tm256_tn256_tk128_wm16_wn128_s2_bc0_ap0_dn32 shape=16x4096x2048 algorithm=NONPERSISTENT state=INITIALIZE_FAIL step=NONPERSISTENT_INITIALIZE cutlass_status=7 runtime_status=0 cta_threads=1024 shipping_smem=262144 persistent_smem=262144 split_smem=262144 repeat=-1 raw_bad=0 first_bad=18446744073709551615 want=0x0000 got
+- (2026-09-04 14:28 UTC) =0x0000/workspace/quactlize-a09-blockers-0cb6772/results/sf-control.run.log:SF_CELL {"shape":"16x4096x2048","qtype":12,"artifact_tile_k":0,"bchunk":0,"symbol":"sf_q12_a0_tm256_tn256_tk128_wm32_wn128_s2_bc0_ap0_dn32","a_provider":0,"resolved_delivery_n":32,"config":"256x256x128_w32x128_s2_bc0_ap0_dn32","algorithm":"NONPERSISTENT","metric_scope":"FULL_OUTPUT","policy":"ordinary","split":1,"grid":16,"occupancy":0,"capacity_b_mask":"0x0","balanced_b_mask":"0x0","status":"MEASURED","reason":"MEASURED","sample":0,"sample_us":304.159998894,"MFU_pct":0.176509375,"distinct_MBU_model_pct":0.646552431,"raw_bad":0,"fingerprint":"0x5fbdaa53b7ffd403","reducer_correctness_untimed":0,"partial_bytes":0,"shipping_smem":172048,"persistent_smem":172048,"split_smem":172048,"execution_ordinal":0}
+- (2026-09-04 14:35 UTC) 还要多久上box，我要睡觉
+- (2026-09-04 14:36 UTC) OK
+- (2026-09-04 14:48 UTC) 还要多久
+- (2026-09-05 00:39 UTC) pull or HEAD verification failed; runner not started
+- (2026-09-05 00:41 UTC) realpath: /root/autodl-tmp: No such file or directory
+- (2026-09-05 00:59 UTC) tm8-selective-q4] BUILD_PROGRESS alive=8/8 manifests=0/16 [tm8-selective-q4] BUILD_PROGRESS alive=8/8 manifests=0/16 [tm8-selective-q4] BUILD_PROGRESS alive=8/8 manifests=0/16 [tm8-selective-q4] BUILD_PROGRESS alive=8/8 manifests=0/16 [tm8-selective-q4] BUILD_PROGRESS alive=8/8 manifests=0/16 [tm8-selective-q4] BUILD_PROGRESS alive=8/8 manifests=0/16 这是什么打印
+- (2026-09-05 01:05 UTC) 确定用了192核吗？
+- (2026-09-05 01:15 UTC) logical_cpus=192 busy_pct=22.1 core_equivalents=42.5
+- (2026-09-05 01:16 UTC) [tm8-selective-q4] BUILD_PROGRESS alive=8/8 manifests=7/16 已经跑了7个manifests了，我们现在跑的是什么？最终的几个大的bundle需要重新编译吗？
+- (2026-09-05 01:18 UTC) 也就是现在编译的是Q4的，后续还要其他的几个格式，分别编译之后跑出所有的结果，之后你判定heuristic
+- (2026-09-05 01:19 UTC) 并恢复完成未受影响的全量 campaign 测量.但是之前受影响的部分不是在多个bundle吗？
+- (2026-09-05 01:20 UTC) 那我们也要编译完成所有格式的修复之后用一个大的脚本重新跑sweep
+- (2026-09-05 01:22 UTC) 啥意思，旧的bundle怎么做？需要重新编译吗？还是你的外围脚本可以挑选使用so中的函数？
+- (2026-09-05 01:26 UTC) 所以还是要重新编译对吧
+- (2026-09-05 01:34 UTC) Q4编译完了，我们来验证，我希望最后多编译几个bundle，或者我们中间出错的时候也不要停，要不然容错率太低了。然后出错了，我们就只跑出错部分。重新跑这部分就行，其他还是valid的结构
+- (2026-09-05 01:35 UTC) 如果实现了这个，原来的旧bundle直接去掉
+- (2026-09-05 01:36 UTC) 我们重新编译的时候要192核全部使用
+- (2026-09-05 01:39 UTC) 你的意思是分了多个小bundle，但是单个bundle内部有失败，还是会break整个测试？
+- (2026-09-05 01:41 UTC) 给我重新编译的指令，要求一定要用满192，或者80%以上
+- (2026-09-05 01:42 UTC) 我说的是整个的bundle，不是仅仅Q4K的失败部分
+- (2026-09-05 01:54 UTC) 不能低于80¥%的时候直接断掉，这样时间可能反而长
+- (2026-09-05 01:57 UTC) 好了吗
+- (2026-09-05 01:58 UTC) Q4刚才的编译还要继续吗？
+- (2026-09-05 02:00 UTC) [kpack-postfix-full] WARNING: build CPU utilization is below the 80% steady-state target; workers continue and completed artifacts remain resumable 一直打印，怎么判断
+- (2026-09-05 02:01 UTC) 2[kpack-postfix-full] BUILD_CPU logical_cpus=192 busy_pct=19.1 core_equivalents=36.7 threshold_pct=80.0 verdict=LOW_UTILIZATION_WARNING samples=5 avg_busy_pct=18.0 avg_core_equivalents=34.6 verdict=LOW
+- (2026-09-05 02:02 UTC) 32 [fq-dense-structural-proof:self-test] PASS exact-dense-only missing+fits+stale+duplicate+grouped=RED compile-fit=RED
+- (2026-09-05 12:00 UTC) [kpack-postfix-full] BUILD_PROGRESS alive=29/32 manifests=35/64 slots=192 还要多久
+- (2026-09-05 13:20 UTC) ~/.codex/sessions 中文件太多了， 看看有没有要压缩的，或者移到其他的位置。
+- (2026-09-05 13:29 UTC) 迁移之后的文件还是会link过去的吧
+- (2026-09-05 13:31 UTC) 清理一下autodltmp目录，尤其是模型，不需要直接删掉
+- (2026-09-05 13:31 UTC) conda包也是，没有必要安装啊，我们是一个编译环境
+- (2026-09-05 13:32 UTC) 我只需要保留几个attention加速的库，以及quactlize库，其他的给我一个列表，都可以删掉。
+- (2026-09-05 13:33 UTC) codex的这几个打开的是要保留的。
+- (2026-09-05 23:46 UTC) [kpack-postfix-full] RUN_PROGRESS alive=8/8 completed=0/339196 要跑多久
+- (2026-09-05 23:47 UTC) 我想要重新跑整个的时间， 因为之前有别的gpu程序跑了
+- (2026-09-05 23:50 UTC) correctness repeats = 1
+- (2026-09-05 23:51 UTC) 而且为什么还要这么慢，能有别的方法加速吗？
+- (2026-09-05 23:52 UTC) 每个config需要跑多少次
+- (2026-09-05 23:56 UTC) 但是即使按照每个kernel500us，那时间也不会特别长啊
+- (2026-09-06 00:01 UTC) 3*11是什么意思，会跑3次？
+- (2026-09-06 00:03 UTC) 256 repeat改成1之后的时间呢
+- (2026-09-06 00:03 UTC) 我要优化时间开销到越小越好，并且保持一定的准确性
+- (2026-09-06 00:11 UTC) 还要多久给我一个window
+- (2026-09-06 00:12 UTC) 新的指令上box
+- (2026-09-06 00:25 UTC) 为什么这一步之后还要3x11，要多长时间
+- (2026-09-06 00:25 UTC) 不做3x11的问题是什么？
+- (2026-09-06 00:27 UTC) 那就不做好了。5%左右的误差无所谓，我先跑出来一个结果你来写heuristic，然后我同步跑3x11。最后你refine一下规则
+- (2026-09-06 00:28 UTC) 我给你第一版screen之后你是不是就可以接入llama cpp给我llama cpp的改动了。
+- (2026-09-06 05:22 UTC) [kpack-postfix-adaptive] SCREEN_PROGRESS alive=8/8 barrier_workers=0/8 screen_logs=11780/339196 还要多久，才到这里
+- (2026-09-06 05:24 UTC) SCREEN_ETA_WINDOW max_worker_hours=233.73
+- (2026-09-06 05:24 UTC) 不能这么搞了，太久了，不可能这么整
+- (2026-09-06 05:25 UTC) 想一下怎么几个小时内搞定
+- (2026-09-06 05:30 UTC) 找到方案了吗？
+- (2026-09-06 05:30 UTC) 那我们需要重新编译吗？还是直接跑就行了
+- (2026-09-06 05:32 UTC) 来修改，然后给我command。告诉我给我command还要多久
+- (2026-09-06 05:33 UTC) 这个跑完之后，还是要重新编译bundle？
+- (2026-09-06 05:34 UTC) 我觉得太蠢了，这样肯定不是其他的deepgemm等kernel的方法，如果就是要这么久，我们肯定要重新思考怎么做这个事情
+- (2026-09-06 05:35 UTC) 快速screem和现在跑的全量区别是什么？
+- (2026-09-06 05:36 UTC) 思考一下怎么做这个事情最好，参考deepgemm等库以及cutlass的tuner的做法，肯定不可能去扫描全部的笛卡尔积
+- (2026-09-06 05:45 UTC) 能找到最优结果吗5%error
+- (2026-09-06 05:50 UTC) 给我上box的comman
+- (2026-09-06 05:52 UTC) 我知道啊你继续下一步直到可以给我上boxbox
+- (2026-09-06 06:03 UTC) 能不能复用deepgemm的方案或者其他方案我本地有一个文档描述了几种思路如果我们之前的结果可以fallin在这些heuristic也可以参考
+- (2026-09-06 08:41 UTC) woke可以接受跑一个晚上的情况下有别的精确方案吗
+- (2026-09-06 08:46 UTC) 按照这个方案给我command
+- (2026-09-06 08:49 UTC) 要确定一晚上可以跑完不要像之前那样以为几个小时结果要几天
+- (2026-09-06 08:52 UTC) 什么时候能够给我command
+- (2026-09-06 08:53 UTC) 按照之前的测试时间sclaedown就知道了
+- (2026-09-06 08:55 UTC) 你先给我最小样本验证编译加执行的时间
+- (2026-09-06 10:08 UTC) root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# cat /workspace/kpack-minimal-95e0659/timing.json { "build_cache_existed": false, "build_rc": 0, "build_seconds": 45.02288501523435, "compile_units": 9, "device_validated": true, "full_campaign_duration_proven": false, "full_sweep_started": false, "logical_cpus": 192, "plan_seconds": 3.4177757343277335, "requested_jobs": 192, "runtime_rc": 0, "runtime_seconds": 8.325218324549496
+- (2026-09-06 10:09 UTC) 那你先给我完整的command，并且告诉我按照这个预估的时间
+- (2026-09-06 10:15 UTC) 给我完整的command
+- (2026-09-06 10:54 UTC) KsZ- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_tuner.py", line 388, in probe_devices raise ValueError("workers refer to the same physical device") ValueError: workers refer to the same physical device
+- (2026-09-06 11:04 UTC) 找到bug了吗
+- (2026-09-06 11:21 UTC) 先·1
+- (2026-09-06 11:21 UTC) KPACK_OVERNIGHT_ADMISSION {"compile_estimate_seconds": 10309.850769274286, "confirmation_reserve_seconds": 37284.644947625595, "mandatory_estimate_seconds": 60480.748224225244, "remaining_seconds": 35842.7142136246, "safety_factor": 2.0, "screen_estimate_seconds": 12586.252507325364, "source": "MEASURED_WALL_FIXTURE_AND_KERNEL_SCALING", "verdict": "REJECT"} KPACK_OVERNIGHT_DONE status=INCOMPLETE confirmed=0/2762 reason=PREDICTED_BUDGET_EXCEEDED_NO_FULL_CAMPAIGN_STARTED results=/workspace/kpack-overnight-e47d893/results
+- (2026-09-06 11:23 UTC) 直接取消限制吧，你这个调试结束估计又要几个小时
+- (2026-09-06 11:29 UTC) 不需要重新编译吗？直接就是测试？
+- (2026-09-06 11:31 UTC) 时间还是要显示的，remianing时间
+- (2026-09-06 11:43 UTC) KPACK_TUNER_ETA phase=screen/compile status=RUNNING completed=264/2253 failed=0 observed_minutes=1.0 phase_age_minutes=6.3 remaining_minutes=76.5 eta_scope=CURRENT_PHASE campaign_remaining_minutes=UNKNOWN_ADAPTIVE_STAGES advisory_only=1 method=ROLLING_SLOWEST_WORKER
+- (2026-09-06 11:43 UTC) 整个就剩下76min？
+- (2026-09-06 12:57 UTC) 第一个2253结束了之后开始了2762是什么
+- (2026-09-06 13:06 UTC) 这个screen测试完成之后还有哪些？
+- (2026-09-06 13:24 UTC) 后面是1312的是什么
+- (2026-09-06 13:31 UTC) neighbors（邻域搜索）是什么
+- (2026-09-06 13:32 UTC) 之后是什么？还要多久
+- (2026-09-06 13:34 UTC) KPACK_TUNER_ETA phase=neighbors/test status=RUNNING completed=739/1829 failed=0 observed_minutes=110.6 phase_age_minutes=15.5 remaining_minutes=133.2 eta_scope=CURRENT_PHASE campaign_remaining_minutes=UNKNOWN_ADAPTIVE_STAGES advisory_only=1 method=ROLLING_SLOWEST_WORKER KPACK_TUNER_ETA phase=neighbors/test status=RUNNING completed=1223/1829 failed=0 observed_minutes=111.1 phase_age_minutes=16.0 remaining_minutes=3.9 eta_scope=CURRENT_PHASE campaign_remaining_minutes=UNKNOWN_ADAPTIVE_STAGES advisory_only=1 method=ROLLING_SLOWEST_WORKER
+- (2026-09-06 22:52 UTC) 好像跑完了，应该哪些传给你
+- (2026-09-06 22:57 UTC) 太大了，还是要先本地整理一下，不能都穿，130M太多了
+- (2026-09-06 23:08 UTC) 算了，我挪到~/marlin_ppu/flash-attention-for-sail# ls -ll kpack-overnight-c0c1361-results.tgz -h -rw-r--r-- 1 root root 16M Sep 7 07:03 kpack-overnight-c0c1361-results.tgz下面了。
+- (2026-09-07 00:51 UTC) 开始吧
+- (2026-09-07 01:47 UTC) 下一步是什么
+- (2026-09-07 01:53 UTC) 来吧，直到我要上box
+- (2026-09-07 02:11 UTC) 规则也太多了吧。为啥？
+- (2026-09-07 02:11 UTC) 如果有一些差距很小的，可以融合
+- (2026-09-07 02:11 UTC) 如果有一些差距很小的，可以融合
+- (2026-09-07 02:51 UTC) 怎么还有这么多规则？
+- (2026-09-07 02:53 UTC) 我补测之后你能够缩小到多少
+- (2026-09-07 02:55 UTC) 补测完了，要给你什么？
+- (2026-09-07 03:00 UTC) 传上来了，你看一下
+- (2026-09-07 03:07 UTC) 如果一定不能够合并，可以tactic之类的方法，其他的fallback
+- (2026-09-07 03:13 UTC) 能不能参考之前的文档看看我们能不能总结出什么heuristic？
+- (2026-09-07 03:21 UTC) 继续下一步
+- (2026-09-07 04:49 UTC) 现在的规则代码还有很多吗？我现在box上测似的是什么
+- (2026-09-07 04:55 UTC) 要给你什么？我希望这个事情尽快收敛，还需要多久
+- (2026-09-07 05:00 UTC) 也就是我给你这次的box结果，你就能完成首版策略？
+- (2026-09-07 05:01 UTC) 现在仍然有性能差距？
+- (2026-09-07 05:02 UTC) 为什么我们比deepgemm和其他的库复杂这么多
+- (2026-09-07 05:02 UTC) 结果上传了
+- (2026-09-07 05:31 UTC) 也就是大部分就是tactic查询？
+- (2026-09-07 05:33 UTC) deepgemm是怎么做的？
+- (2026-09-07 05:35 UTC) ppu_acblas的方法可以参考吗？
+- (2026-09-07 05:36 UTC) 或者如果我们允许轻量的online tuning呢，参考trtllm和deepgemm之类的。
+- (2026-09-07 05:43 UTC) grouped可以参考deepgemm的写法，deepgemm也有groupgemm的online tuning。warmup的jit也可以参考deepgemm。整体上我们可以follow deepgemm的逻辑。这个搞完之后如果要box就上box，然后我们继续准备这个repo的其他，比如so要不要改。然后开始介入llama cpp
+- (2026-09-07 06:41 UTC) 什么状态了
+- (2026-09-07 06:58 UTC) There is no tracking information for the current branch. Please specify which branch you want to rebase against. See git-pull(1) for details.
+- (2026-09-07 06:59 UTC) 这个之后还需要哪些任务
+- (2026-09-07 07:03 UTC) 给我command，打包给你
+- (2026-09-07 07:08 UTC) 传好了
+- (2026-09-07 07:26 UTC) 下一步来吧
+- (2026-09-07 08:09 UTC) 还需要上box吗？多久
+- (2026-09-07 08:27 UTC) 跑完了，怎么给你
+- (2026-09-07 08:50 UTC) 上传了
+- (2026-09-07 08:55 UTC) jit的时候需要这么长时间吗？可能不太能接受，deepgemm应该不需要这么久
+- (2026-09-07 08:56 UTC) deepgemm应该没有online tuning。应该只是jit
+- (2026-09-07 08:59 UTC) 还是heuristic吧，但是我们怎么会这么复杂。
+- (2026-09-07 09:00 UTC) 这样我们的so也会小一点？
+- (2026-09-07 09:45 UTC) 继续下一步
+- (2026-09-07 10:58 UTC) 下一步
+- (2026-09-07 11:39 UTC) 后续还要干什么
+- (2026-09-07 11:49 UTC) 上传了
+- (2026-09-07 13:04 UTC) 下一步吧，llama cpp中有一部分是claude已经写好的接线，你可以复用也可以不复用，校验一下这部分代码。另外要注意速度，转换格式好像必须要在GPU上，要不然时间不达标，然后我们可以copy 到 cpu，这部份的拷贝可以和后续的计算并行。
+- (2026-09-08 01:34 UTC) 下一步吧，llama cpp中有一部分是claude已经写好的接线，你可以复用也可以不复用，校验一下这部分代码。另外要注意速度，转换格式好像必须要在GPU上，要不然时间不达标，然后我们可以copy 到 cpu，这部份的拷贝可以和后续的计算并行。
+- (2026-09-08 02:30 UTC) 继续下一步
+- (2026-09-08 02:30 UTC) 我们的so不需要重新编译对吗？
+- (2026-09-08 02:49 UTC) 给我box的command。另外最终还是要编译so的，对吗
+- (2026-09-08 02:52 UTC) 如果准备jit的话，so本身应该很小，直接本地编译就可以把
+- (2026-09-08 02:57 UTC) prebuilt/ppu0010/kpack-pack-v1/manifest.json 是啥，最后不会交付这个吧
+- (2026-09-08 02:59 UTC) 我需要给你什么东西？跑完了
+- (2026-09-08 03:01 UTC) 上传了
+- (2026-09-08 03:05 UTC) CPU参考结果不需要了后续
+- (2026-09-08 03:07 UTC) 继续下一步
+- (2026-09-08 03:07 UTC) 注意cpu拷贝回去的操作不能阻塞kernel launch
+- (2026-09-08 03:33 UTC) 为什么没有生产接线里没有 D2H 的 CPU 等待？你做了什么设计
+- (2026-09-08 03:45 UTC) 所以都在后台了，不会block kernel发射
+- (2026-09-08 03:46 UTC) 继续
+- (2026-09-08 03:54 UTC) 后台任务不需要原始数据啊，直接拷贝转换之后的结果不行吗
+- (2026-09-08 03:56 UTC) 继续
+- (2026-09-08 03:56 UTC) 大概还要多久
+- (2026-09-08 04:47 UTC) 提交到一个单独的分支
+- (2026-09-08 04:54 UTC) push，给我command box
+- (2026-09-08 04:56 UTC) 知悉，仅推送我的 fork”。我将推送到 DrXuQian/llama.cpp 的 feat/kpack-gpu-cache，
+- (2026-09-08 05:17 UTC) 推出了，没看到打印
+- (2026-09-08 05:17 UTC) :/sim/eec/shared/junfu.qx/llama.cpp# git branch -a * master remotes/origin/HEAD -> origin/master remotes/origin/fa-only remotes/origin/feat/kpack-gpu-cache remotes/origin/gdn-only remotes/origin/master remotes/origin/moe-only remotes/origin/ppu-so-decoupling remotes/origin/upstream-mmid
+- (2026-09-08 05:23 UTC) 9f86a1340 (HEAD -> feat/kpack-gpu-cache, origin/feat/kpack-gpu-cache) ppu : add GPU K-pack intake and background cache BRANCH_READY branch_setup_rc=0 root@aiswu95:/sim/eec/shared/junfu.qx/llama.cpp
+- (2026-09-08 05:32 UTC) MISSING /workspace/quactlize-runtime-artifact-2826cf1-46fc3096e1a1/prebuilt/ppu0010/2826cf1/runtime6-46fc3096e1a1/bundle/manifest.json OK /sim/eec/shared/junfu.qx/quactlize/prebuilt/ppu0010/kpack-pack-v1/libquactlize_ppu_pack.so MISSING /usr/bin/time FAIL stage=precheck line=47 rc=1 runner_rc=1 stage=precheck 本轮已停止，当前 shell 保留；请看上方 FAIL。
+- (2026-09-08 05:32 UTC) time我装好了
+- (2026-09-08 05:41 UTC) 如果都是jit怎么还有这么大的so
+- (2026-09-08 05:43 UTC) BUNDLE=/workspace/quactlize-runtime-artifact-2826cf1-46fc3096e1a1/prebuilt/ppu0010/2826cf1/runtime6-46fc3096e1a1/bundle BUNDLE_FETCHED fetch_rc=0
+- (2026-09-08 05:44 UTC) 9f86a1340e12f68a6adee2320ef7e6dbb25ac06a Filesystem Size Used Avail Use% Mounted on overlay 14T 5.0T 8.2T 38% / bash: line 131: warning: here-document at line 72 delimited by end-of-file (wanted `SUMS') bash: line 132: syntax error: unexpected end of file
+- (2026-09-08 05:44 UTC) results=/workspace/llama-kpack-9f86a1340.qEGzY3.results.tgz cache=/workspace/llama-kpack-9f86a1340.qEGzY3/cache runner_rc=2 stage=libraries 本轮已停止，当前 shell 保留；请看上方 FAIL。
+- (2026-09-08 05:44 UTC) results=/workspace/llama-kpack-9f86a1340.qEGzY3.results.tgz cache=/workspace/llama-kpack-9f86a1340.qEGzY3/cache runner_rc=2 stage=libraries 本轮已停止，当前 shell 保留；请看上方 FAIL。
+- (2026-09-08 05:56 UTC) /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-backend.cpp:898: pre-allocated tensor (blk.0.ffn_down_exps.weight) in a buffer (CUDA0_KPACK) that cannot run the operation (NONE) [New LWP 3360650] [New LWP 3360648] Python Exception <class 'ModuleNotFoundError'>: No module named 'math' [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+- (2026-09-08 05:56 UTC) 0x00007fe9dfe93813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6#0 0x00007fe9dfe93813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007fe9df4de663 in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #2 0x00007fe9df4de80b in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 0x00007fe9dfe93813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007fe9dfe93813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007fe9df4de663 in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #2 0x00007fe9df4de80b in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #6 0x00007fe9df699968 in llama_context::sched_reserve() () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #7 0x00007fe9df69d7a9 in llama_context::llama_context(llama_model const&, llama_context_params) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #8 0x00007fe9df69e8d2 in llama_init_from_model () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #9 0x00007fe9dfb2051b in common_init_result::common_init_result(common_params&, bool) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama-common.so.0 #10 0x00007fe9dfb20d53 in common_init_from_params(common_params&, bool) () from /sim/ee …
+- (2026-09-08 05:56 UTC) 0x00007fe9dfe93813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6#0 0x00007fe9dfe93813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007fe9df4de663 in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #2 0x00007fe9df4de80b in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 0x00007fe9dfe93813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007fe9dfe93813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007fe9df4de663 in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #2 0x00007fe9df4de80b in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #6 0x00007fe9df699968 in llama_context::sched_reserve() () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #7 0x00007fe9df69d7a9 in llama_context::llama_context(llama_model const&, llama_context_params) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #8 0x00007fe9df69e8d2 in llama_init_from_model () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #9 0x00007fe9dfb2051b in common_init_result::common_init_result(common_params&, bool) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama-common.so.0 #10 0x00007fe9dfb20d53 in common_init_from_params(common_params&, bool) () from /sim/ee …
+- (2026-09-08 06:01 UTC) 这部分可以单独在nvidia的机器上验证吗？
+- (2026-09-08 06:01 UTC) ssh -p 22628 root@connect.westd.seetacloud.com <REDACTED_PASSWORD>
+- (2026-09-08 06:18 UTC) 提交之后给我box的command
+- (2026-09-08 06:31 UTC) Python Exception <class 'ModuleNotFoundError'>: No module named 'math' [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". 0x00007fa5424fb813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007fa5424fb813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007fa541b46663 in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #2 0x00007fa541b4680b in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #3 0x00007fa53277d1a7 in ggml_cuda_error(char const*, char const*, char const*, int, char const*) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-cuda.so.0 #4 0x00007fa5327ab09c in ggml_cuda_mul_mat_id_quactlize(ggml_backend_cuda_context&, ggml_tensor const*, ggml_tensor const*, ggml_tensor const*, ggml_tensor*) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-cuda.so.0 #5 0x00007fa532797b82 in ggml_backend_cuda_graph_compute(ggml_backend*, ggml_cgraph*) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-cuda.so.0 #6 0x00007fa541b63fd7 in ggml_backend_sched_graph_compute_async () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #7 0x00007fa541cfc351 in llama_context::graph_compute(ggml_cgraph*, bool) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #8 …
+- (2026-09-08 06:43 UTC) LC_ALL=C grep -an -m1 -B10 -A16 -E \ 'CUDA error:|PPU error:|current device:|GGML_ASSERT|grouped launch returned|no workspace size' \ /workspace/llama-kpack-smoke.TXBaN9/results/baseline.log 1712-<think>0.08.342.740 D CUDA Graph id 27 reused 1713-0.08.342.744 D ggml_backend_cuda_graph_compute: CUDA graph warmup complete 1714:0.08.342.878 E CUDA error: dependency created on uncaptured work in another stream 1715-0.08.342.883 E current device: 0, in function ggml_quactlize_wait_ready at /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/quactlize-buft.cuh:51 1716-0.08.342.883 E /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:112: CUDA error 1717- cudaStreamWaitEvent(stream, art.ready, 0)
+- (2026-09-08 07:07 UTC) 提交，然后发给我命令
+- (2026-09-08 07:17 UTC) 0.06.464.083 D adapters_lora_are_same: adapters = (nil) 0.06.464.084 I common_init_from_params: warming up the model with an empty run - please wait ... (--no-warmup to disable) 0.06.539.950 /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:112: CUDA error : CUDA error: the operation cannot be performed in the present state 0.06.539.955 E current device: 0, in function ggml_quactlize_wait_ready at /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/quactlize-buff.cuh:54 0.06.539.955 E cudaStreamWaitEvent(stream, art.ready, 0x01) [New LWP 988774] [New LWP 988773] Python Exception <class 'ModuleNotFoundError'>: No module named 'math' [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". 0x00007f15839be813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007f15839be813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007f1583009663 in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #2 0x00007f158300980b in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #3 0x00007f1573c401a7 in ggml_cuda_error(char const*, char const*, char const*, int, char const*) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-cuda.so.0 #4 0x00007f1573c6e09c in ggml_cuda_mul_mat_id_quactlize(ggml_backend_cuda_context&, ggml_tensor const*, ggml_tensor const*, ggml_tensor cons …
+- (2026-09-08 07:32 UTC) 提交
+- (2026-09-08 07:35 UTC) 0.06.326.151 D ~llama_context: CUDA0 compute buffer size is 124.7545 MiB, matches expectation of 124.7545 MiB 0.06.326.153 D ~llama_context: CUDA_Host compute buffer size is 2.5049 MiB, matches expectation of 2.5049 MiB 就卡住了
+- (2026-09-08 07:37 UTC) 跑了，但是这里为什么这么慢
+- (2026-09-08 07:37 UTC) 0.01.589.088 I load_tensors: CPU_Mapped model buffer size = 515.31 MiB 0.01.589.103 I load_tensors: CUDA0 model buffer size = 1910.32 MiB 0.01.589.105 I load_tensors: CUDA0_KPACK model buffer size = 18560.00 MiB 后面又满了
+- (2026-09-08 07:37 UTC) 慢
+- (2026-09-08 07:40 UTC) 上传了
+- (2026-09-08 07:47 UTC) 等一下，为什么有这个long latency，是正常的吗？
+- (2026-09-08 07:50 UTC) 1。不需要检验。2。改进流水线
+- (2026-09-08 08:03 UTC) 今天能接入llama cpp测试性能和精度吗？
+- (2026-09-08 08:23 UTC) push，给我command
+- (2026-09-08 08:29 UTC) FAIL stage=check-cache line=151 rc=1
+- (2026-09-08 08:38 UTC) fix之后重新跑吧
+- (2026-09-08 08:41 UTC) 后续直接push，不用问我
+- (2026-09-08 08:56 UTC) 传了
+- (2026-09-08 09:01 UTC) 啥意思，缓存命中还是在同一个inference过程吗？还是退出之后，hit了本地缓存到磁盘的模型？
+- (2026-09-08 09:10 UTC) 热命中应该没有时间开销吧
+- (2026-09-08 09:11 UTC) 剩余点有办法解决吗？
+- (2026-09-08 09:20 UTC) 1，要做，2的好处？
+- (2026-09-08 09:21 UTC) 现在是不是除了第一次之外，后续的时间跟普通的加载没有区别了？也就是first ever prefill
+- (2026-09-08 09:37 UTC) 第二项做完给我commnad上box一起测试
+- (2026-09-08 10:16 UTC) 好饿了
+- (2026-09-08 10:16 UTC) 好了
+- (2026-09-08 10:16 UTC) 好了
+- (2026-09-08 10:22 UTC) 后续任务
+- (2026-09-08 10:24 UTC) 首次落盘为什么退出要等待
+- (2026-09-08 10:26 UTC) OK，那就是合理的
+- (2026-09-08 10:26 UTC) 我们开始第一个精度验证
+- (2026-09-08 10:26 UTC) 要判定是不是走了我们的kernel
+- (2026-09-08 11:07 UTC) FAIL stage=corpus line=84 rc=4
+- (2026-09-08 11:08 UTC) 本地有gsm8k
+- (2026-09-08 11:33 UTC) ls /sim/eec/shared/AI_workspace/llm-models/datasets/gsm8k README.md hf_cache main test
+- (2026-09-08 11:35 UTC) main: total 2.7M -rwxr-xr-x 1 root root 410K Aug 17 18:45 test-00000-of-000001.parquet -rwxr-xr-x 1 root root 2.2M Aug 17 18:45 train-00000-of-000001.parquet
+- (2026-09-08 11:41 UTC) error: invalid argument: --color
+- (2026-09-08 11:42 UTC) 怎么还抓了一个asys
+- (2026-09-08 11:51 UTC) 给我新的command
+- (2026-09-08 11:53 UTC) KPACK_NUMERICAL FAIL: evaluation did not start with the requested context/chunks/batch FAIL stage=b128-reference-save line=155 rc=1 results=/workspace/llama-kpack-numerical.F56TMR.results.tgz
+- (2026-09-08 11:59 UTC) 继续
+- (2026-09-08 12:05 UTC) { "accuracy_admission": "PENDING_REVIEW", "batch": 128, "gpu_kernel_calls": 12594, "kernels": [], "metrics": { "ppl": 1.4282 }, "phase": "reference-save", "quactlize_grouped_gemm_calls": 0, "route_verdict": "PASS", "routed_tensors": 0 }{ "chunks": 2, "context": 256, "scored_tokens": 254, "tokens_sha256": "ecbff63226d90a7498d0ac8a9d09f851aac5331c9450a907eeb4c63bf8fa5bdc", "vocab": 248320 }
+- (2026-09-08 12:22 UTC) 传过来了
+- (2026-09-08 12:29 UTC) 下一步
+- (2026-09-08 12:53 UTC) KPACK_NUMERICAL FAIL: missing/duplicate prompt evaluation timer FAIL stage=b128-reference-perf-1 line=198 rc=1
+- (2026-09-08 12:56 UTC) 上传了
+- (2026-09-08 13:01 UTC) batch=128是说seq=128？我们只关心batch=1
+- (2026-09-08 13:01 UTC) 没有测试gsm8k的原因？
+- (2026-09-08 13:01 UTC) 所以精度也有一定的证明了？
+- (2026-09-08 13:05 UTC) 下一步
+- (2026-09-08 13:46 UTC) 后续还有什么todo
+- (2026-09-08 13:48 UTC) 3，4，5不依赖于1和2吧，
+- (2026-09-08 13:52 UTC) KPACK_GSM8K_PROGRESS arm=reference completed=100/128 correct=0 truncated=0 parse_failed=0 remaining_arm_minutes=1.3 KPACK_GSM8K_PROGRESS arm=reference completed=101/128 correct=1 truncated=0 parse_failed=0 remaining_arm_minutes=1.3 这个是有对有错？
+- (2026-09-08 13:54 UTC) 感觉kpack还慢了，后续要测试一下时间还是说kpack现在有别的开销
+- (2026-09-08 14:00 UTC) KPACK_GSM8K_PROGRESS arm=reference completed=105/128 correct=1 truncated=0 parse_failed=0 remaining_arm_minutes=1.1 KPACK_GSM8K_SUMMARY {"accuracy_admission": "PENDING_REVIEW", "accuracy_delta_pp": 0.0, "arms": {"kpack": {"accuracy_pct": 95.3125, "correct": 122, "parse_failed": 1, "questions": 128, "truncated": 1}, "reference": {"accuracy_pct": 95.3125, "correct": 122, "parse_failed": 1, "questions": 128, "truncated": 1}}, "kernel_execution": "NOT_COLLECTED", "reference_correct_kpack_wrong": [], "reference_wrong_kpack_correct": [], "request_batch": 1, "routes": {"kpack": {"evidence": "BUFFER_PLACEMENT_AND_COMPLETED_REQUESTS", "kernel_execution": "NOT_COLLECTED", "placement": "PASS", "route": "kpack"}, "reference": {"evidence": "BUFFER_PLACEMENT_AND_COMPLETED_REQUESTS", "kernel_execution": "NOT_COLLECTED", "placement": "PASS", "route": "reference"}}, "scope": "PAIRED_ZERO_SHOT_FIXED_SAMPLE", "status": "COMPLETE"} KPACK_GSM8K COMPLETE accuracy=PENDING_REVIEW kernel_trace=NOT_COLLECTED
+- (2026-09-08 14:02 UTC) 上传了
+- (2026-09-08 14:05 UTC) decoding的kernel我们没有加入gemv的版本到sweep，这就是后果。
+- (2026-09-08 14:06 UTC) 后续继续接线，decoding加入gemv，prefill加入scalefirst。
+- (2026-09-08 14:08 UTC) 我去睡觉了，你继续做这接线，后续的3，4，5继续做。
+- (2026-09-08 14:09 UTC) 如果需要把gemv的也扫一扫，加到heurisitic也是可以的，先本地编译出来，我去跑
+- (2026-09-08 14:11 UTC) 另外还有一点是prefill时候scalefirst需要dequant scale first，这部分的时间没有考虑，不知道对于moe的case影响？理论分析之下应该不大？毕竟scale没有多少？
+- (2026-09-08 14:11 UTC) 记录todo，或者你直接分析
+- (2026-09-08 22:24 UTC) 不是啊，这部分也是onlinekernel展开，我说的是kernel的执行时间的开销
+- (2026-09-08 22:24 UTC) 3，4，5搞定了吗？
+- (2026-09-08 22:26 UTC) 那你就是没搞啊，3，4，5继续做完
+- (2026-09-08 22:26 UTC) gemv的编译做了吗
+- (2026-09-08 22:28 UTC) 那你昨天晚上干啥了，就做了一个错误的scalefirst的开销判定？
+- (2026-09-08 22:37 UTC) 现在的kernel你是选择最优的吗？还是直接保证接线正确？
+- (2026-09-08 22:37 UTC) 我的意思是我之前测似的结果是最优配置吗？
+- (2026-09-08 22:39 UTC) 但是decoding走的是fully quantized的最优配置？splitk什么的？
+- (2026-09-08 22:40 UTC) 就是上一次decoding慢了29%的case？
+- (2026-09-08 22:42 UTC) dense呢？为啥你一直说group？dense的版本接线也是随便接的？
+- (2026-09-08 22:43 UTC) deocidng大部分的时间还是dense的gemm
+- (2026-09-08 22:47 UTC) dense也要走我们的接口啊，MUL_MAT也要接入我们的库
+- (2026-09-08 22:50 UTC) 下一步我要看到真实性能和接线，包括我们的heurisitic选择，以及真实按照我们的选择方法选择最优kernel之后的实际性能
+- (2026-09-09 00:37 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_native_gate.py", line 224, in main run(sdk, a.bundle, w, route, tokens, a.samples) File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_native_gate.py", line 80, in run raise ValueError( ValueError: native SF prepass differs from packed-unit oracle: zero
+- (2026-09-09 00:40 UTC) RUN=/workspace/kpack-native-model.q40qV3 KPACK_NATIVE_PACKAGE VERIFIED modules=214 execution_sha256=53165c9ec37a7f73057b31289434c90a2a4da0065f37c93ca78208cecd4ba1de device_admission=PENDING KPACK_NATIVE_FIXTURE q=10 N=1024 K=5120 E=1 KPACK_NATIVE_CONTEXT {"status": "PASS", "q": 10, "route": 0, "m": 1, "n": 1024, "k": 5120, "experts": 1, "max_rows": 1, "selection": {"parent": "fqk_tc_q10_l2_a0_tm16_tn16_tk128_wm16_wn16_s2_bc0_ap0_dn16", "build_key": "5f5e0825b75540a5ce6835700aa2b63ca4748430cac09545308022b52fe828884", "policy": 1, "algorithm": 0, "split": 8, "grid": 0, "shared_bytes": 10880, "workspace_bytes": 32768}, "prepass_samples_us": [], "graph_replays": 3, "rows_host": false, "rows_device": false, "scope": "RESIDENT_SELECTED_GEMM_INCLUDING_GPU_DIRECTORY_NOT_LLAMA_ADAPTERS"} KPACK_NATIVE_CONTEXT {"status": "PASS", "q": 10, "route": 0, "m": 128, "n": 1024, "k": 5120, "experts": 1, "max_rows": 128, "selection": {"parent": "fqk_tc_q10_l2_a0_tm16_tn32_tk256_wm16_wn16_s3_bc0_ap0_dn32", "build_key": "ad0b1e898846f29c7d0166032999809oce5baace4f913dddd1d38?328", "policy": 2, "algorithm": 0, "split": 1, "grid": 0, "shared_bytes": 38784, "workspace_bytes": 0}, "prepass_samples_us": [], "graph_replays": 3, "rows_host": false, "rows_device": false, "scope": "RESIDENT_SELECTED_GEMM_INCLUDING_GPU_DIRECTORY_NOT_LLAMA_ADAPTERS"} KPACK_NATIVE_CONTEXT {"status": "PASS", "q": 10, "route": 1, "m": 1, "n": 1024, "k": 5120, "experts": 1, "max_rows": 1, "selection": {"parent": "sf_q10_a0_tm16_tn …
+- (2026-09-09 00:50 UTC) 列一个表，现在还剩什么？
+- (2026-09-09 01:01 UTC) quactlize] loaded libquactlize_ppu_fmt4.so -> q6_K (packed format 4) convert_verified rc=0 want=0 ok threads_used threads=8 want>=1 ok [ 1/31] device-pack-q2 GPU producer Q2, NULL high plane -> case FAILED (rc=256) [ 2/31] device-pack-q3 GPU producer Q3, two planes -> case FAILED (rc=256) [ 3/31] device-pack-q4 GPU producer Q4, NULL high plane -> case FAILED (rc=256) [ 4/31] device-pack-q5 GPU producer Q5, two planes -> case FAILED (rc=256) [ 5/31] device-pack-q6 GPU producer Q6, two planes -> case FAILED (rc=256) [ 6/31] device-pack-missing explicit missing GPU producer does not fall back to CPU [ 7/31] device-pack-incomplete query without a producer must decline [ 8/31] device-pack-sizes GPU and consumer plane sizes must agree -> case FAILED (rc=256) [ 9/31] device-pack-query GPU query rejects the consumer descriptor -> case FAILED (rc=256) [10/31] device-pack-error device launch error is propagated -> case FAILED (rc=256) [11/31] q2k fmt2 -> Q2_K, arrangement matches the registry [12/31] q3k fmt3 -> Q3_K, two planes (2 + 1 bits) [13/31] q4k fmt0 -> Q4_K, one plane, gs=32 [14/31] q5k fmt1 -> Q5_K, two planes (4 + 1 bits) [15/31] q6k fmt4 -> Q6_K, two planes (4 + 2 bits) [16/31] wrong-identity the file named fmt0 reports format 3: a reshuffled bundle must not arm -> case FAILED (rc=256) [17/31] default-library the default/ScaleFirst build reports -1 and is not a K-pack library -> case FAILED (rc=256) [18/31] registry-mismatch group_size off by one against ppu_format_config.i …
+- (2026-09-09 01:22 UTC) 重新跑吧
+- (2026-09-09 01:26 UTC) KPACK_MODEL_PERF arm=0-reference prompt=512 repeat=3 prefill_us_per_token=1062.861 decode_us_per_token=8078.461 KPACK_MODEL FAIL: [Errno 104] Connection reset by peer FAIL stage=real-model line=130 rc=1
+- (2026-09-09 01:31 UTC) /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/quactlize-buff.cu:264: [quactlize] blk.3.attn_output.weight took the K-pack buffer type but no arrangement is available for q8_0 - supports_op and set_tensor disagree [New LWP 186758] [New LWP 186757] [New LWP 186756] [New LWP 186726] [New LWP 186688] Python Exception <class 'ModuleNotFoundError'>: No module named 'math' [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". 0x00007fd9be872813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007fd9be872813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007fd9bdd79663 in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #2 0x00007fd9bdd798b0 in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #3 0x00007fd9aed972d0 in qz_buffer_set_tensor(ggml_backend_buffer*, ggml_tensor*, void const*, unsigned long, unsigned long) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-cuda.so.0 #4 0x00007fd9bdfb4c03 in llama_model_loader::load_all_data(ggml_context*, std::unordered_map<unsigned int, ggml_backend_buffer*, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsigned int const, ggml_backend_buffer*> > >&, std::vector<std::unique_ptr<llama_mlock, std::default_delete<llama_mlock> >, std::allocator<std::unique_ptr<llama_mlock, std::default_delet …
+- (2026-09-09 01:44 UTC) 给我command
+- (2026-09-09 01:49 UTC) KPACK_MODEL FAIL: short proof lacks dense/grouped native compute activity: {'grouped'} FAIL stage=real-model line=130 rc=1 results=/workspace/kpack-native-model.O0ki3q.results.tgz
+- (2026-09-09 01:53 UTC) 上传了
+- (2026-09-09 01:56 UTC) decode更慢不太理解，可以抓一个asys看看
+- (2026-09-09 01:57 UTC) 如果是bubble的问题就解决bubble，如果是算子问题可以继续分解
+- (2026-09-09 01:57 UTC) 我可以直接抓asys trace直接可视化看，所以不用区分prefill和decode
+- (2026-09-09 03:10 UTC) decoding的时候并没有走我们的kernel
+- (2026-09-09 03:16 UTC) 我只看到void mul_mat_vec_q<(ggml_type)8, 1, false, false>(void const*, void const*, int const*, ggml_cuda_mm_fusion_args_device, float*, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)void mul_mat_vec_q<(ggml_type)8, 1, false, false>(void const*, void const*, int const*, ggml_cuda_mm_fusion_args_device, float*, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)这些算子
+- (2026-09-09 03:17 UTC) 看到了void quactlize::runtime::grouped_device_metadata<cute::packed_tuple<int, int, int>, cute::packed_tuple<long, cute::C<1>, cute::C<0> > >(int const*, cutlass::half_t*, cute::packed_tuple<int, int, int>*, cutlass::half_t**, cute::packed_tuple<long, cute::C<1>, cute::C<0> >*, int*, int, int, int)但是没看到其他的矩阵乘法的算子
+- (2026-09-09 03:17 UTC) void mul_mat_vec_f<float, float, 1, 256, false, false>(float const*, float const*, int const*, ggml_cuda_mm_fusion_args_device, float*, int, uint3, int, int, int, uint3, int, int, int, uint3, int, int, int, int)
+- (2026-09-09 03:22 UTC) 找到了。我们的trace：17507 void mm_ids_helper<8>(int const*, int*, int*, int*, int, int, int, int, int) 7.61750 s 2.480 μs PPU 0 Context 1 Stream 10 17508 (anonymous namespace)::gather(float const*, __half*, int const*, int, long) 7.61750 s 2.680 μs PPU 0 Context 1 Stream 10 17509 void quactlize::runtime::grouped_device_metadata< cute::packed_tuple<int, int, int>, cute::packed_tuple<long, cute::C<1>, cute::C<0>>> (int const*, cutlass::half_t*, c...) 7.61750 s 1.560 μs PPU 0 Context 1 Stream 10 17510 void cutlass::device_kernel< cutlass::gemm::kernel::GemmUniversal< cutlass::gemm::GroupProblemShape< cute::packed_tuple<int, int, int>>, cutlass::gemm::collective... 7.61751 s 21.960 μs PPU 0 Context 1 Stream 10 17511 (anonymous namespace)::scatter(__half const*, float*, int const*, int, long) 7.61753 s 2.040 μs PPU 0 Context 1 Stream 10 17512 void mm_ids_helper<8>(int const*, int*, int*, int*, int, int, int, int, int) 7.61753 s 1.720 μs PPU 0 Context 1 Stream 10 17513 (anonymous namespace)::gather(float const*, __half*, int const*, int, long) 7.61753 s 2.440 μs PPU 0 Context 1 Stream 10 17514 void quactlize::runtime::grouped_device_metadata< cute::packed_tuple<int, int, int>, cute::packed_tuple<long, cute::C<1>, cute::C<0>>> (int const*, cutlass::half_t*, c...) 7.61753 s 1.000 μs PPU 0 Context 1 Stream 10 17515 void cutlass::device_kernel< cutlass::gemm::kernel::GemmUniversal< cutlass::gemm::GroupProblemShape< cute::packed_tuple<int, int, int>>, cutlass::gemm::collective... 7.61754 s 21. …
+- (2026-09-09 03:23 UTC) reference：81120 void topk_moe_cuda<256, false>( float const*, float*, int*, float*, int, int, float, float, topk_moe_config) 7.61870 s 5.800 μs PPU 0 Context 1 Stream 8 81121 quantize_q8_1( float const*, void*, long, long, long, long, long, unsigned int, uint3) 7.61871 s 1.840 μs PPU 0 Context 1 Stream 8 81122 void mul_mat_vec_q<ggml_type12, 1, true, false>( void const*, void const*, int const*, ggml_cuda_mm_fusion_args_device, float*, unsigned int, uint3, unsigned int, u...) 7.61871 s 17.920 μs PPU 0 Context 1 Stream 8 81123 quantize_q8_1( float const*, void*, long, long, long, long, long, unsigned int, uint3) 7.61873 s 1.680 μs PPU 0 Context 1 Stream 8 81124 void mul_mat_vec_q<ggml_type13, 1, false, true>( void const*, void const*, int const*, ggml_cuda_mm_fusion_args_device, float*, unsigned int, uint3, unsigned int, u...) 7.61873 s 15.360 μs PPU 0 Context 1 Stream 8 81125 void k_bin_bcast<&(op_mul(float, float)), float, float, float, float const*>( float const*, float const*, float*, unsigned int, unsigned int, unsigned int, uint3, uint3, uint3, u...) 7.61875 s 2.440 μs PPU 0 Context 1 Stream 8
+- (2026-09-09 03:23 UTC) 我们把这个shape单独拉出来测试单个kernel
+- (2026-09-09 03:23 UTC) 我们的这个kernel的利用率可以先算一下
+- (2026-09-09 03:24 UTC) 首先我们的gemv没有比过refenrece的matmul vec q也有点奇怪。。。
+- (2026-09-09 03:24 UTC) grouped device metadata是什么？照理说不需要什么前处理吧？
+- (2026-09-09 03:27 UTC) 我说的是算带宽利用率
+- (2026-09-09 03:29 UTC) 那不应该带宽利用率更低，地这么多。。。
+- (2026-09-09 03:37 UTC) 不对啊，这个shape，我们来测试一下单个算子。这个shape我们之前的测试中又吗？
+- (2026-09-09 03:42 UTC) 之前我记得我们的decoding的效率还可以啊，MBU 40%以上啊，怎么可能这么差
+- (2026-09-09 03:43 UTC) 是不是扫描的时候有一些config没有加或者没有扫描到
+- (2026-09-09 03:48 UTC) 18.44也不对啊，利用率10%
+- (2026-09-09 03:49 UTC) 之前没测过吗？groupgemm的decoding，历史最高的MBU是多少？
+- (2026-09-09 03:55 UTC) 按照这个记录我们测试的结果肯定是不对的
+- (2026-09-09 03:58 UTC) scalefirst怎么可能比fq快这么多，你看一下记录有没有fq的结果。MBU高的
+- (2026-09-09 04:04 UTC) 但是我们还是要sweep一下，看看，问题是什么，看上去可能是splitk没有在groupgemm中enable？
+- (2026-09-09 04:05 UTC) 另外gemv不应该这么差是肯定的。
+- (2026-09-09 04:05 UTC) simt的版本
+- (2026-09-09 04:06 UTC) 继续coding直到可以上box测试
+- (2026-09-09 05:03 UTC) 什么状态了
+- (2026-09-09 05:09 UTC) 这一轮改了什么？
+- (2026-09-09 05:12 UTC) persistent 仍只支持 S1。这一点考虑是什么？
+- (2026-09-09 05:19 UTC) 上传了
+- (2026-09-09 05:30 UTC) 啥意思，最优的是s1 host compact？
+- (2026-09-09 05:31 UTC) 什么叫在cpu准备路由？
+- (2026-09-09 05:32 UTC) 啥意思，我们现在的kenrel不是这种方案吗？我的意思是我们的groupgemm的入口没有变化吧？
+- (2026-09-09 05:35 UTC) 那你先按照这个接入，然后我们进行persistent的kernel的编写，另外gemv还是很低，不理解
+- (2026-09-09 05:54 UTC) 没有现成的接线可以用吗？类似于deepgemm或者llama cpp自己的groupgemm应该也要算类似的东西吧
+- (2026-09-09 05:57 UTC) 我的意思是这个链接现在没有吗？llamacpp中我们应该有deepgemm的接线可以用吧
+- (2026-09-09 05:58 UTC) 我的意思是这个链接现在没有吗？llamacpp中我们应该有deepgemm的接线可以用吧
+- (2026-09-09 06:00 UTC) ssh -p 44649 root@connect.westd.seetacloud.com v/qqUyx3EeGZ gemv的kernel可以在这个机器上直接调试。毕竟是simt的版本，可以参考nvidai的优化。
+- (2026-09-09 06:15 UTC) 真正要补的是 Quactlize .so 内部的 GPU compact / Split-K 调度 这个好了吗？
+- (2026-09-09 06:30 UTC) 已上传
+- (2026-09-09 06:33 UTC) 我们抓一下新的trace看看
+- (2026-09-09 06:36 UTC) 如果是算子默认抓acu
+- (2026-09-09 07:00 UTC) grid数量太少了。只有128 * 128个。对于compact s2。down compact s1也是一样。256*128
+- (2026-09-09 07:28 UTC) TileM应该是8才对。
+- (2026-09-09 07:44 UTC) q4可以尝试s4？
+- (2026-09-09 07:58 UTC) 现在测似的是什么shape？
+- (2026-09-09 08:00 UTC) expert数量其实没关系吧。都是前面的kernel预备好的。所以其实就是（8*512）*2048这么大的matmul。
+- (2026-09-09 08:03 UTC) 看一下4096 * 2048的gemv我们之前有没有测试过，MBU多少
+- (2026-09-09 08:07 UTC) 我们来复现一下，现在groupgemm里这个还比较远
+- (2026-09-09 08:14 UTC) 如果scalefirst MBU更高，也可以考虑？
+- (2026-09-09 08:15 UTC) 我现在看到的reduction的kernel时间都太长了，尝试优化
+- (2026-09-09 08:15 UTC) 在5090上试试，之前的gemv在5090上优化结束了吗
+- (2026-09-09 08:15 UTC) 理解，那scalefirst不加进来了吧
+- (2026-09-09 08:16 UTC) 先给我command我来对比dense和groupgemm同wieght大小的时候的差异。然后你同时做5090上的算子优化
+- (2026-09-09 08:22 UTC) 交付 dense/grouped 对比命令?
+- (2026-09-09 08:27 UTC) Q4_DENSE_GROUPED_PROGRESS round=1/4 arm=dense-matched-s2 ValueError: partial [split,row,N]: bad=15488/16384 first=(0, 0, 0) want=4.10968137 got=-22.647541; independent GGUF dot oracle failed: 0.526959
+- (2026-09-09 08:34 UTC) 为啥有差距呢？照理说逻辑上dense的这个啥
+- (2026-09-09 08:34 UTC) 为啥有差距呢？照理说逻辑上dense的这个啥
+- (2026-09-09 08:34 UTC) 为啥有差距呢？照理说逻辑上dense的这个s8之后应该和groupgemm这个能够接近？
+- (2026-09-09 08:34 UTC) 看看实现逻辑？
+- (2026-09-09 08:41 UTC) OK，先补齐grouped的快速reducer和direct partial store。另外你的5090上的测试继续
+- (2026-09-09 09:26 UTC) 继续
+- (2026-09-09 09:29 UTC) 什么时候可以上box
+- (2026-09-09 09:30 UTC) 现在reduce和gemv simt都调试过了？
+- (2026-09-09 09:31 UTC) 所以还是低？
+- (2026-09-09 09:31 UTC) 所以simt gemv还是低？
+- (2026-09-09 09:34 UTC) gemv加入我们的sweep了吗，不应该比llama cpp慢。
+- (2026-09-09 09:35 UTC) GROUPED_POSTOPS_RESULT {"job": "fq-q14-tm16-ordinary", "case": "ragged", "split": 1, "status": "FAIL", "baseline_us": 26.006249710917473, "candidate_us": 26.02124959230423, "delta_pct": 0.05767798722804418} GROUPED_POSTOPS_RESULT {"job": "fq-q14-tm16-ordinary", "case": "ragged", "split": 2, "status": "FAIL", "baseline_us": 20.903749391436577, "candidate_us": 18.96500028669834, "delta_pct": -9.274647664559465} GROUPED_POSTOPS_RESULT {"job": "fq-q14-tm16-ordinary", "case": "ragged", "split": 4, "status": "FAIL", "baseline_us": 18.447499722242355, "candidate_us": 15.039999969303608, "delta_pct": -18.47133651846753} GROUPED_POSTOPS_RESULT {"job": "fq-q14-tm16-ordinary", "case": "ragged", "split": 8, "status": "FAIL", "baseline_us": 19.770000129938126, "candidate_us": 13.77750001847744, "delta_pct": -30.31107775455255} GROUPED_POSTOPS_RESULT {"job": "fq-q12-tm8-ordinary", "case": "ragged", "split": 2, "status": "FAIL", "baseline_us": 17.17500016093254, "candidate_us": 15.582500025629997, "delta_pct": -9.272198663060028}
+- (2026-09-09 09:35 UTC) GROUPED_POSTOPS_JOB job=fq-q12-tm8-ordinary status=FAIL cells=15 就这个错了
+- (2026-09-09 09:36 UTC) 需要给你结果的压缩包吗？
+- (2026-09-09 09:37 UTC) 传了
+- (2026-09-09 09:56 UTC) /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/asight/bin/acu
+- (2026-09-09 10:01 UTC) 传了
+- (2026-09-09 10:25 UTC) 修改生产选择。另外simt gemv现在是多少？我觉得不能比llama cpp的实现差。你可以对比一下。
+- (2026-09-09 10:27 UTC) 另外我们的Q8 0还没有plugin
+- (2026-09-09 10:31 UTC) 5090上gemv和llama cpp的方法对比一下，不能更差。
+- (2026-09-09 10:35 UTC) 他应该也有非Q8量化的路径，这样跟我们比较能够直接对比
+- (2026-09-09 12:18 UTC) gemv我们也上box计算一下时间，看看acu。对比同等shape的fq和sf
+- (2026-09-09 12:21 UTC) 现在测似的shape是不是相对较小的
+- (2026-09-09 13:02 UTC) runner_rc=1
+- (2026-09-09 13:03 UTC) 传了
+- (2026-09-09 13:24 UTC) 上传了
+- (2026-09-09 13:51 UTC) 那就应该都切换到FQ啊，直接切换吧。。。
+- (2026-09-09 14:05 UTC) 给我再次测似的asys的command，现在的接线可以认为是比较高utilization的版本了？
+- (2026-09-09 14:08 UTC) Q8呢？
+- (2026-09-09 14:09 UTC) 后续的todo？
+- (2026-09-09 14:11 UTC) 我们没有支持Q8——0
+- (2026-09-09 14:11 UTC) 在我们的quactlize吗
+- (2026-09-09 14:12 UTC) 那你先吧这个列到todo
+- (2026-09-09 14:13 UTC) 给我一个不依赖于box的todo list，哪些必须要box
+- (2026-09-09 14:19 UTC) scalefirst没有复用。都是现展开现用。simt gemv刚才达到了类似于llama cpp水平，可以暂时过。
+- (2026-09-09 14:20 UTC) llama cpp本身会做吗？还是我们自己加的？
+- (2026-09-09 14:20 UTC) llama cpp本身会做吗？还是我们自己加的？
+- (2026-09-09 14:21 UTC) scale ready？
+- (2026-09-09 14:22 UTC) 后续还有好多todo，比如jit 生成之类的。
+- (2026-09-09 14:28 UTC) 有没有短期上box的，没有的话我去睡觉了，你把能本地做的直接做完。包括新的so的编译，以及jit的代码部分。
+- (2026-09-09 22:12 UTC) 给我commnad上box
+- (2026-09-09 22:38 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_native_gate.py", line 297, in main run(sdk, a.bundle, w, route, tokens, a.samples, jit=jit) File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_native_gate.py", line 166, in run ^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/quactlize/dispatch/native.py", line 92, in prepare raise ValueError("native prepare: " + self.fn["error"]().decode()) ValueError: native prepare: selected handle preparation failed rc=1
+- (2026-09-09 22:42 UTC) 上传了
+- (2026-09-09 22:56 UTC) 还有多久再次上box
+- (2026-09-09 23:01 UTC) 上传了
+- (2026-09-10 00:50 UTC) 下一步
+- (2026-09-10 00:54 UTC) 以我们现在的decoding的warp利用率，是不是可以考虑prefetch下一步的weight到l2cache？
+- (2026-09-10 00:55 UTC) 我说的是下一层。
+- (2026-09-10 00:57 UTC) 或者这么说，如果我们是只用一半的sm，另外一半sm用于数据预取，一半的sm的时间不一定增加特别多
+- (2026-09-10 01:00 UTC) 现在现象已经知道了啊，带宽利用率只有10%，128*128的grid+block，总共72个SM。occupany bound在block size和shm？这部分可能要考虑一下，shm用的也不少，但是应该可以tune出其他的模式
+- (2026-09-10 01:02 UTC) 可以做一个实验看看，先prefetch，然后我们看加速。这是看后续的kernel有没有benefit。另外一个是假设当前加上prefetch，看看对于当前的时间的影响
+- (2026-09-10 01:04 UTC) 抓acu的时候会flush吗？如果这两个kernel分别单独抓取可能会不flush》
+- (2026-09-10 01:36 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_prefetch.py", line 675, in <module> main() File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_prefetch.py", line 668, in main raise ValueError("runtime SDK differs from prebuilt experiment") ValueError: runtime SDK differs from prebuilt experiment KPACK_PREFETCH_CASE case=q12 status=FAIL remaining_cases_continue=1
+- (2026-09-10 01:49 UTC) File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_prefetch.py", line 717, in <module> main() File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_prefetch.py", line 712, in main run(args, subject, manifest, library, runtime_sdk) File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_prefetch.py", line 624, in run graphs[key].sample() # graph upload/first launch excluded ^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_prefetch.py", line 432, in sample checked( File "/sim/eec/shared/junfu.qx/quactlize/quactlize/runtime/native.py", line 105, in checked raise RuntimeError(f"{operation} failed: status={status}") RuntimeError: event interval failed: status=1 KPACK_PREFETCH_CASE case=q12 status=FAIL remaining_cases_continue=1
+- (2026-09-10 02:05 UTC) 上传了
+- (2026-09-10 02:09 UTC) 假设全部预取，应该是能减少非常多时间？
+- (2026-09-10 02:12 UTC) 8个专家可以预取的啊，已经算出来了专家的id了。
+- (2026-09-10 02:12 UTC) gate up的时候可以取down的权重
+- (2026-09-10 02:12 UTC) gate up的时候可以取down的权重
+- (2026-09-10 02:12 UTC) 我们现在只是一个实验。看看能够快多少。
+- (2026-09-10 02:14 UTC) 你现在预取是怎么修改的代码？
+- (2026-09-10 02:19 UTC) 你现在prefetch取全了吗？
+- (2026-09-10 02:27 UTC) KPACK_PREFETCH_PROGRESS case=q4-to-q5 round=3/3 kind=primed-pair mode=load blocks=36 KPACK_PREFETCH_RESULT {"case": "q4-to-q5", "kind": "cold", "mode": "none", "blocks": 0, "samples": 33, "target_us": 20.280000739148818, "total_us": 20.400000736117363, "target_delta_pct": 0.0, "total_delta_pct": 0.0} KPACK_PREFETCH_RESULT {"case": "q4-to-q5", "kind": "warm", "mode": "none", "blocks": 0, "samples": 33, "target_us": 14.440000057220459, "total_us": 34.63999927043915, "target_delta_pct": -28.79684649446158, "total_delta_pct": 69.80391186511308} KPACK_PREFETCH_RESULT {"case": "q4-to-q5", "kind": "pair", "mode": "none", "blocks": 0, "samples": 33, "target_us": 20.2800001685023308, "total_us": 41.23999923467636, "current_us": 20.799999110749923, "target_delta_pct": 0.0, "total_delta_pct": 0.0, "current_delta_pct": 0.0} KPACK_PREFETCH_RESULT {"case": "q4-to-q5", "kind": "sequential", "mode": "hint", "blocks": 16, "samples": 33, "target_us": 18.559999763965607, "total_us": 27.400000020861626, "prefetch_us": 8.519999668351375, "target_delta_pct": -8.48126682689363, "total_delta_pct": 34.31372074585788} KPACK_PREFETCH_RESULT {"case": "q4-to-q5", "kind": "sequential", "mode": "hint", "blocks": 36, "samples": 33, "target_us": 18.519999137222767, "total_us": 25.800000876188278, "prefetch_us": 6.959999896935187, "target_delta_pct": -8.28403126575311, "total_delta_pct": 26.470587966746663} KPACK_PREFETCH_RESULT {"case": "q4-to-q5", "kind": "sequential", "mode": "load", "blocks": 16, "samples …
+- (2026-09-10 02:32 UTC) 算了，这个列为todo，我们先继续接线
+- (2026-09-10 02:49 UTC) 后续的asys测试时间，或者benchmark 整体时间要忽略第一次，因为有jit
+- (2026-09-10 02:49 UTC) 还有多久上box，我要抓acu看我们现在的时间短了多少，Q8——0接上了吗？
+- (2026-09-10 03:09 UTC) 上传了
+- (2026-09-10 03:14 UTC) 下一步吧，给我command
+- (2026-09-10 03:25 UTC) 上传了
+- (2026-09-10 03:31 UTC) 不应该啊，如果这样跟单kernel的现象不符合。我们还是要看asyus
+- (2026-09-10 03:34 UTC) 后续跑性能可以参考run_batched_bench.sh脚本
+- (2026-09-10 03:44 UTC) 为什么reference的gemm数量跟我们的版本对不上，好像是不是fusion了
+- (2026-09-10 03:47 UTC) 现在的问题在于我们的其他的接线导致了变慢，kernel时间其实差不多。
+- (2026-09-10 03:49 UTC) gate up down应该都共用路由和gather
+- (2026-09-10 03:55 UTC) 我的意思是gather和up的mmids什么的都是一样的。down也是。我们的moe-gemm的gate+up：10725 void mm_ids_helper<8>(int const*, int*, int*, int*, int, int, int, int, int) 149.19330 ms 2.480 μs PPU 0 Context 1 Stream 10 10726 (anonymous namespace)::gather(float const*, __half*, int const*, int, long) 149.19594 ms 2.760 μs PPU 0 Context 1 Stream 10 10727 void quactlize::runtime::grouped_splitk_device_metadata< cute::packed_tuple<int, int, int>, cute::packed_tuple<long, cute::C<1>, cute::C<0>>> (int const*, float*, cut...) 149.19878 ms 1.840 μs PPU 0 Context 1 Stream 10 10728 void quactlize::moe_directory::build_kernel<8, 256>( int const*, int const*, int, int, quactlize::moe_directory::Header*, quactlize::moe_directory::BlockEntry*, int) 149.20082 ms 2.400 μs PPU 0 Context 1 Stream 10 10729 void cutlass::device_kernel< cutlass::gemm::kernel::GroupDirectoryMixedInputKernel< cutlass::gemm::GroupProblemShape< cute::packed_tuple<int, int, int>>, cutlass::... 149.20334 ms 13.880 μs PPU 0 Context 1 Stream 10 10730 void cutlass::Kernel< cutlass::gemm::device::splitk_parallel:: PpuMixedInputSplitKParallelM1FastReductionKernel<2, 4>> (cutlass::gemm::device::splitk_parallel::PpuMixe...) 149.21730 ms 1.720 μs PPU 0 Context 1 Stream 10 10731 (anonymous namespace)::scatter(__half const*, float*, int const*, int, long) 149.21914 ms 2.000 μs PPU 0 Context 1 Stream 10 10732 void mm_ids_helper<8>(int const*, int*, int*, int*, int, int, int, int, int) 149.22130 ms 1.720 μs PPU 0 Context 1 Stream 10 10733 (anonymous namespace): …
+- (2026-09-10 03:56 UTC) reference版本：22536 void topk_moe_cuda<256, false>( float const*, float*, int*, float*, int, int, float, float, topk_moe_config) 7.27299 s 6.920 μs PPU 0 Context 1 Stream 8 22537 quantize_q8_1( float const*, void*, long, long, long, long, long, unsigned int, uint3) 7.27300 s 1.640 μs PPU 0 Context 1 Stream 8 22538 void mul_mat_vec_q<ggml_type12, 1, true, false>( void const*, void const*, int const*, ggml_cuda_mm_fusion_args_device, float*, unsigned int, uint3, unsigned int, u...) 7.27300 s 17.560 μs PPU 0 Context 1 Stream 8 22539 quantize_q8_1( float const*, void*, long, long, long, long, long, unsigned int, uint3) 7.27302 s 1.880 μs PPU 0 Context 1 Stream 8 22540 void mul_mat_vec_q<ggml_type13, 1, false, true>( void const*, void const*, int const*, ggml_cuda_mm_fusion_args_device, float*, unsigned int, uint3, unsigned int, u...) 7.27302 s 16.040 μs PPU 0 Context 1 Stream 8
+- (2026-09-10 03:57 UTC) 一个是我们的kernel数量太多了。有很多我觉得可以fusion。另外就是重复的计算。
+- (2026-09-10 04:01 UTC) mmids helper和gather和group splitkdevidemetadatabuildkernel可以合并吗？
+- (2026-09-10 05:00 UTC) 按照脚本中的模型重新测试prefill和decode时间。
+- (2026-09-10 05:07 UTC) Q8_0的接线要进去，另外需要是w8a保持16f
+- (2026-09-10 05:34 UTC) topk moe cuda, mm ids helper gather grouped splitk devide metadata build kernel 等等思考一下怎么整合
+- (2026-09-10 05:37 UTC) 这些与处理的逻辑都应该放到quanctlize库中，如果是共性的直接添加，如果是llamacpp独有的，搞一个单独的文件夹
+- (2026-09-10 05:37 UTC) 融合算子
+- (2026-09-10 05:38 UTC) 另外还有splitk reduce+scatter
+- (2026-09-10 05:38 UTC) Gate和up的融合可以在我们的预处理部分发生吗？
+- (2026-09-10 05:38 UTC) 本身我们也要处理weights
+- (2026-09-10 05:40 UTC) 把这些都做完，然后再给我command上box，融合的性能可以5090测试
+- (2026-09-10 05:44 UTC) llamacpp本身有fuse的案例，可以参考一下
+- (2026-09-10 05:45 UTC) --fuse-gate-up-exps
+- (2026-09-10 06:30 UTC) 继续
+- (2026-09-10 07:08 UTC) 继续，直到可以box
+- (2026-09-10 07:53 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_moe_gate.py", line 212, in main try:result['chains'].append(chain_case(args,sdk,lib,merged,tokens,router)) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_moe_gate.py", line 120, in chain_case if choice is None: raise ValueError('selected grouped parent unavailable') ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ValueError: selected grouped parent unavailable
+- (2026-09-10 08:08 UTC) /sim/eec/shared/AI_workspace/llm-models/bench_model_zoo Qwen3-32B-GGUF Qwen3-32B-Q4_K_M-GGUF Qwen3.5-122B-A10B-GGUF-Q4_K_M Qwen3.5-35B-A3B-GGUF Qwen3.5-35B-A3B-Q4_K_M-GGUF
+- (2026-09-10 08:12 UTC) ls /sim/eec/shared/AI_workspace/llm-models/ .hf/ Qwen3-30B-A3B-Instruct-2507-GGUF/ Qwen3.5-122B-A10B-GGUF/ Qwen3.5-35B-A3B-GPTQ-Int4/ datasets/ .tmp_ms_probe/ Qwen3-32B/ Qwen3.5-122B-A10B-GGUF-Q4_K_M/ Qwen3.5-35B-A3B-Q4_K_M-GGUF/ ollama-modelzoo/
+- (2026-09-10 08:12 UTC) ls /sim/eec/shared/AI_workspace/llm-models/ .hf/ Qwen3-30B-A3B-Instruct-2507-GGUF/ Qwen3.5-122B-A10B-GGUF/ Qwen3.5-35B-A3B-GPTQ-Int4/ datasets/ .tmp_ms_probe/ Qwen3-32B/ Qwen3.5-122B-A10B-GGUF-Q4_K_M/ Qwen3.5-35B-A3B-Q4_K_M-GGUF/ ollama-modelzoo/
+- (2026-09-10 08:14 UTC) 就用这个上级目录
+- (2026-09-10 08:14 UTC) 就用这个上级目录
+- (2026-09-10 08:14 UTC) 这个目录下有全部的模型
+- (2026-09-10 08:22 UTC) KPACK_MODEL_PATH FAIL: qwen35-35b-base: /sim/eec/shared/AI_workspace/llm-models/Qwen3.5-35B-A3B-GGUF: binding mixes split and unsplit GGUF filenames; use an exact GGUF path in MODEL_PLAN if ambiguous FAIL stage=model-paths line=91 rc=1 # ls /sim/eec/shared/AI_workspace/llm-models/Qwen3.5-35B-A3B-GGUF/ Qwen3.5-35B-A3B-BF16-00001-of-00002.gguf Qwen3.5-35B-A3B-BF16-00002-of-00002.gguf
+- (2026-09-10 08:40 UTC) KPACK_MODEL_PATH FAIL: qwen3-32b-base: /sim/eec/shared/AI_workspace/llm-models/Qwen3-32B-GGUF: directory contains multiple unsplit GGUF files; bind the exact file or one split directory; found=['Qwen3-32B-eagle3.gguf', 'Qwen3-32b.gguf']; use an exact GGUF path in MODEL_PLAN if ambiguous FAIL stage=model-paths line=91 rc=1
+- (2026-09-10 08:48 UTC) KPACK_MODEL_PATH FAIL: qwen3-32b-base: /sim/eec/shared/AI_workspace/llm-models/Qwen3-32B-GGUF: directory contains multiple unsplit GGUF files; bind the exact file or one split directory; found=['Qwen3-32B-eagle3.gguf', 'Qwen3-32b.gguf']; use an exact GGUF path in MODEL_PLAN if ambiguous FAIL stage=model-paths line=91 rc=1
+- (2026-09-10 08:51 UTC) Qwen3-32B-Q4_K_M_GGUF/ 名字你搞错了，硬编码吧
+- (2026-09-10 09:07 UTC) 你的测试会住啊acu吗？
+- (2026-09-10 09:12 UTC) 我说错了，会抓asys吗？
+- (2026-09-10 09:32 UTC) 要跑多久
+- (2026-09-10 09:44 UTC) BATCHED_MODEL_PROGRESS model=qwen35-35b-q4km arm=1-kpack phase=warmup pp=1024 tg=1024 completed=20/30 prefill_us=114.333 decode_us=10564.385 这个prefill的时间不太对吧
+- (2026-09-10 09:51 UTC) 感觉不太正常。一点好处没有。跑的太多了， 我们只看2048下的int4的模型。
+- (2026-09-10 10:05 UTC) 现在moe的预处理部分已经合并了？
+- (2026-09-10 10:09 UTC) BATCHED_MODEL_FAIL model=qwen3-32b-q4km arm=kpack error=no selected or legacy K-pack compute plan; not a K-pack timing remaining_continue=1
+- (2026-09-10 10:14 UTC) 上传了
+- (2026-09-10 11:56 UTC) 上传了
+- (2026-09-10 12:01 UTC) 融合的kernel时间还没有减少？
+- (2026-09-10 12:03 UTC) asysrep在哪里
+- (2026-09-10 12:04 UTC) Q8_0没有替换啊，这个是老的吗？
+- (2026-09-10 12:07 UTC) 为什么Q8的时间这么慢，计算利用率这么低，应该接入我们的gemv simt版本。至少有一些要接入。moechain prepare时间巨长，为什么没有优化。
+- (2026-09-10 12:12 UTC) 为什么我们每个gemm的前后都有gather和scatter？
+- (2026-09-10 12:14 UTC) moe chain prepare 一定要性能优化。可以在5090上完成。下一版我们要看到速度的明显提升。另外有很多是不是没有heurisitic到simt？
+- (2026-09-10 13:06 UTC) 测试命令给我
+- (2026-09-10 13:19 UTC) 为什么都没有merge？
+- (2026-09-10 13:23 UTC) 继续
+- (2026-09-10 13:24 UTC) 但是convert脚本转换之后应该是自动的吗，我们的区别？
+- (2026-09-10 13:37 UTC) 之前跑的结果还有参考价值吗
+- (2026-09-10 13:39 UTC) 之前的结果上传了。给我新的command
+- (2026-09-10 13:42 UTC) Q8 simt没有选出赢家是什么意思
+- (2026-09-10 13:44 UTC) 行吧。gather和scatter解决了吗
+- (2026-09-10 13:47 UTC) 我说的是其他的Q8 0周围的gather scatter
+- (2026-09-10 13:50 UTC) KPACK_MODEL FAIL: 0-native failed rc=1
+- (2026-09-10 13:51 UTC) 错误我上传了
+- (2026-09-10 13:56 UTC) asys在哪里，我要看一下为什么慢
+- (2026-09-10 13:59 UTC) 利用率有点低。为什么比llamacpp原生的方法差？我们跑一个reference对比一下。我的bottomline是不能比原生的差。
+- (2026-09-10 14:28 UTC) KPACK_REFERENCE_TRACE arm=native FAIL remaining_continue=1 FAIL stage=trace-native line=107 rc=1
+- (2026-09-10 22:50 UTC) RUN=/workspace/kpack-reference-ab.3gMc6e KPACK_MODEL_START arm=0-native log=/workspace/kpack-reference-ab.3gMc6e/results/native/proof-request/0-native.log KPACK_MODEL FAIL: 0-native phase=startup-health: [Errno 104] Connection reset by peer; server_rc=None; log=/workspace/kpack-reference-ab.3gMc6e/results/native/proof-request/0-native.log { "arm": "0-native", "phase": "startup-health", "error": "[Errno 104] Connection reset by peer", "log": "/workspace/kpack-reference-ab.3gMc6e/results/native/proof-request/0-native.log", "returncode_before_cleanup": null } -rw-r--r-- 1 root root 4.3M Sep 10 22:18 /workspace/kpack-reference-ab.3gMc6e/results/reference/proof.asysrep r
+- (2026-09-10 22:54 UTC) #0 0x00007f6d162da813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007f6d157d8663 in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #2 0x00007f6d157d880b in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-base.so.0 #3 0x00007f6d067f4f2a in qz_set_raw(ggml_backend_buffer*, ggml_tensor*, void const*, void const*, unsigned long, unsigned long) [clone .isra.0] () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libggml-cuda.so.0 #4 0x00007f6d15a17b3b in llama_model_loader::load_all_data(ggml_context*, std::unordered_map<unsigned int, ggml_backend_buffer*, std::hash<unsig_mlock, std::default_delete<llama_mlock> >, std::allocator<std::unique_ptr<llama_mlock, std::default_delete<llama_mlock> > > >*, bool (*)(float, void*), void*) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #5 0x00007f6d15a757d3 in llama_model_base::load_tensors(llama_model_loader&) () from /sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #6 0x00007f6d15970888 in llama_model_load(gguf_context*, void (*)(ggml_tensor*, void*), void*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocatounfu.qx/llama.cpp/build-kpack-9f86a1340/bin/libllama.so.0 #7 0x00007f6d15971962 in llama_model_load_from_f …
+- (2026-09-10 23:01 UTC) moe-chain-prepare 需要10us也是非常神奇了，这个地方可能有海量的优化空间，这里是搬运了权重吗？如果是，那么久很不应该。错误的文档放到root目录
+- (2026-09-10 23:03 UTC) moe-chain-prepare和topk-moe-cuda不能再合并吗？我们不一定要用topk-moe-cuda，可以在我们内部这些全部合并？
+- (2026-09-10 23:04 UTC) 问题在于moe-chain prepare和topk moecuda这两个就是20us左右，肯定不对啊，你要优化到极限。
+- (2026-09-10 23:07 UTC) 你可以尝试tcp://0.tcp.ap.ngrok.io:20320这个机器，用户名<REDACTED_KNOWN_SECRET>，密码<REDACTED>，这个机器是windows机器，5070，wsl可以启动ncu抓去更多调试信息，你如果调试一下cuda算子可以去调试。我们要把几个cuda的算子调试到最优状态。
+- (2026-09-11 01:37 UTC) /goal
+- (2026-09-11 01:37 UTC) /goal kpack在5070和5090上，在多个shape上达到xplane的最佳水准。
+- (2026-09-11 01:46 UTC) k-pack的解包和地址计算开销跟xplane比不应该更多
+- (2026-09-11 02:04 UTC) 继续
+- (2026-09-11 02:10 UTC) 继续啊，goal还没有完成，要达到xplane的水准。多种shape下
+- (2026-09-11 02:11 UTC) 另外如果热缓存证明会快非常多，可能提前prefetch还真是一个思路
+- (2026-09-11 02:25 UTC) xplane是fp16的累加吗？
+- (2026-09-11 02:37 UTC) 应该对比xplane也是fp32累加
+- (2026-09-11 03:09 UTC) 现在追到什么程度了
+- (2026-09-11 03:27 UTC) 现在差距多大
+- (2026-09-11 03:36 UTC) 5%以内可以接受，小shape继续吧
+- (2026-09-11 03:37 UTC) 必须要split-k吗？xplane肯定是不需要的。kpack必须要splitk？
+- (2026-09-11 03:57 UTC) 关机了，后续先在5070上测试
+- (2026-09-11 04:32 UTC) 较大的shape的热态继续
+- (2026-09-11 04:33 UTC) 等你这边都调试结束，我们再上box测试对比
+- (2026-09-11 05:16 UTC) 上box测试对比的表格。
+- (2026-09-11 05:22 UTC) 给我command
+- (2026-09-11 06:09 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run.py", line 280, in <module> try:raise SystemExit(main()) ^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run.py", line 276, in main return run(args) ^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/campaign.py", line 52, in run library,geometry=load_library(args,arm) ^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run.py", line 67, in load_library if l2_bytes<=0:raise ValueError("device reports no L2 size; supply verified bytes with L2_BYTES, not a guess") ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ValueError: device reports no L2 size; supply verified bytes with L2_BYTES, not a guess Q4_PPU_BOX FAIL stage=compare line=70 rc=1
+- (2026-09-11 06:12 UTC) 你应该本地能看到sdk能不能查到L2容量
+- (2026-09-11 06:14 UTC) 应该是64M
+- (2026-09-11 06:21 UTC) Q4_PPU_FAILURE {"shape": [1, 512, 2048], "mode": "warm", "arm": "fq", "phase": "screen", "error": "child rc=1; log=/workspace/q4-simt-ppu.0uCEmO/results/n512-k2048-warm-fq-screen.log"}
+- (2026-09-11 06:22 UTC) Q4_PPU_RESULT {"shape": [1, 512, 2048], "mode": "warm", "median_us": {"xplane": 2.891874988563359, "old": 8.581249974668026, "new": 3.920000046491623}, "new_vs_xplane_pct": 35.552195789729545, "verdict": "INCOMPLETE"}
+- (2026-09-11 06:23 UTC) Q4_PPU_RESULT {"shape": [1, 512, 2048], "mode": "rotating", "median_us": {"xplane": 3.4615234471857548, "old": 9.619413875043392, "new": 4.436093848198652}, "new_vs_xplane_pct": 28.15437814830435, "verdict": "INCOMPLETE"}
+- (2026-09-11 06:24 UTC) Q4_PPU_RESULT {"shape": [1, 1024, 5120], "mode": "warm", "median_us": {"xplane": 5.511875031515956, "old": 14.825625345110893, "new": 6.1918748542666435}, "new_vs_xplane_pct": 12.33699637351291, "verdict": "INCOMPLETE"}
+- (2026-09-11 06:25 UTC) Q4_PPU_RESULT {"shape": [1, 1024, 5120], "mode": "rotating", "median_us": {"xplane": 6.878076837613032, "old": 16.797115023319538, "new": 7.432692326032198}, "new_vs_xplane_pct": 8.063525626614542, "verdict": "INCOMPLETE"}
+- (2026-09-11 06:26 UTC) Q4_PPU_PROGRESS phase=confirm5 shape=1x4096x2048 mode=warm arm=xplane recipes=2 elapsed_s=284.2 Q4_PPU_RESULT {"shape": [1, 4096, 2048], "mode": "warm", "median_us": {"xplane": 5.962500115856528, "old": 17.901250161230564, "new": 6.308750016614795}, "new_vs_xplane_pct": 5.807126105330518, "verdict": "INCOMPLETE"}
+- (2026-09-11 06:26 UTC) Q4_PPU_RESULT {"shape": [1, 4096, 2048], "mode": "rotating", "median_us": {"xplane": 6.986250169575214, "old": 19.23156250268221, "new": 7.986874785274267}, "new_vs_xplane_pct": 14.322771034692195, "verdict": "INCOMPLETE"}
+- (2026-09-11 06:27 UTC) Q4_PPU_RESULT {"shape": [1, 4096, 4096], "mode": "warm", "median_us": {"xplane": 9.7462497651577, "old": 31.042500399053097, "new": 10.233749635517597}, "new_vs_xplane_pct": 5.001922607223586, "verdict": "INCOMPLETE"}
+- (2026-09-11 06:28 UTC) KPACK_JIT FAIL: JIT helper source differs from dispatcher; rebuild the small dispatcher Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run.py", line 312, in <module> try:raise SystemExit(main()) File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run.py", line 306, in main if args.child:return child(args) ^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run.py", line 271, in child bench=Bench(args) ^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run.py", line 165, in __init__ self.choice=self.dispatch.query(12,0,1,n,k,1,1,self.arr.mapping_id) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/quactlize/dispatch/native.py", line 101, in query raise ValueError("native query: " + self.fn["error"]().decode()) ValueError: native query: selected parent JIT failed; see compiler diagnostic/build.log
+- (2026-09-11 06:32 UTC) acu抓一下Q4_PPU_RESULT {"shape": [1, 5120, 8192], "mode": "rotating", "median_us": {"xplane": 22.928000347954885, "old": 75.87028571537563, "new": 28.885715348379954}, "new_vs_xplane_pct": 25.984450933404133, "verdict": "INCOMPLETE"} 对比
+- (2026-09-11 06:38 UTC) 错误我上传了
+- (2026-09-11 06:39 UTC) 如果是这样，5070的表现和我们的平台差距较大，我们的平台是500Tops的BF16算力，2700GBps的带宽，72个SM，什么平台比较接近。我可以用什么nvidai的卡来调试
+- (2026-09-11 06:43 UTC) rtx pro 6000呢？
+- (2026-09-11 06:48 UTC) ssh -p 51414 root@connect.westd.seetacloud.com <REDACTED_PASSWORD> 先试试能不能复现box上的现象
+- (2026-09-11 06:49 UTC) 没有ncu配置耦
+- (2026-09-11 06:56 UTC) 其中一个原因肯定是方寸合并的不够好，new的kpack有很多stall vector memory pipe busy
+- (2026-09-11 07:01 UTC) 那我关掉rtx6000了
+- (2026-09-11 07:04 UTC) 有思路了吗？
+- (2026-09-11 07:05 UTC) 照理说读取到shm的话也可以合并方寸，在shm上进行操作。甚至我们也可以用aiu load + ldmatrix swzl trans
+- (2026-09-11 07:07 UTC) 这只是一个思路，你可以考虑要不要这么做
+- (2026-09-11 07:10 UTC) OK
+- (2026-09-11 07:22 UTC) 我上传了一个同事的优化流程，但是这个是原始的版本的权重，可以参考
+- (2026-09-11 07:22 UTC) gemv q4k优化流程.docx
+- (2026-09-11 07:25 UTC) 5120 * 8192的tensorcore的版本的利用率？
+- (2026-09-11 07:30 UTC) gemv_ref.cu 这个是参考的代码。
+- (2026-09-11 07:31 UTC) 制定后续的优化方向
+- (2026-09-11 07:37 UTC) 列一下你的思路
+- (2026-09-11 07:43 UTC) 给我box的command
+- (2026-09-11 07:52 UTC) Q4_ASTAGE_RESULT {"shape": [1, 512, 2048], "mode": "warm", "recipes": {"kpack": [4, 8, 1], "xplane": [1, 8, 1]}, "median_us": {"xplane": 2.8874999843537807, "baseline": 3.921249881386757, "shared-a": 4.1831249836832285}, "verdict": "PARITY_OPEN", "shared_vs_baseline_pct": 6.678357927137735, "shared_vs_xplane_pct": 44.870130090040746}
+- (2026-09-11 07:54 UTC) B用aiu + ldmatrix swzl
+- (2026-09-11 07:56 UTC) gemv_ref也加入进来，作为refnerecne，但是要改成fp32的累加器
+- (2026-09-11 08:08 UTC) ssh -p 43824 root@connect.westc.seetacloud.com <REDACTED_PASSWORD> 在这个H800上测试一下，看看能不能复现
+- (2026-09-11 08:08 UTC) aiu ld + swzl可以不在h800上测试
+- (2026-09-11 08:14 UTC) H800上能复现吗？
+- (2026-09-11 08:28 UTC) 现在H800上调试。直到还是5%以内的标准达成。
+- (2026-09-11 08:28 UTC) 并且也要比对ref，不能比ref差。
+- (2026-09-11 09:54 UTC) 现在什么状态了
+- (2026-09-11 09:56 UTC) 大shape的结果给我一下
+- (2026-09-11 09:58 UTC) 为什么还能快这么多？改了什么，应该不是格式上的既有优势吧
+- (2026-09-11 11:39 UTC) 上传到root了
+- (2026-09-11 11:42 UTC) 有推理请求
+- (2026-09-11 11:42 UTC) 有推理请求
+- (2026-09-11 11:42 UTC) 那我重新跑
+- (2026-09-11 11:42 UTC) 那我重新跑
+- (2026-09-11 12:09 UTC) moe的prepare的kernel也要在h800上调试，另外还有M更大的case，不是M=1，比如M小于8的都要测测。还有batched gemv，这个M=1测测。
+- (2026-09-11 13:12 UTC) 之前的对比结果上传了，在root下面，q4-h800-port-ppu.4sc46w.results.tgz
+- (2026-09-11 13:30 UTC) 没太理解，慢的也太逗了
+- (2026-09-11 13:30 UTC) h800我关掉了
+- (2026-09-11 13:31 UTC) 问题在于我们的xplane也不如ref，有点奇怪，分析一下，或者我们按照ref的逻辑一步步尝试？
+- (2026-09-11 13:37 UTC) 来吧
+- (2026-09-11 13:39 UTC) 这个可能反映了PPU的硬件和nvidia的硬件的某种差异。可以思考一下。可能对于我们的编码会有取向的不同。
+- (2026-09-11 13:45 UTC) 我们先从逻辑上分析一下能够达到ref的水平吗？如果先天不足就算了，如果本来可以达到我们再根据acureport调节，你能看到acu report的结果吗？
+- (2026-09-11 13:46 UTC) 不行就aiu ld + ld swzl + trans，然后每个warp拿到的应该是16个N维度，还有64个K维度的数据，每个thread对应了两个N，以及16个K。这样读取的过程会简单一点？
+- (2026-09-11 13:48 UTC) 合并方寸也不应该有问题啊，因为本身4个k是连续的，如果一个warp读取的是N*K的数据，也可以组合到合并的方寸
+- (2026-09-11 14:07 UTC) 你自己通过acu能够看到差别的
+- (2026-09-11 14:12 UTC) 上传了
+- (2026-09-12 00:47 UTC) 上传了
+- (2026-09-12 00:53 UTC) 扫一下全部格式吧
+- (2026-09-12 00:54 UTC) 扫一下全部的shape，不是所有格式
+- (2026-09-12 00:57 UTC) 这一轮的skill记录一下
+- (2026-09-12 01:26 UTC) 上传了
+- (2026-09-12 01:31 UTC) 下一步
+- (2026-09-12 01:31 UTC) 应该做出config来sweep最优配置
+- (2026-09-12 01:36 UTC) 首先bottom line是我们不能比ref差，因为ref的格式是更不友好的。
+- (2026-09-12 01:42 UTC) 每次都要计算一下读取的数据是不是方寸合并，计算一下pattern。另外dequant是不是fast dequant？
+- (2026-09-12 01:54 UTC) 我们两天可以搞定吗？周末两天把decoding的gemv的性能tune到最优。
+- (2026-09-12 01:55 UTC) 然后plugin到llama cpp
+- (2026-09-12 01:55 UTC) prefill我们还要跟deepgemm的bf16+dequant weight first对比
+- (2026-09-12 02:02 UTC) 还有多久上box
+- (2026-09-12 02:06 UTC) acu的结果你能看到全部的结果的吧。所以你能够比h800上拿到更多的信息，所以有更快的调试速度成功的可能行？
+- (2026-09-12 02:29 UTC) 上传了
+- (2026-09-12 03:50 UTC) 给我上box的command
+- (2026-09-12 10:55 UTC) 上传了
+- (2026-09-12 11:09 UTC) 其他的呢？如果都已经到5%以内也可以借宿
+- (2026-09-12 11:11 UTC) 来吧，我们上box
+- (2026-09-12 11:49 UTC) 上传了
+- (2026-09-12 11:55 UTC) 继续调试这两个小shape
+- (2026-09-12 12:59 UTC) 上传了
+- (2026-09-12 13:12 UTC) 好的，下一步微调吧
+- (2026-09-12 13:52 UTC) 上传了
+- (2026-09-12 14:08 UTC) 总结一下优化的方法，可以总结道ppu的一些特性？
+- (2026-09-12 14:13 UTC) 加入2到8的扫描。这个结果可以对比我们的tensorcore的结果。
+- (2026-09-12 14:13 UTC) 这些总结的优化手段对于decoding的tensrocore版本有借鉴价值吗？好像没有
+- (2026-09-13 02:03 UTC) 上传了
+- (2026-09-13 02:12 UTC) 可以跟tc对比一下。这些本来也要加到sweep中选择。
+- (2026-09-13 02:12 UTC) 第二步是把gemv也在我们之前扫描过的shape中扫描一下，然后我们heuristic对应修改。
+- (2026-09-13 02:13 UTC) 然后moe的结果也没有跑呢，moe可能就是m=1可以直接写一个kernel，其他的好像麻烦一点，m大于1的case
+- (2026-09-13 02:15 UTC) 我们先把moe 的simt一起搞好，然后我们后续跑sweep，修改heuristic，中间还有什么我没有考虑吗？
+- (2026-09-13 02:19 UTC) 继续
+- (2026-09-13 02:42 UTC) 还要多久上box
+- (2026-09-13 07:37 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run_moe_s1.py", line 213, in <module> try: raise SystemExit(main(a)) ^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run_moe_s1.py", line 144, in main if args.child: return child(args,manifest) ^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/run_moe_s1.py", line 105, in child proof=bench.correctness(c.key) ^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_ppu/moe_s1_bench.py", line 166, in correctness if err>=.005: raise ValueError(f'independent GGUF error {err:.6g}') ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ValueError: independent GGUF error 0.609534 如果是simt的kernel，可以在5070上验证精度
+- (2026-09-13 08:05 UTC) 上传了
+- (2026-09-13 08:19 UTC) 下一步的command
+- (2026-09-13 10:12 UTC) 上传了
+- (2026-09-13 10:28 UTC) 下一步我们进行sweep，增加simt的case。
+- (2026-09-13 11:55 UTC) 要跑多久
+- (2026-09-13 12:06 UTC) 现在跑到了Q4_DECODE_FIXTURE case=grouped-n3072-k512-t1-ch8-spread experts=32/256
+- (2026-09-13 12:35 UTC) xQ4_DECODE_FIXTURE case=grouped-n1024-k3072-t2-ch1-real experts=32/256
+- (2026-09-13 12:47 UTC) 如果是H800
+- (2026-09-13 12:48 UTC) 如果我们后一代的架构类似于Hopper，那么是不是可以在前一个kernel， prefetch后一个kernel的内容？而且我们的marlin表现就不如matchete这种kernel，可能跟我们的simt的gemv的表现也是相关的。你之前应该总结了一些硬件架构上对于gemv的差异，能分析一下吗？
+- (2026-09-13 12:50 UTC) 首先我想知道是不是可以在前一个gpu的kernel，prefetch一下weights到l2 cache？然后后一个kernel直接读global mem的时候从l2 cache hit？
+- (2026-09-13 12:52 UTC) 或者直接写一个mega kernel可能是可以的
+- (2026-09-13 12:52 UTC) 这个应该依赖于pdl
+- (2026-09-13 12:53 UTC) 前一次sweep的结果上传了
+- (2026-09-13 13:03 UTC) third_party/cutlass/examples/63_hopper_gemm_with_weight_prefetch/63_hopper_gemm_with_weight_prefetch.cu:34 这个是用了pdl吗？
+- (2026-09-13 13:06 UTC) 继续修改生产heuristic，根据现在有的结果应该已经够了吧
+- (2026-09-13 13:14 UTC) 后续还要调整大M的case，我们要对比dequant full + bf16的cublas gemm或者dequant full + bf16的deepgemm moe-gemm，需要添加这两个方法的扫描。当然要思考一下怎么做这个扫描，因为cublas和deepgemm都会预先warmup或者jit。dequant在这里可能也是按照利用率计算一下。dequant的kernel是我们库里面的function，但是cublas和deepgemm都是通用库，假设已经安装了。你先把小m的heuristic弄完就做这个。
+- (2026-09-13 13:24 UTC) 反量化实测的话好像跟之前的scalefirst是带宽估计对不上了，无法直接比较？
+- (2026-09-13 13:31 UTC) 也就是scale first的dequant的kernel时间也要重新测量吗？我希望都是单独测试dequant的kenrel时间，不要跟gemm放到一起测试。dequant本身的kernel也要优化到一个较高的带宽利用率。单独诊断。如果是非理论值来做heuristic的前提。后续还要多久给我command上box测试着写
+- (2026-09-13 22:19 UTC) 上一次的测试结果上传了
+- (2026-09-13 22:42 UTC) sf的dequant结果上传了
+- (2026-09-13 22:49 UTC) MOE展开全部专家是什么意思，SF不会展开啊，只会展开scale，只有FULLY Dequant会展开
+- (2026-09-13 22:51 UTC) dequant利用率有点低，需要调试。后续我需要FULLYDequant的时间，以及BF16的Cublas GEMM和BF16的MOE_GEMM的时间，这样拼起来作为另外一个FULLYDequant的备选。
+- (2026-09-13 22:54 UTC) 你是不是没有考虑访存合并。另外是不是没有用float4
+- (2026-09-13 23:32 UTC) moe-gemm这次会测试吗？
+- (2026-09-13 23:33 UTC) sf的dequant的效率提升的kernel会测试吗？
+- (2026-09-13 23:37 UTC) dequant wegiht还没有接入sf的相关优化？
+- (2026-09-14 00:58 UTC) 上传了
+- (2026-09-14 01:15 UTC) fully quantize的kernel好像还是不太行。可以继续提升。相对于SF的～50%的加速差了一点。
+- (2026-09-14 02:15 UTC) KPACK_DEQUANT_FIXTURE case=q13-n1024-k3072-e256-full experts=32/256 还有多久
+- (2026-09-14 02:21 UTC) 上传了
+- (2026-09-14 02:36 UTC) 如果是这样，我们还是按照上一轮的版本的kernel。另外我们CUblas GEMM和BF16的deepgemm版本的MOE-gemm是不是要测试。
+- (2026-09-14 02:38 UTC) 我们来补测Deepgemm
+- (2026-09-14 02:46 UTC) 先在5070上测试通过
+- (2026-09-14 02:51 UTC) 而且你如果用的是deepgemm的python入口来测试，不会有这个问题吧
+- (2026-09-14 02:51 UTC) 而且你如果用的是deepgemm的python入口来测试，不会有这个问题吧
+- (2026-09-14 02:53 UTC) 继续
+- (2026-09-14 03:26 UTC) 65, "error": 0.003807994599836399, "cost": {"full_dequant_us": 480.1500141620636, "bf16_provider_us": 379.5599937438965, "sum_estimate_us": 859.7100079059601, "scope": "SUM_OF_ISOLATED_MEASUREMENTS_NOT_MEASU 不对吧，full_dequant_us不应该比bf16 provider更多吧
+- (2026-09-14 03:32 UTC) bf16的gemm不一定读取了全部的weight？但是我们要求的是只dequant会用到的部分的weights
+- (2026-09-14 03:34 UTC) deepgemm的gemm这么算下来的带宽MBU比dequant还搞？
+- (2026-09-14 03:35 UTC) 从流量来说
+- (2026-09-14 03:35 UTC) 上一轮结果上传了
+- (2026-09-14 03:38 UTC) dequant的kernel还是要update，现在的利用率还是不高。逻辑上可以做到非常高的利用率，就是elementwise的操作？是不是还是没有方寸合并等等。
+- (2026-09-14 04:00 UTC) 还有多久给我box
+- (2026-09-14 04:48 UTC) 上一轮结果上传了
+- (2026-09-14 05:00 UTC) 开始组合吧
+- (2026-09-14 05:17 UTC) 独立计时之和应该可以等价于实测E2E
+- (2026-09-14 05:22 UTC) 先按照这个结果修改生产接线。
+- (2026-09-14 05:25 UTC) 还需要补充什么实验？》
+- (2026-09-14 05:28 UTC) command给我上box
+- (2026-09-14 05:31 UTC) 这么算的话，splitk的合并的kernel也要跑一下，现在是估算的数值？
+- (2026-09-14 05:35 UTC) 我们哪有tuner？不是直接heuristic选择吗？
+- (2026-09-14 05:36 UTC) 你先给我需要补充的实验的command。然后你给我补测splitk的reducer的时间的command。
+- (2026-09-14 05:41 UTC) 还要多久
+- (2026-09-14 06:42 UTC) 上传了
+- (2026-09-14 07:01 UTC) 还有多久上box，最好重新check一下当时的数据中有哪些是预估的数值。这样比较完整。
+- (2026-09-14 07:31 UTC) 上传了，还有别的需要测似的吗？
+- (2026-09-14 07:36 UTC) 把剩余的补测脚本给我
+- (2026-09-14 07:57 UTC) 还有多久给我command上box
+- (2026-09-14 08:01 UTC) 补测结束你就可以直接修改heuristic了吧
+- (2026-09-14 08:24 UTC) decoding 再写一个fp32的输入输出，因为llama cpp默认就是fp32的输入输出。我们的bf16的输入输出也要保留。但是要知道如果是moe-gemm，输入的fp32应该是在prepare的kernel中实现。输出需要在后处理中（swiglu，indexed finish？）实现bf16到fp32。这样可以去掉gather和scatter。普通的gemm或者simt gemv需要添加fp32的输入和输出的支持。注意只考虑decoding的case。
+- (2026-09-14 08:29 UTC) 最终目标是decoding的时候没有scatter和gather的格式转换
+- (2026-09-14 08:57 UTC) COST_PROGRESS phase=all weights=4/86 last_rc=0 remaining_minutes=457.0 eta=RECENT_WEIGHT_AVERAGE_NOT_GUARANTEE 前一个测试的时间有点长，可以在多卡上吗？
+- (2026-09-14 08:58 UTC) 重跑吧，现在只跑了4个而已
+- (2026-09-14 08:58 UTC) 0-7的卡都可以用
+- (2026-09-14 08:58 UTC) 重跑吧，现在只跑了4个而已 0-7的卡都可以用
+- (2026-09-14 09:00 UTC) 八个卡都是一个型号，所以夸卡也可以比较
+- (2026-09-14 09:00 UTC) 八个卡都是一个型号，所以夸卡也可以比较
+- (2026-09-14 09:06 UTC) 还要多久
+- (2026-09-14 09:11 UTC) 继续之前的fp32的输入输出的任务
+- (2026-09-14 09:12 UTC) 这个任务还要多久
+- (2026-09-14 09:14 UTC) llama.cpp rebase到0.3.0的远端release版本
+- (2026-09-14 09:24 UTC) revert rebase这一步的内容。你先把fp32的高完
+- (2026-09-14 09:31 UTC) 后续用root下面ppu_dev-vs-master.diff，apply到https://github.com/ggml-org/llama.cpp/releases/tag/v0.3.0。然后作为一个dev/v0.3.0的branch存在。从这个branch，branchout 一个quactlize的devbranch，我们的quactlize的改动cherry pick到这个branch。
+- (2026-09-14 09:32 UTC) 等你目前的任务搞完之后
+- (2026-09-14 10:04 UTC) 上一轮的结果已经上传，heuristic的修改排在当前的任务后面。
+- (2026-09-14 10:41 UTC) 后续呢
+- (2026-09-14 10:42 UTC) 234先做完
+- (2026-09-14 11:10 UTC) KPACK_DECODE_IO_PROGRESS completed=103/104 failures=103 Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_decode_io.py", line 199, in main results["dense"].append(dense_case(sdk, args.bundle, fixtures[key], point, storage)) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_decode_io.py", line 67, in dense_case choice = d.query_dense_io(request, storage, bool(point["decode_policy"])) File "/sim/eec/shared/junfu.qx/quactlize/quactlize/dispatch/native.py", line 133, in query_dense_io if status: raise ValueError("typed native query: "+self.fn["error"]().decode()) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ValueError: typed native query: loaded module device differs from policy KPACK_DECODE_IO_PROGRESS completed=104/104 failures=104 ^C^C r
+- (2026-09-14 11:11 UTC) 上一次的fp32的脚本
+- (2026-09-14 11:11 UTC) 出现了问题
+- (2026-09-14 12:07 UTC) File "/usr/local/lib/python3.12/ctypes/__init__.py", line 397, in __getitem__ func = self._FuncPtr((name_or_ordinal, self)) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ AttributeError: /sim/eec/shared/junfu.qx/quactlize/prebuilt/ppu0010/kpack-pack-v1/libquactlize_ppu_pack.so: undefined symbol: quactlize_ppu_kpack_canonical_arrangement_v1
+- (2026-09-14 12:23 UTC) 上传了
+- (2026-09-14 12:51 UTC) 下一步呢？
+- (2026-09-14 12:52 UTC) llamacpp按照我说的切换到了0。3。0并且apply pathc之后cherrypick了吗
+- (2026-09-14 12:54 UTC) 继续
+- (2026-09-14 14:01 UTC) 这次之后还有什么step后续才能测网络性能
+- (2026-09-14 14:01 UTC) decode 还没有接线，原因是什么，添加接线。
+- (2026-09-14 14:03 UTC) 给我一个表格，还有哪些步骤能到最终的q4模型的性能测试，拿到最终版本的性能优化之后的结果
+- (2026-09-14 14:04 UTC) 上一次的结果上传了。
+- (2026-09-14 22:35 UTC) lfs怎么这么多东西，你上传什么了
+- (2026-09-14 22:37 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/build_kpack_model_ci.py", line 121, in <module> main() File "/sim/eec/shared/junfu.qx/quactlize/tools/build_kpack_model_ci.py", line 96, in main
+- (2026-09-14 22:37 UTC) subprocess.CalledProcessError: Command '['git', '-C', '/workspace/kpack-q4-model.BWFxWN/ci/llama', 'config', '-f', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$']' returned non-zero exit status 1. KPACK_Q4_MODEL FAIL stage=ci-build line=100 rc=1
+- (2026-09-14 22:38 UTC) llama相关的bin不要上传到quactlize。你可以修改llama下面的build脚本来在box上build。
+- (2026-09-14 22:47 UTC) 还要多久上box
+- (2026-09-14 22:49 UTC) run_kpack_q4_model_box知道我本地的llama位置吗？/sim/eec/shared/junfu.qx/llama.cpp
+- (2026-09-14 22:52 UTC) 给我一个本地overwrite的方法，LLAMA_CI_DIR之类的，
+- (2026-09-15 00:30 UTC) [ 98%] Built target ncp_fa gmake: *** [Makefile:101: all] Error 2 Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/build_kpack_model_ci.py", line 125, in <module> main() File "/sim/eec/shared/junfu.qx/quactlize/tools/build_kpack_model_ci.py", line 114, in main subprocess.run(['bash', str(llama / '.aoneci/scripts/build.sh')], cwd=llama, env=env, check=True) File "/usr/local/lib/python3.12/subprocess.py", line 571, in run raise CalledProcessError(retcode, process.args, subprocess.CalledProcessError: Command '['bash', '/workspace/kpack-q4-model.N5J9uY/ci/llama/.aoneci/scripts/build.sh']' returned non-zero exit st atus 2. KPACK_Q4_MODEL FAIL stage=ci-build line=101 rc=1
+- (2026-09-15 00:43 UTC) 8870:/usr/bin/ld: ../libncp_moe.so: undefined reference to `hggcGetDeviceProperties_v2' 8871:collect2: error: ld returned 1 exit status
+- (2026-09-15 00:55 UTC) /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/lib/libhggc_wrapper.so:000000000001de70 T hggcGetDeviceProperties_v2 0x0000000000000001 (NEEDED) Shared library: [libhggc.so] 0x0000000000000001 (NEEDED) Shared library: [libhggcrt.13.0.so] 0x0000000000000001 (NEEDED) Shared library: [libhgrtc.so.1.0] 0x0000000000000001 (NEEDED) Shared library: [libcudart.so.13] 0x0000000000000001 (NEEDED) Shared library: [libstdc++.so.6] 0x0000000000000001 (NEEDED) Shared library: [libgcc_s.so.1] 0x0000000000000001 (NEEDED) Shared library: [libc.so.6] 0x0000000000000001 (NEEDED) Shared library: [ld-linux-x86-64.so.2] /workspace/kpack-q4-model.N5J9uY/ci/ncp_flash_lib/build/CMakeFiles/ncp_moe.dir/link.txt:1:/usr/bin/c++ -fPIC -O3 -DNDEBUG -Wl,--gc-sections -Wl,--dependency-file=CMakeFiles/ncp_moe.dir/link.d -sha red -Wl,-soname,libncp_moe.so -o libncp_moe.so CMakeFiles/ncp_moe.dir/moe/deepgemm_c.cpp.o -lhggc -lhggcrt1 -lhgrtc /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcu dart.so -ldl -ldl /usr/lib/x86_64-linux-gnu/librt.a /workspace/kpack-q4-model.N5J9uY/ci/ncp_flash_lib/build/CMakeFiles/warm_cache.dir/link.txt:1:/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/warm_cache.dir/link.d CMakeFiles/warm_cache. dir/moe/warm_cache.cpp.o -o warm_cache -L/lib/intel64 -L/lib/intel64_win -L/lib/win-x64 -Wl,-rpath,/lib/intel64:/lib/intel64_win:/lib/win-x64:/workspace/kpack-q4-model.N5J9uY/ci/ncp_flash_lib /build:/usr/local/lib/python3.12/site-packages/torch/lib libncp_moe. …
+- (2026-09-15 00:57 UTC) find /workspace/ppu-sdk-2.1.1-a5c56e/ -name libhggc_wrapper.so /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/targets/x86_64-linux/lib/libhggc_wrapper.so
+- (2026-09-15 00:57 UTC) find /workspace/ppu-sdk-2.1.1-a5c56e/ -name libhggc_wrapper.so /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/targets/x86_64-linux/lib/libhggc_wrapper.so
+- (2026-09-15 01:12 UTC) KPACK_NATIVE_PACKAGE VERIFIED modules=7 execution_sha256=4ad8efa3f62b41dd22056f0154ee8a3c37bf794a4d0fa296c942de0b92b8f1a4 device_admission=PENDING KPACK_Q4_MODEL FAIL stage=fetch line=103 rc=1
+- (2026-09-15 01:15 UTC) 直接用本地的LLAMA_CI_DIR不行吗？
+- (2026-09-15 01:21 UTC) /sim/eec/shared/junfu.qx/llama.cpp/tests/test-quactlize-scheduler.cpp:95:47: error: 'ggml_backend_cuda_split_buffer_type' was not declared in this scope; did you mean 'ggml_backend_cuda_host_buffer_type'? 95 | CHECK(ggml_backend_supports_buft(gpu, ggml_backend_cuda_split_buffer_type(0, nullptr))); | ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- (2026-09-15 01:21 UTC) 15 | if (!(expr)) { fprintf(stderr, "scheduler check failed: %s\n", #expr); exit(1); } \ | ^~~~
+- (2026-09-15 01:24 UTC) /workspace/kpack-q4-model.hnN1Jf.results.tgz
+- (2026-09-15 01:27 UTC) 多久上box
+- (2026-09-15 01:28 UTC) /sim/eec/shared/junfu.qx/llama.cpp/tests/test-quactlize-scheduler.cpp:15:11: note: in definition of macro 'CHECK'
+- (2026-09-15 01:32 UTC) KPACK_MODEL_NUMERICAL 再跑什么，为什么跑这个跑了很久
+- (2026-09-15 01:33 UTC) KPACK_MODEL_WAIT log=/workspace/kpack-q4-model.c6etoF/results/numerical/qwen35-35b-q4km/b1-kpack-reference.log elapsed_minutes=0.5 KPACK_MODEL_VALIDATION FAIL model=qwen35-35b-q4km error=model numerical run has missing selected operations or a legacy fallback remaining_continue=1 KPACK_MODEL_NUMERICAL model=qwen3-32b-q4km batch=1 phase=reference-save
+- (2026-09-15 01:35 UTC) 1038:0.52.365.960 I [quactlize] output.weight: native policy miss, retain legacy K-pack FQ (no same-family policy choice) 0.51.375.668 I [quactlize-plan] tensor=blk.25.ffn_gate_up_exps.weight op=grouped route=gemv-q4-s1 q=12 rows=8 n=1024 k=2048 reader=2 variant=7 warps=8 values=8 columns=4 split=1 selection=MEASURED_DECODE
+- (2026-09-15 01:37 UTC) KPACK_MODEL_WAIT log=/workspace/kpack-q4-model.c6etoF/results/numerical/qwen3-32b-q4km/b1-kpack-reference.log elapsed_minutes=2.5 KPACK_MODEL_VALIDATION FAIL model=qwen3-32b-q4km error=missing or nonfinite numerical metrics remaining_continue=1
+- (2026-09-15 01:40 UTC) 可能是前一个错误诱发的吗？tail -n 30 "$D/b1-kpack-reference.log" /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:170:0.05.358.763 I kl_divergence: computing over 2 chunks, n_ctx=256, batch_size=1, n_seq=1 /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:173:0.13.730.326 I kl_divergence: 8.37 seconds per pass - ETA 0.27 minutes /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:180:Mean PPL(Q) : 2.810929 ± 0.383918 /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:181:Mean PPL(base) : 2.810930 ± 0.383918 /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:184:Mean PPL(Q)/PPL(base) : 1.000000 ± 0.000007 /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:185:Mean PPL(Q)-PPL(base) : -0.000001 ± 0.000020 /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:188:Mean KLD: -0.000001 ± 0.000001 /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:189:Maximum KLD: 0.000037 /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-reference-self.log:217:Same top p: 100.000 ± 0.000 % /workspace/kpack-q4-model.C6etoF/results/numerical/qwen3-32b-q4km/b1-kpack-reference.log:178:0.05.628.598 I kl_divergence: computing over 2 chunks, n_ctx=256, batch_size=1, n_seq=1 /workspace/kpack-q4-model.C6etoF/resu …
+- (2026-09-15 01:44 UTC) root@aiswu95:/sim/eec/shared/junfu.qx/llama.cpp# sed -n '860,874p' /workspace/kpack-q4-model.c6etoF/results/numerical/qwen3-32b-q4km/b1-kpack-reference.log 2.50.431.720 I [quactlize-plan] tensor=blk.63.ffn_gate.weight op=dense route=fq q=12 rows=1 n=25600 k=5120 parent=fqk_tc_q12_l1_a0_tm8_tn64_tk256_wm8_wn16_s3_bc0_ap1_dn64 build=07da210aa7c3ee59890a80fb3b08158e094437127fd4766709c53ded26c15d72 algorithm=0 split=1 grid=0 policy=7 prefill_choice=-1 activation=FP16 scale_resident=0 2.50.431.725 I [quactlize-adapter] tensor=blk.63.ffn_gate.weight dense_io=FP32 standalone_adapters=0 2.50.431.738 I [quactlize-plan] tensor=blk.63.ffn_up.weight op=dense route=fq q=12 rows=1 n=25600 k=5120 parent=fqk_tc_q12_l1_a0_tm8_tn64_tk256_wm8_wn16_s3_bc0_ap1_dn64 build=07da210aa7c3ee59890a80fb3b08158e094437127fd4766709c53ded26c15d72algorithm=0 split=1 grid=0 policy=7 prefill_choice=-1 activation=FP16 scale_resident=0 2.50.431.739 I [quactlize-adapter] tensor=blk.63.ffn_up.weight dense_io=FP32 standalone_adapters=0 2.50.431.756 I [quactlize-plan] tensor=blk.63.ffn_down.weight op=dense route=fq q=14 rows=1 n=5120 k=25600 parent=fqk_tc_q14_l2_a0_tm8_tn128_tk128_wm8_wn32_s2_bc0_ap0_dn32 build=c24f812a60c754cf15c24f812a60c754cf152bbc54a63435ab899c235601fce03e08ee7945c8b279d0 algorithm=0 split=8 grid=0 policy=1 prefill_choice=-1 activation=FP16 scale_resident=0 2.50.431.756 I [quactlize-adapter] tensor=blk.63.ffn_down.weight dense_io=FP32 standalone_adapters=0 2.53.203.632 I kl_divergence: 167.57 sec …
+- (2026-09-15 01:45 UTC) 如果kernel本身精度没有问题，可能是量化算子周边的算子的问题？我们不光是添加了量化的gemm，moe-gemm，还有周边的脚手架。
+- (2026-09-15 01:50 UTC) 上box的command给我，或者你直接5070上调试？
+- (2026-09-15 02:06 UTC) 还有多久上box
+- (2026-09-15 02:11 UTC) KPACK_FIRST_NONFINITE_START arm=native-logits token_source=ORIGINAL_CORPUS token_batch=1 callback=0 KPACK_FIRST_NONFINITE_RESULT {"arm": "native-logits", "mode": "logits", "log": "/workspace/kpack-first-nonfinite.Y5nzce/diagnostic/results/native-logits.log", "process_rc": 0, "verdict": "INFRASTRUCTURE_OR_COVERAGE_FAIL", "error": "diagnostic did not inspect both complete chunks"}
+- (2026-09-15 02:20 UTC) KPACK_FIRST_NONFINITE_BUILD caller=INCREMENTAL_AONECI runtime=UNCHANGED jobs=192 KPACK_FIRST_NONFINITE_START arm=native-logits token_source=ORIGINAL_CORPUS token_batch=1 callback=0 KPACK_FIRST_NONFINITE_RESULT {"arm": "native-logits", "mode": "logits", "log": "/workspace/kpack-first-nonfinite.sdbWx4/diagnostic/results/native-logits.log", "process_rc": 86, "verdict": "NONFINITE_FOUND", "stop": "mode=logits chunk=1 batch=129 position=128 nodes=0 logits=1 reason=NONFINITE_LOGITS", "tensors": ["count=151936 nan=151936 pos_inf=0 neg_inf=0 first=0 bits=0x7fffffff"]} KPACK_FIRST_NONFINITE_DONE results=/workspace/kpack-first-nonfinite.sdbWx4/diagnostic/results timing_valid=0 results=/workspace/kpack-first-nonfinite.sdbWx4.results.tgz runner_rc=0 stage=complete Current Docker shell is preserved.
+- (2026-09-15 02:24 UTC) ls /workspace/kpack-first-nonfinite.Y5nzce/diagnostic/results/native-logits native-logits-tensors/ native-logits.command.json native-logits.json native-logits.log native-logits.process.json
+- (2026-09-15 02:24 UTC) total 468K -rw-r--r-- 1 root root 699 Sep 15 10:10 build.command.json -rw-r--r-- 1 root root 33K Sep 15 10:11 build.log -rw-r--r-- 1 root root 72 Sep 15 10:11 build.process.json -rw-r--r-- 1 root root 155K Sep 15 10:11 caller-ci-build.json -rw-r--r-- 1 root root 1.2K Sep 15 10:13 console.log -rw-r--r-- 1 root root 1021 Sep 15 10:11 environment.json --rw-r--r-- 1 root root 420 Sep 15 10:10 inputs.json drwxr-xr-x 2 root root 4.0K Sep 15 10:11 native-logits-tensors -rw-r--r-- 1 root root 14K Sep 15 10:11 native-logits.command.json -rw-r--r-- 1 root root 267 Sep 15 10:11 native-logits.json -rw-r--r-- 1 root root 154K Sep 15 10:11 native-logits.log -rw-r--r-- 1 root root 72 Sep 15 10:11 native-logits.process.json -rw-r--r-- 1 root root 14K Sep 15 10:10 original-command.json drwxr-xr-x 2 root root 4.0K Sep 15 10:11 reference-tensors-tensors -rw-r--r-- 1 root root 13K Sep 15 10:11 reference-tensors.command.json -rw-r--r-- 1 root root 23K Sep 15 10:13 reference-tensors.log -rw-r--r-- 1 root root 27 Sep 15 10:13 runner-status.txt -rw-r--r-- 1 root root 98 Sep 15 10:11 self-test.log -rw-r--r-- 1 root root 147 Sep 15 10:10 verify.log r
+- (2026-09-15 02:28 UTC) KPACK_FIRST_NONFINITE_BUILD caller=INCREMENTAL_AONECI runtime=UNCHANGED jobs=192 KPACK_FIRST_NONFINITE_START arm=native-logits token_source=ORIGINAL_CORPUS token_batch=1 callback=0 KPACK_FIRST_NONFINITE_RESULT {"arm": "native-logits", "mode": "logits", "log": "/workspace/kpack-first-nonfinite.Y5nzce/diagnostic/results/native-logits.log", "process_rc": 0, "verdict": "INFRASTRUCTURE_OR_COVERAGE_FAIL", "error": "diagnostic did not inspect both complete chunks"} KPACK_FIRST_NONFINITE_START arm=reference-tensors token_source=ORIGINAL_CORPUS token_batch=1 callback=1 KPACK_FIRST_NONFINITE_WAIT arm=reference-tensors minutes=0.5 log=/workspace/kpack-first-nonfinite.Y5nzce/diagnostic/results/reference-tensors.log KPACK_FIRST_NONFINITE_WAIT arm=reference-tensors minutes=1.0 log=/workspace/kpack-first-nonfinite.Y5nzce/diagnostic/results/reference-tensors.log KPACK_FIRST_NONFINITE_WAIT arm=reference-tensors minutes=1.5 log=/workspace/kpack-first-nonfinite.Y5nzce/diagnostic/results/reference-tensors.log KPACK_FIRST_NONFINITE_WAIT arm=reference-tensors minutes=2.0 log=/workspace/kpack-first-nonfinite.Y5nzce/diagnostic/results/reference-tensors.log LLAMA_NUMERICAL_PROGRESS chunk=1 batch=106 nodes=237568 tensor="cache_k_l49 (view) (permuted)" LLAMA_NUMERICAL_PROGRESS chunk=1 batch=108 nodes=241664 tensor="Kcur-38" LLAMA_NUMERICAL_PROGRESS chunk=1 batch=110 nodes=245760 tensor="l_out-26" LLAMA_NUMERICAL_PROGRESS chunk=1 batch=112 nodes=249856 tensor="cache_v_l15 (view) (permuted)" LLAMA_NUMERI …
+- (2026-09-15 02:31 UTC) ( set -e cd /sim/eec/shared/junfu.qx/quactlize PREVIOUS_RUN=/workspace/kpack-q4-model.c6etoF \ LLAMA_CI_DIR=/sim/eec/shared/junfu.qx/llama.cpp \ DIAGNOSTIC_ARMS=native-tensors \ CUDA_VISIBLE_DEVICES=0 JOBS=192 \ bash tools/run_kpack_first_nonfinite_box.sh ) KPACK_FIRST_NONFINITE_RESULT {"arm": "native-tensors", "mode": "tensors", "log": "/workspace/kpack-first-nonfinite.Um0LH5/diagnostic/results/native-tensors.log", "process_rc": 86, "verdict": "NONFINITE_FOUND", "stop": "mode=tensors chunk=1 batch=1 position=0 nodes=105 logits=0 reason=NONFINITE_TENSOR", "tensors": ["role=first_bad tensor=\"ffn_out-2\" op=MUL_MAT type=f32 ne=5120,1,1,1 nb=4,20480,20480,20480 count=5120 nan=37 pos_inf=2500 neg_inf=2583 first=0 bits=0xff800000 max_abs=0", "index=0 tensor=\"blk.2.ffn_down.weight\" type=q6_K snapshot=AFTER_NODE", "index=1 tensor=\"ffn_swiglu-2\" type=f32 snapshot=AFTER_NODE", "role=source tensor=\"ffn_swiglu-2\" op=GLU type=f32 ne=25600,1,1,1 nb=4,102400,102400,102400 count=25600 nan=0 pos_inf=0 neg_inf=0 first=-1 bits=0x00000000 max_abs=243383.484"]}
+- (2026-09-15 02:41 UTC) 上传了，首先原来的结果没有这个问题，可见是你的fp32转fp16的问题引入的？之前也测试过
+- (2026-09-15 02:42 UTC) fp32转fp16肯定不能转出inf
+- (2026-09-15 02:45 UTC) 之前用gather scatter的时候是不是没有这个问题？
+- (2026-09-15 02:51 UTC) 先抓个asys看看性能
+- (2026-09-15 02:53 UTC) 跑Qwen3.5-35B-A3B
+- (2026-09-15 02:56 UTC) 感觉上比较像我们自己的kernel产生了大数，因为本身这些operation最终都会转bf16，再转fp32。而且一个fp16的模型肯定不会出现这种问题。那么问题到底在哪里？是不是我们没有用bf16导致的？
+- (2026-09-15 03:08 UTC) 这里选择的时候是按照最优的MBU选择的吗？kernel时间感觉没有变短啊
+- (2026-09-15 03:09 UTC) 我主要说的是decoding
+- (2026-09-15 03:18 UTC) Total Total Time Instances Avg Med Min Max StdDev PPU Active Time Active Percent OP Name (616.035 μs) (8.1 %) 2.513 ms 33.1 % 250 10.050 μs 7.600 μs 4.720 μs 21.439 μs 5.001 μs 2.513 ms 100.0 % void cutlass::device_kernel<cutlass::gemm::kernel::GemmUniversalMixedInput... 616.035 μs 8.1 % 40 15.400 μs 15.940 μs 13.079 μs 16.480 μs 991 ns 616.035 μs 100.0 % void cutlass::device_kernel<cutlass::gemm::kernel::GroupDirectoryMixedInput... 516.794 μs 6.8 % 40 12.919 μs 13.039 μs 12.000 μs 13.720 μs 491 ns 516.794 μs 100.0 % void quactlize::execution::q4_decode::kernel<1, 2, 7, 8, 8, 4, 1024, 2048>(qkg_ca... 394.197 μs 5.2 % 1 394.197 μs 394.197 μs 394.197 μs 394.197 μs 0 ns 394.197 μs 100.0 % void cutlass::device_kernel<cutlass::gemm::kernel::GemmUniversal<cute::pack... 392.676 μs 5.2 % 40 9.816 μs 9.920 μs 7.200 μs 10.440 μs 589 ns 392.676 μs 100.0 % void quactlize::runtime::moe_chain_prepare_m1<cute::packed_tuple<int, int, i... 285.516 μs 3.8 % 80 3.568 μs 3.700 μs 2.600 μs 4.520 μs 630 ns 285.516 μs 100.0 % void mul_mat_vec_f<float, float, 1, 256, false, false>(float const*, float const*, i... 232.959 μs 3.1 % 81 2.876 μs 2.840 μs 2.560 μs 3.880 μs 188 ns 232.959 μs 100.0 % void rms_norm_f32<1024, true, false>(float const*, float*, int, long, long, long, ... 181.318 μs 2.4 % 80 2.266 μs 2.240 μs 2.000 μs 2.640 μs 144 ns 181.318 μs 100.0 % void k_bin_bcast<(&(op_mul(float, float))), float, float, float, float const*>(float ...
+- (2026-09-15 03:22 UTC) 要分析一下问题到底在哪里，kernel的时间逻辑上应该比原来少了非常多，但是现在居然差不多。结果我已经上传了
+- (2026-09-15 03:33 UTC) 从trace中分析每一段的gemm和moe-gemm的MBU，看看低效率在哪里出现了。
+- (2026-09-15 03:34 UTC) 另外，脚手架的算子的效率也要拷打
+- (2026-09-15 03:37 UTC) 上传
+- (2026-09-15 03:47 UTC) moe的prepare时间比我想的长
+- (2026-09-15 03:47 UTC) moe的还有哪些可以融合的，继续融合。
+- (2026-09-15 03:48 UTC) 而且除了Q8之外，其他的有没有类似的问题。要想想。
+- (2026-09-15 04:07 UTC) 多久再上box
+- (2026-09-15 04:27 UTC) 上传了
+- (2026-09-15 04:32 UTC) 不对啊，decoding的simt不管怎么利用率不会那么低。。。m1基本上应该选simt啊。是你没有选择到还是利用率没有优化
+- (2026-09-15 04:40 UTC) 所有的simt都要补齐其他格式
+- (2026-09-15 04:41 UTC) 我们sweep的时候要添加这些选项
+- (2026-09-15 04:50 UTC) 先在5070上验证perf，然后参考Q4的simtgemv的性能调试方法和经验，写出PPU上的高性能版本的simt ge m 先在上验证perf然后要参考Q的simtgemv的性能调试方法和经验写出PPU上的高性能版本的simt ge m gembv
+- (2026-09-15 04:52 UTC) 而且gather 和scatter我看还是在啊
+- (2026-09-15 04:53 UTC) 看错了
+- (2026-09-15 04:54 UTC) 没有gather和scatter
+- (2026-09-15 04:57 UTC) GroupDirectoryMixedInputGreoup这个是哪里用到的？moe-gemm吗？moe-gemm没有都用q4？
+- (2026-09-15 05:07 UTC) WSL中的几个模型删掉
+- (2026-09-15 05:15 UTC) 删除这三个，其他不动
+- (2026-09-15 05:28 UTC) 数值问题肯定要解决的，不能单纯绕过去
+- (2026-09-15 05:54 UTC) 所以怎么解决，对比的llama cpp中都是用bf16计算吗？为什么llama cpp没有这个问题
+- (2026-09-15 06:02 UTC) Q6K应该有输入非量化版本的。
+- (2026-09-15 06:08 UTC) cudacore有bf16的hfma吗
+- (2026-09-15 06:10 UTC) 我们看一下matmul quantized在llama cpp中是bf16计算，还是fp16。
+- (2026-09-15 06:13 UTC) 我意思是如果prefill可以用fp16的cublas，那不应该有这个问题才对。
+- (2026-09-15 06:17 UTC) Swiglu输出怎么会出现243383呢？输入是fp16，输出不会超过这个限制吧。是两边乘起来之后超过了？如果是这样，就截断
+- (2026-09-15 06:20 UTC) 当前的llamacpp中的swiglu为什么不回出现这个问题
+- (2026-09-15 06:22 UTC) 我的意思是swiglu的输入输出应该都是fp16才对吧？原生的代码中有单独的swiglu代码
+- (2026-09-15 06:24 UTC) 我们的流程应该是gate+up-》fp16-》swiglu-》fp16-》down。应该是这样吧？
+- (2026-09-15 06:26 UTC) gate+up-》fp16-》swiglu-》fp16-》down
+- (2026-09-15 06:26 UTC) fp32-》gate+up-》fp16-》swiglu-》fp16-》down-》fp32 这个中间llama cpp会插入格式转换吗？我以为我们是这种
+- (2026-09-15 06:29 UTC) 我们可以接管中间整个链路吗？
+- (2026-09-15 06:31 UTC) 麻烦吗？对于llama cpp的代码侵入多吗
+- (2026-09-15 06:32 UTC) 溢出的问题由swiglu内部clip到fp16的range实现。
+- (2026-09-15 06:36 UTC) 感觉上这里已经不对了，不应该需要clip，我们抓一下同样位置的refenrence的结果是不是包含这么大的正数
+- (2026-09-15 06:44 UTC) 我在box上测似的同时，你在本地继续实现Q2-Q8的simt的gemv和moe-gemv。token从1到8。
+- (2026-09-15 06:44 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_first_nonfinite.py", line 238, in <module> raise SystemExit(main()) ^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_first_nonfinite.py", line 166, in main subprocess.run([sys.executable, str(ROOT / 'tools/verify_kpack_dispatch.py'), str(bundle), File "/usr/local/lib/python3.12/subprocess.py", line 571, in run raise CalledProcessError(retcode, process.args, subprocess.CalledProcessError: Command '['/usr/local/bin/python3', '/sim/eec/shared/junfu.qx/quactlize/tools/verify_kpack_dispatch.py', '/workspace/quactlize-model-artifact-58ab5fbcbf/prebuilt/ppu0010/kpack-model-runtime-v1', '--sdk', '/workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK']' returned non-zero exit status 1. KPACK_FIRST_NONFINITE FAIL stage=diagnose line=54 rc=1
+- (2026-09-15 06:46 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/verify_kpack_dispatch.py", line 163, in <module> manifest = verify(a.bundle, sdk=a.sdk) ^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/verify_kpack_dispatch.py", line 129, in verify raise ValueError("JIT checkout differs from dispatcher (" + ",".join(changed) ValueError: JIT checkout differs from dispatcher (kernel); rebuild the small dispatcher
+- (2026-09-15 06:46 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/verify_kpack_dispatch.py", line 163, in <module> manifest = verify(a.bundle, sdk=a.sdk) ^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/verify_kpack_dispatch.py", line 129, in verify raise ValueError("JIT checkout differs from dispatcher (" + ",".join(changed) ValueError: JIT checkout differs from dispatcher (kernel); rebuild the small dispatcher
+- (2026-09-15 07:22 UTC) 现在做的是什么？这几个格式的simt和目前的Q4已有的simt的关系是什么？
+- (2026-09-15 07:30 UTC) 结果上传了。
+- (2026-09-15 07:30 UTC) 其他的格式上还要调优。
+- (2026-09-15 07:32 UTC) 如果是这样，那我们的moe-gemm必须要支持bf16的格式。这个支持的复杂度高吗？需要改多久。
+- (2026-09-15 07:32 UTC) 我理解tc的版本应该都是模板化的，可能比较好改？
+- (2026-09-15 07:32 UTC) 但是dequant部分可以看看能不能复用？
+- (2026-09-15 07:33 UTC) 先给我command，我同步在box上扫描一下这几个新的格式的simt版本的kernel时间。
+- (2026-09-15 07:49 UTC) 还有多久给我command
+- (2026-09-15 07:55 UTC) 继续探索bf16接入moe-gemm需要的effort，注意要包括tc还有simt
+- (2026-09-15 08:01 UTC) llama cpp内部的mm——ids也是bf16的吗？
+- (2026-09-15 08:02 UTC) 浮点 GEMMMUL_MAT_ID
+- (2026-09-15 08:06 UTC) 上一次的结果sweep上传了
+- (2026-09-15 08:12 UTC) 结合本地之前的其他的结果，修正heuristic以及llama cpp的接线。我们先直接看到perf的提升
+- (2026-09-15 08:18 UTC) 还要多久
+- (2026-09-15 08:20 UTC) 如果heuristic逻辑太复杂，可能反而不如直接构建一个表格了
+- (2026-09-15 08:21 UTC) 如果没在表里查到会发生什么？
+- (2026-09-15 08:23 UTC) 但是当前已有的选路的问题是后续比如其他格式也要用simt，这种规则永远不会更新了
+- (2026-09-15 08:23 UTC) 但是当前已有的选路的问题是后续比如其他格式也要用simt，这种规则永远不会更新了
+- (2026-09-15 08:25 UTC) 表内外都需要修改。外面的精确表我们应该有大量的测试结果可以直接用了吧？内部的分桶要对应更新。大概要多久
+- (2026-09-15 08:58 UTC) 预计还有多久
+- (2026-09-15 09:00 UTC) 注意BF16并不是只有decode才需要，moe-gemm都要有这个
+- (2026-09-15 09:01 UTC) 把BF16都补完了之后我再上box。不要分批次
+- (2026-09-15 09:01 UTC) fp16的接线结束了我也去box测试性能。这个上了之后性能应该大部分解决吧
+- (2026-09-15 09:03 UTC) 等一下，Q8的gate up没有融合吗？默认是融合的吧。
+- (2026-09-15 09:06 UTC) 路由专家的融合是什么？我们只需要gate和up的融合吧。我看现在的gate 和up是融合的，因为都是Q4》
+- (2026-09-15 09:07 UTC) 啥意思。。。你说的是FFN中的那个部分？
+- (2026-09-15 09:08 UTC) 理解。另外moe-chain-prepare的时间特别长，每个都有10us左右。
+- (2026-09-15 09:10 UTC) 继续啊，你之前的fp16的接线的优化还没有给我呢
+- (2026-09-15 09:21 UTC) BATCHED_MODEL_START model=qwen35-35b-q4km arm=1-kpack log=/workspace/kpack-q4-model.khiwi7/results/benchmark/results/qwen35-35b-q4km/1-kpack.log BATCHED_MODEL_FAIL model=qwen35-35b-q4km arm=kpack error=process rc=-6, rows=0/3; see /workspace/kpack-q4-model.khiwi7/results/benchmark/results/qwen35-35b-q4km/1-kpack.log remaining_continue=1
+- (2026-09-15 09:23 UTC) [New LWP 401819] Python Exception <class 'ModuleNotFoundError'>: No module named 'math' [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". 0x00007f22f3ce6813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007f22f3ce6813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007f22f327e703 in ggml_print_backtrace () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-base.so.0 #2 0x00007f22f327e8ab in ggml_abort () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-base.so.0 #3 0x00007f22e484ca57 in ggml_quactlize_execution_library() () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-cuda.so.0 #4 0x00007f22e4850c86 in __HGGC_ANON_NAMESPACE_5cfe78a3cdc94424c0e993dc2cac9210::execution(ggml_backend_cuda_context&) () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-cuda.so.0 #5 0x00007f22e4853ce6 in ggml_quactlize_execution_run(ggml_backend_cuda_context&, ggml_tensor const*, ggml_tensor const*, ggml_tensor const*, ggml_tensor*) () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-cuda.so.0 #6 0x00007f22e4838bc8 in ggml_cuda_mul_mat_quactlize(ggml_backend_cuda_context&, ggml_tensor const*, ggml_tensor const*, ggml_tensor*) () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-cuda.so.0 #7 0x00007f22e46ebe19 in ggml_backend_cuda_graph_compute(ggml_backend*, ggml_cgraph*) () from /workspace/kpack-q4-model.hnN1Jf/ci/ll …
+- (2026-09-15 09:29 UTC) 还有多久
+- (2026-09-15 09:46 UTC) ( set -e cd /sim/eec/shared/junfu.qx/quactlize git pull --ff-only origin develop MODEL_PHASES=perf \ MODEL_NAMES=qwen35-35b-q4km \ LLAMA_CI_DIR=/sim/eec/shared/junfu.qx/llama.cpp \ LLAMA_CI_BUILD_DIR=/workspace/kpack-q4-model.hnN1Jf/ci/llama-build \ NCP_LIB_DIR=/sim/eec/shared/junfu.qx/ncp_flash_lib \ NCP_CI_DIR=/workspace/kpack-q4-model.N5J9uY/ci/ncp_flash_lib \ PPU_SDK=/workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK \ CUDA_VISIBLE_DEVICES=0 JOBS=192 \ bash tools/run_kpack_q4_model_box.sh )
+- (2026-09-15 09:47 UTC) /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/../ggml-impl.h:730: GGML_ASSERT(count < 32) failed
+- (2026-09-15 09:47 UTC) [New LWP 311228][New LWP 311167] Python Exception <class 'ModuleNotFoundError'>: No module named 'math' [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". 0x00007f5ae63a8813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007f5ae63a8813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007f5ae5940703 in ggml_print_backtrace () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-base.so.0 #Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". 0x00007f5ae63a8813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007f5ae63a8813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007f5ae5940703 in ggml_print_backtrace () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-base.so.0 #2 0x00007f5ae59408ab in ggml_abort () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-base.so.0 #3 0x00007f5ad6d939d7 in ggml_can_fuse_subgraph.part () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-cuda.so.0 #4 0x00007f5ad6d93b3c in ggml_can_fuse_subgraph () from /workspace/kpack-q4-model.hnN1Jf/ci/llama-build/bin/libggml-cuda.so.0
+- (2026-09-15 09:51 UTC) 合并长子图的好处？
+- (2026-09-15 09:55 UTC) 还要多久
+- (2026-09-15 10:03 UTC) bf16怎么样了
+- (2026-09-15 10:05 UTC) 是subagent还在做这些接入吗？
+- (2026-09-15 10:07 UTC) Q6 TM8，其他的格式呢？我们要的是全支持，对于moe
+- (2026-09-15 10:07 UTC) 如果没有全支持，你要全支持，如果已经支持，你来接入llama cpp
+- (2026-09-15 11:55 UTC) 前一个版本怎么perf还差了呢
+- (2026-09-15 12:01 UTC) asysreport在哪里，另外这里还是不对啊，Q8的利用率应该很高，你看看能够对上吗？
+- (2026-09-15 12:15 UTC) 之前不是已经有simt的sweep了吗？为什么还缺？
+- (2026-09-15 12:17 UTC) 还需重新测试吗？还是现在已经够了
+- (2026-09-15 12:19 UTC) 之前的精确选择和fallback的修改好了吗？
+- (2026-09-15 12:20 UTC) 当前的shape居然不在精确匹配的表里面？就这几个模型啊
+- (2026-09-15 12:22 UTC) Q8可以本地解决？外推的这个shape也可以。还有别的类似的没有完成对比的吗？
+- (2026-09-15 12:26 UTC) 所有需要补齐的给我脚本上box测试。要确认后续不需要补测并且选择到了好的kernel
+- (2026-09-15 12:30 UTC) 还有其他的你觉得有问题的测试或者近似在这个sweep的结果中也要指出来
+- (2026-09-15 12:42 UTC) 如果重新sweep，应该也不用所有的config吧，按照之前的结果可以抽取一些
+- (2026-09-15 12:53 UTC) 还有多久上box
+- (2026-09-15 13:03 UTC) 甚至从扫描的结果应该大体就能判断最终的TPOT。。。
+- (2026-09-15 13:40 UTC) 上传了
+- (2026-09-15 13:53 UTC) F16的快速路径为什么不能复用到BF16，应该是类似的吧，直接改成模板就可以了？
+- (2026-09-15 13:56 UTC) 所以整体可以减少多少ms？对于TPOT
+- (2026-09-15 13:59 UTC) 补齐BF16快速路径
+- (2026-09-15 13:59 UTC) moe prepare先在5070上极致优化
+- (2026-09-15 14:09 UTC) Q8的simt的gemv也明显有更多的优化空间。现在的利用率还是低。
+- (2026-09-15 14:09 UTC) 我要睡觉了，你后续的todo有哪些需要上box，哪些本地可以做？
+- (2026-09-15 14:10 UTC) 你可以算一下目前的MBU，应该都很低
+- (2026-09-15 14:14 UTC) Q8 simt的优化是不是需要box配合抓acu
+- (2026-09-15 14:16 UTC) 你先参考Q4的case优化吧。
+- (2026-09-15 14:18 UTC) Q8用kpack了吗？
+- (2026-09-15 22:56 UTC) 给我command上box
+- (2026-09-15 23:01 UTC) BF16_GATE_PART part=moe-q12 status=FAIL passed=13/26 remaining_parts_continue=1
+- (2026-09-15 23:04 UTC) 结果上传
+- (2026-09-15 23:34 UTC) Q8_VECTOR_PROGRESS completed=50/50 failures=0 elapsed_s=281.2 Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/dev/moe_prepare/run.py", line 70, in <module> if __name__=='__main__':raise SystemExit(main()) ^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/moe_prepare/run.py", line 38, in main if receipt['identity']!=identity or receipt['status']!='PASS':raise ValueError('candidate numerical gate did not pass') ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ValueError: candidate numerical gate did not pass
+- (2026-09-15 23:39 UTC) 上传了
+- (2026-09-16 00:53 UTC) side topic, actlize中有没有int8的支持，对于ppu1。0
+- (2026-09-16 00:55 UTC) 之前的结果上传了
+- (2026-09-16 01:05 UTC) 下一步吧
+- (2026-09-16 01:05 UTC) 现在按照最优水平能减少多少的tpot
+- (2026-09-16 01:11 UTC) 现在的decoding应该是全simt了吧
+- (2026-09-16 01:16 UTC) 接线还要多久给我command上box测试，我需要你asys测试完整体的时间之后再用acu抓一下moe prepare以及几个simt的gemv，moe-gemv为后续的进一步优化做准备。
+- (2026-09-16 01:39 UTC) 还有多久
+- (2026-09-16 02:06 UTC) 为什么prefill和decode都变慢了。。。
+- (2026-09-16 02:07 UTC) 关键这是不可能的对吗？因为替换的kernel时间已经evaluate过了啊。。。
+- (2026-09-16 02:10 UTC) 应该只有moe部分才切换到bf16啊
+- (2026-09-16 02:13 UTC) 上传了。先分析差在哪里吧
+- (2026-09-16 02:16 UTC) 把非moe-gemm切换到fp16的给我一个command
+- (2026-09-16 02:17 UTC) 但是按照道理bf16和fp16如果选择同一个config，应该性能差不多的，你这里差这么多很奇怪。
+- (2026-09-16 02:22 UTC) 为什么换config了呢？是实测的吗？从逻辑上看看bf16和fp16的区别，如果用的指令一致，可以考虑直接复用fp16的config的选择
+- (2026-09-16 02:28 UTC) 不对不对，bf16不能先接包成fp16，然后转bf16。应该直接转bf16，看看有没有fast dequant到bf16的方法。
+- (2026-09-16 02:28 UTC) 逻辑上就应该是类似的指令，指令的数量应该一模一样，
+- (2026-09-16 02:29 UTC) 除非实现上就是不可行
+- (2026-09-16 02:32 UTC) deepgemm里面有没有fast dequant可以参考，本地有代码
+- (2026-09-16 02:32 UTC) marlin-moe应该也可以参考
+- (2026-09-16 02:34 UTC) 先把bf16的实现修正好，然后给我moe-gemm才打开bf16的新的command，我上box。一起测试
+- (2026-09-16 02:35 UTC) prefill时间变长主要是为什么？Q4按照道理时间应该差不多》
+- (2026-09-16 02:35 UTC) ？
+- (2026-09-16 02:37 UTC) decoding变慢呢？主要也是bf16导致的吗？还有就是所有的gemm都变成了bf16？
+- (2026-09-16 02:38 UTC) scale和zero的解包也要修正。。。
+- (2026-09-16 02:39 UTC) 如果是fullyquantize的case。而且Q4的prefill居然是选的FQ吗？为什么不是SF
+- (2026-09-16 02:39 UTC) bf16的sf的dequant实现了吗
+- (2026-09-16 02:39 UTC) 包括bf16的fullydequant的dequantize 操作
+- (2026-09-16 02:49 UTC) 大概多久上box。
+- (2026-09-16 02:55 UTC) 主要时间是花在哪里？是编译吗？还是代码编写，为什么要三个小时呢
+- (2026-09-16 03:09 UTC) 还有多久
+- (2026-09-16 03:11 UTC) 预计性能可以对齐fp16吗？
+- (2026-09-16 03:39 UTC) 还有多久
+- (2026-09-16 04:23 UTC) KPACK_MODEL_VALIDATION FAIL model=qwen35-35b-q4km error=explicit BF16 request fell back to FP16 compute remaining_continue=1
+- (2026-09-16 04:46 UTC) 然后呢？ACU reports and raw counters: /workspace/kpack-q4-model.WN279Q/results/acu/
+- (2026-09-16 05:13 UTC) RuntimeError: COMFY_KITCHEN_PPU_LIBRARY not found: /workspace/comfy-kitchen-ppu-b3230bc0-20260916T043019Z-2298593/_native.so
+- (2026-09-16 05:27 UTC) 出错了，上传到root了
+- (2026-09-16 05:35 UTC) 来啊，给我下一步的command
+- (2026-09-16 05:43 UTC) 还有多久给我command上box
+- (2026-09-16 06:01 UTC) 结果上传了
+- (2026-09-16 06:09 UTC) 为什么decoding还是没有加速，不理解啊，算一下gemm的MBU
+- (2026-09-16 06:11 UTC) KPACK_MODEL_VALIDATION FAIL model=qwen35-35b-q4km error=explicit BF16 request fell back to FP16 compute remaining_continue=1 这个没有问题吗
+- (2026-09-16 06:12 UTC) /workspace/kpack-q4-model.WN279Q.results.tgz 应该是这个吧
+- (2026-09-16 06:13 UTC) 没看到asys report，另外应该是那个结果？
+- (2026-09-16 06:20 UTC) 上传了
+- (2026-09-16 06:26 UTC) 我们就看mbu，太低了肯定有问题
+- (2026-09-16 06:29 UTC) 事实上都很低
+- (2026-09-16 06:29 UTC) 抓acu看看，然后一起优化。
+- (2026-09-16 06:34 UTC) 印象里面是不是解决过类似的问题
+- (2026-09-16 06:34 UTC) 对于Q4的simt
+- (2026-09-16 06:37 UTC) 目标小shape 40%，大shape 60%的MBU
+- (2026-09-16 06:41 UTC) jixu
+- (2026-09-16 06:54 UTC) 还要多久
+- (2026-09-16 07:20 UTC) 结果上传了
+- (2026-09-16 07:27 UTC) 下一轮继续
+- (2026-09-16 07:40 UTC) 还要多久
+- (2026-09-16 07:55 UTC) 我为什么还能看到topkmoecuda和moe-chain-prepare并存？
+- (2026-09-16 08:00 UTC) 独立 topk_moe_cuda：625 次 这个地方肯定要优化吧
+- (2026-09-16 08:01 UTC) moe-chain-swiglu也很慢。。。
+- (2026-09-16 08:18 UTC) Q8_TOPOLOGY FAIL stage=host-tests line=52 rc=1
+- (2026-09-16 08:20 UTC) ImportError: Failed to import test module: test_q8_topology Traceback (most recent call last): File "/usr/local/lib/python3.12/unittest/loader.py", line 137, in loadTestsFromName module = __import__(module_name) ^^^^^^^^^^^^^^^^^^^^^^^ ModuleNotFoundError: No module named 'tests.test_q8_topology'
+- (2026-09-16 08:23 UTC) Q8_TOPOLOGY_POINT point=0 status=FAIL remaining_continue=1 Q8_TOPOLOGY_POINT point=1 status=FAIL remaining_continue=1 Q8_TOPOLOGY_POINT point=2 status=FAIL remaining_continue=1
+- (2026-09-16 08:25 UTC) grep -nE '"(point|rc|status|error)"' \ /workspace/q8-topology.*/results/sweep/summary.json Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_simt/run_q8_topology.py", line 369, in <module> raise SystemExit(child(args) if args.point is not None else collect(args)) ^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/gemv_simt/run_q8_topology.py", line 174, in child if l2['l2_bytes']<=0:raise ValueError('verified positive L2 capacity required') ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ValueError: verified positive L2 capacity required
+- (2026-09-16 08:36 UTC) 上传了
+- (2026-09-16 08:52 UTC) topk moe 和moe prepare的重复问题还没解决
+- (2026-09-16 09:17 UTC) 还要多久
+- (2026-09-16 09:21 UTC) 注意之前的接线也要换掉。我们有优化之后的kernel
+- (2026-09-16 09:35 UTC) 预计这几个改动加起来优化到多少？
+- (2026-09-16 09:39 UTC) moe swiglu部分的优化呢？有思路了吗？先不考虑融合
+- (2026-09-16 09:43 UTC) 还要多久给我上box
+- (2026-09-16 11:20 UTC) 上传了
+- (2026-09-16 11:20 UTC) 出错了
+- (2026-09-16 15:55 UTC) 如果我希望一个agent在ppu上迭代优化gemv，给我一个prompt
+- (2026-09-16 15:59 UTC) 如何编译Quactlize和llamacpp如何测试
+- (2026-09-16 16:07 UTC) 发布一个overnight的任务，让ppu上的agent持续迭代，遵循https://github.com/NVlabs/kda 的harness，不断分析迭代达到我们的预期目标。给我这个任务的promtp
+- (2026-09-16 16:09 UTC) 你的skill都放到Quactlize的代码仓的某个位置，交付给box上的agent
+- (2026-09-17 00:47 UTC) 我们基于kda来写一个ppu版本的kda，然后告诉我如何使用。https://github.com/DrXuQian/kda 上传到这里。基于本地的skill和memory来写。
+- (2026-09-17 01:36 UTC) 这个包括gemm的优化吗？cute等等
+- (2026-09-17 01:38 UTC) 我的意思是skill上传了吗？之前的cute的skill
+- (2026-09-17 03:24 UTC) 最近的几个文档在 root下面就是我在box上的测试和patch，你读一下
+- (2026-09-17 03:30 UTC) 把Q8 hoist的应用，然后我们上box测试，单个kernel再810上的利用率以及整体的decoding latency，抓asy
+- (2026-09-17 03:40 UTC) 还要多久
+- (2026-09-17 04:21 UTC) 结果已经上传
+- (2026-09-17 04:34 UTC) linear attn之后的第一个gemm是什么算子，用了TC
+- (2026-09-17 04:36 UTC) 这个可以优化吧，以及moe的gate up 和down应该也可以优化吧？现在这几个跟llamacpp原本的实现差不多快。还有moe-chain-swiglu
+- (2026-09-17 04:38 UTC) moe_weighted_finish 后面的两个q8的gemm是什么
+- (2026-09-17 04:39 UTC) 对比一下reference的时间
+- (2026-09-17 04:39 UTC) 感觉有点慢
+- (2026-09-17 04:52 UTC) 补一下吧。
+- (2026-09-17 04:52 UTC) 我说的是补一下shexp的融合
+- (2026-09-17 04:53 UTC) 路由专家逻辑上也可以融合，但是我们是不是排序的时候要把对应的专家位置考虑进去，这样tc的时候输出的register要相乘的都在一个thread的register内
+- (2026-09-17 04:53 UTC) 我说的是offline的shuffle，包括gate和up的融合
+- (2026-09-17 04:53 UTC) 我说的是offline的shuffle，包括gate和up的融合
+- (2026-09-17 05:23 UTC) 实现tc版本和simt版本
+- (2026-09-17 05:43 UTC) 5070的端口是什么
+- (2026-09-17 05:56 UTC) 继续我们之前的
+- (2026-09-17 06:28 UTC) 结果上传了
+- (2026-09-17 06:47 UTC) 结果上传了
+- (2026-09-17 07:09 UTC) 还有多久上box
+- (2026-09-17 07:15 UTC) 结果上传了
+- (2026-09-17 07:35 UTC) 下一步
+- (2026-09-17 08:15 UTC) 结果上传了
+- (2026-09-17 08:25 UTC) 先接入吧，然后重复之前的测试，asys抓取
+- (2026-09-17 08:40 UTC) 还要多久上box
+- (2026-09-17 09:09 UTC) 还有多久
+- (2026-09-17 09:44 UTC) 上传了
+- (2026-09-17 10:00 UTC) 除了moe-chain-prepare还有什么可以优化的吗？
+- (2026-09-17 10:07 UTC) 继续优化这几个gemv，如果需要上box就给我command
+- (2026-09-17 11:51 UTC) 上传了
+- (2026-09-17 12:36 UTC) 接入吧
+- (2026-09-17 13:10 UTC) 还要多久上box
+- (2026-09-17 13:49 UTC) 出错了，上传了
+- (2026-09-17 22:55 UTC) 我上传了一个moe-prepare-kernel的patch，这个减少了20%的moe-prepare的时间
+- (2026-09-17 22:57 UTC) 前一轮的box结果也上传了，没有包括这个moe-prepare的优化
+- (2026-09-18 00:48 UTC) 把prepare的优化 接入进去
+- (2026-09-18 01:03 UTC) 还有多久
+- (2026-09-18 01:32 UTC) 上传了
+- (2026-09-18 01:42 UTC) 总体prefill占多长时间
+- (2026-09-18 01:45 UTC) 然后我们测试其他的两个模型，
+- (2026-09-18 01:56 UTC) 我换到了一个新的机器，但是磁盘的映射/sim还是一样的， 给我新的command，回测一下32B-A3B
+- (2026-09-18 02:08 UTC) [ppu-runtime-bundle] FAIL: SDK release receipt differs: got=['2.0.0-715aa1'] want=['2.1.1-a5c56e']
+- (2026-09-18 02:09 UTC) 新机器上的这个位置有对应的sdkroot@aiswu52:/workspace/pytorch# ls /workspace/ppu-sdk-2.1.1-a5c56e
+- (2026-09-18 02:36 UTC) /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-q4-model.tnCy8u/ci/ncp_flash_lib/third_party/DeepGemm/csrc/jit_kernels/impls/../../jit/compiler.hpp:3:10: fatal error: hggc_runtime_api.h: No such file or directory 3 | #include <hggc_runtime_api.h> | ^~~~~~~~~~~~~~~~~~~~ compilation terminated.
+- (2026-09-18 02:39 UTC) 另外122B就是两卡跑的
+- (2026-09-18 02:43 UTC) tp2
+- (2026-09-18 02:52 UTC) tp2需要修改什么吗？
+- (2026-09-18 03:24 UTC) 给我command，我们先跑32B的dense模型
+- (2026-09-18 03:39 UTC) BATCHED_MODEL_WAIT model=qwen3-32b-q4km arm=1-kpack rows=0/3 elapsed_minutes=6.5 log=/sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-q4-model.C99gWo/results/benchmark/results/qwen3-32b-q4km/1-kpack.log 是在干啥
+- (2026-09-18 03:41 UTC) tail -n 50 \ /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-q4-model.C99gWo/results/benchmark/results/qwen3-32b-q4km/1-kpack.log ps -eo pid,ppid,pcpu,etime,args --sort=-pcpu | rg 'llama-batched-bench|kpack_jit.py|hgcc|hggc|nvcc|cc1|ptxas' | head -n 207.48.596.104 I llama_perf_context_print: load time = 252387.93 ms 7.48.596.105 I llama_perf_context_print: prompt eval time = 405449.04 ms / 6160 tokens ( 65.82 ms per token, 15.19 tokens per second) 7.48.596.107 I llama_perf_context_print: eval time = 58323.80 ms / 384 runs ( 151.88 ms per token, 6.58 tokens per second) 7.48.596.108 I llama_perf_context_print: total time = 468352.92 ms / 6544 tokens 7.48.596.109 I llama_perf_context_print: graphs reused = 381 7.48.624.608 W [kpack-cache] not published: refusing to overwrite existing output /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/cache/qwen3-32b-q4km (Invalid argument)
+- (2026-09-18 03:42 UTC) 启动的时间也太长了
+- (2026-09-18 03:45 UTC) 0.01.515.314 I [kpack-cache] source_mmap=prefetch 0.04.764.240 I [kpack-cache] background write started: tensors=448 pinned_MiB=16 slots_per_device=2 content_checks=disabled 0.09.765.388 I [kpack-cache] write progress: tensors=367/448 MiB=14386.4 seconds=5.00 content_checks=disabled 0.10.931.700 I [kpack-cache] write progress: tensors=448/448 MiB=17812.5 seconds=6.17 content_checks=disabled 0.10.931.705 I [kpack-cache] flushing cache to disk KPACK_JIT parent=fqk_tc_q12_l1_a0_tm16_tn128_tk256_wm16_wn32_s3_bc0_ap0_dn64 cache_hit=0 seconds=61.859 key=4fb5bd74127716f25e794ead7f61e61e17f532fba2fd98a92bea5e435af08929 0.10.931.700 I [kpack-cache] write progress: tensors=448/448 MiB=17812.5 seconds=6.17 content_checks=disabled 0.10.931.705 I [kpack-cache] flushing cache to disk KPACK_JIT parent=fqk_tc_q12_l1_a0_tm16_tn128_tk256_wm16_wn32_s3_bc0_ap0_dn64 cache_hit=0 seconds=61.859 key=4fb5bd74127716f25e794ead7f61e61e17f532fba2fd98a92bea5e435af08929 KPACK_JIT parent=fqk_tc_q14_l2_a0_tm32_tn16_tk256_wm16_wn16_s2_bc0_ap0_dn16 cache_hit=0 seconds=53.325 key=cd21709b7cee827a6fcc2e9df01ff5204b507008e7ffbd2ccfb88849886585f6 KPACK_JIT parent=fqk_tc_q12_l1_a0_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0_dn64 cache_hit=0 seconds=45.004 key=2664bbd5e60289122df44b45288260a39e710b73a30c1f9f33e30a9b31697bfa KPACK_JIT parent=fqk_tc_q12_l1_a0_tm16_tn16_tk256_wm16_wn16_s2_bc0_ap0_dn16 cache_hit=0 seconds=41.874 key=488ed60717d5aaf2ae99cb626e9b4f36d9f9a370f7be6c44f799192b8abbcb7f KPACK_JIT parent=fqk_tc_q14_l2_a …
+- (2026-09-18 03:48 UTC) 你主要看一下这几个独立的问题。分别解决。
+- (2026-09-18 03:48 UTC) 然后给我command，我同步跑一下122B的测试
+- (2026-09-18 03:51 UTC) 额，我们的kpack现在TP2跑不了对吗？
+- (2026-09-18 04:01 UTC) Assertion failed: /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-q4-model.tnCy8u/ci/ncp_flash_lib/third_party/DeepGemm/csrc/jit_kernels/impls/../../jit/compiler.hpp:174, condition: std::filesystem::exists(hgcc_path) and "hgcc compiler not found"
+- (2026-09-18 04:30 UTC) 给我command跑122B
+- (2026-09-18 05:31 UTC) 上传了
+- (2026-09-18 05:35 UTC) 完成TP2的kpack的支持
+- (2026-09-18 06:09 UTC) 还要多久上box
+- (2026-09-18 06:46 UTC) KPACK_TP2 FAIL stage=precheck line=32 rc=1
+- (2026-09-18 06:51 UTC) TP2的落盘也要实现一下
+- (2026-09-18 06:59 UTC) 还要多久
+- (2026-09-18 07:36 UTC) [quactlize] loaded libquactlize_ppu_fmt4.so -> q6_K (packed format 4) tools/run_kpack_tp2_box.sh: line 143: 2019691 Segmentation fault (core dumped) "$BUILD_DIR/bin/test-quactlize-scheduler" --tp2-cache-write "$RUN/device-cache" 2>&1 2019692 Done | tee "$RUN/results/tp2-device-cold.log" KPACK_TP2 FAIL stage=two-device-cache-cold line=118 rc=139 results=/sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.eCurbz.results.tgz
+- (2026-09-18 07:45 UTC) 还要多久
+- (2026-09-18 07:52 UTC) [quactlize-device-plan] tensor=tp-weight device=1 op=dense q=8 rows=1 n=512 k=512 experts=1 selected=1 scheduler check failed: relative < .02 KPACK_TP2 FAIL stage=two-device-cache-cold line=118 rc=1 results=/sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.52pSiq.results.tgz Asys: /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.52pSiq/results/trace/*/{reference,native}/proof.asysrep runner_rc=1 stage=two-device-cache-cold
+- (2026-09-18 08:38 UTC) [aiswu52][3209734:3209734][1][drv_extension.cc:379] PCCL ERROR Hggc failure 'invalid device function' CUDA error: unhandled hggc error current device: 0, in function ggml_backend_cuda_comm_allreduce_nccl at /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:1047 ncclGroupEnd()
+- (2026-09-18 08:38 UTC) [aiswu52][3209734:3209734][1][drv_extension.cc:379] PCCL ERROR Hggc failure 'invalid device function' CUDA error: unhandled hggc error current device: 0, in function ggml_backend_cuda_comm_allreduce_nccl at /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:1047 ncclGroupEnd() /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:119: CUDA error /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.eCurbz/ci/llama-build/bin/libggml-base.so.0(+0x1d3bb)[0x7f213ab683bb] /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.eCurbz/ci/llama-build/bin/libggml-base.so.0(ggml_print_backtrace+0x21c)[0x7f213ab6883c]
+- (2026-09-18 08:38 UTC) [aiswu52][3209734:3209734][1][drv_extension.cc:379] PCCL ERROR Hggc failure 'invalid device function' CUDA error: unhandled hggc error current device: 0, in function ggml_backend_cuda_comm_allreduce_nccl at /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:1047 ncclGroupEnd() /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:119: CUDA error /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.eCurbz/ci/llama-build/bin/libggml-base.so.0(+0x1d3bb)[0x7f213ab683bb] /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.eCurbz/ci/llama-build/bin/libggml-base.so.0(ggml_print_backtrace+0x21c)[0x7f213ab6883c]
+- (2026-09-18 08:43 UTC) 之前跑reference的时候正常
+- (2026-09-18 08:43 UTC) 之前跑reference的时候正常
+- (2026-09-18 08:56 UTC) 上传了
+- (2026-09-18 09:06 UTC) 还要多久上box
+- (2026-09-18 09:15 UTC) KPACK_TP2_COMM_DONE cases=7 verdict=DIAGNOSTIC_COMPLETE device_admission=PENDING results=/sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.1InYnX/results/communication results=/sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.1InYnX.results.tgz runner_rc=0 stage=diagnostic-complete Current Docker shell is preserved.
+- (2026-09-18 09:16 UTC) 给我command grep吧
+- (2026-09-18 09:18 UTC) /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/results/communication/copy-3072-inherited.log:72:KPACK_TP2_COMM_LOCAL arm=copy rank=0 replay=0 error=0 synchronized=1 status=PASS /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/results/communication/copy-3072-inherited.log:74:KPACK_TP2_COMM_LOCAL arm=copy rank=1 replay=0 error=0 synchronized=1 status=PASS /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/results/communication/copy-3072-inherited.log:84:KPACK_TP2_COMM_REDUCE_BEGIN arm=copy count=3072 replay=0 /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/results/communication/copy-3072-inherited.log:131:KPACK_TP2_COMM_PASS arm=copy count=3072 replays=3 /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/results/communication/copy-32768-inherited.log:72:KPACK_TP2_COMM_LOCAL arm=copy rank=0 replay=0 error=0 synchronized=1 status=PASS /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/results/communication/copy-32768-inherited.log:74:KPACK_TP2_COMM_LOCAL arm=copy rank=1 replay=0 error=0 synchronized=1 status=PASS /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/results/communication/copy-32768-inherited.log:84:KPACK_TP2_COMM_REDUCE_BEGIN arm=copy count=32768 replay=0 /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/results/communication/copy-32768-inherited.log:131:KPACK_TP2_COMM_PASS arm=copy count=32768 replays=3 /sim/eec/shared/junfu.qx/kpack-newbox.QYL8F9/kpack-tp2.1InYnX/resu …
+- (2026-09-18 09:19 UTC) 告诉我一个prompt，我让box上的agentdebug一下
+- (2026-09-18 09:21 UTC) 之前的log上传了
+- (2026-09-18 09:26 UTC) 你继续修改
+- (2026-09-18 09:34 UTC) 找到candidate的问题了嘛啊/
+- (2026-09-18 09:45 UTC) KPACK_TP2 FAIL stage=precheck line=65 rc=1 runner_rc=1 stage=precheck Current Docker shell is preserved.
+- (2026-09-18 09:49 UTC) 六库 manifest: /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/legacy/prebuilt/ppu0010/2826cf1/runtime6-46fc3096e1a1/bundle/manifest.json 旧六库文件不存在，请提供它现在的位置：/sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/legacy/prebuilt/ppu0010/2826cf1/runtime6-46fc3096e1a1/bundle/manifest.json
+- (2026-09-18 09:49 UTC) 刚才被我误删了
+- (2026-09-18 09:49 UTC) 刚才被我误删了
+- (2026-09-18 09:53 UTC) SDK/CUDA_SDK/include KPACK_TP2 FAIL stage=precheck line=59 rc=1 runner_rc=1 stage=precheck Current Docker shell is preserved.
+- (2026-09-18 09:56 UTC) 找到问题了吗
+- (2026-09-18 09:58 UTC) MISSING /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-q4-model.tnCy8u/ci/ncp_flash_lib/CMakeLists.txt
+- (2026-09-18 09:59 UTC) 不行就完全冲泡
+- (2026-09-18 10:10 UTC) 问题方向定位清楚了吗
+- (2026-09-18 10:16 UTC) 上传了
+- (2026-09-18 13:17 UTC) [quactlize] local shard is unsupported: tp-weight q=12 N=512 K=512 E=1 alloc_tensor_range: failed to initialize tensor tp-weight /sim/eec/shared/junfu.qx/llama.cpp/ggml/src/ggml-backend-meta.cpp:1891: GGML_ASSERT(meta_buf_ctx->bufs[i]) failed /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.BPvql1/ci/llama-build/bin/libggml-base.so.0(+0x1d3bb)[0x7f1b7949d3bb] /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.BPvql1/ci/llama-build/bin/libggml-base.so.0(ggml_print_backtrace+0x21c)[0x7f1b7949d83c] /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.BPvql1/ci/llama-build/bin/libggml-base.so.0(ggml_abort+0x15b)[0x7f1b7949da1b] /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.BPvql1/ci/llama-build/bin/libggml-base.so.0(ggml_backend_meta_alloc_ctx_tensors_from_buft+0xf6c)[0x7f1b794c9e7c] /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.BPvql1/ci/llama-build/bin/test-quactlize-scheduler(+0x164fc)[0x556f889f84fc] /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x7f1b78ef81ca] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x7f1b78ef828b] /sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.BPvql1/ci/llama-build/bin/test-quactlize-scheduler(+0x10a75)[0x556f889f2a75] tools/run_kpack_tp2_box.sh: line 164: 2812100 Aborted (core dumped) "$BUILD_DIR/bin/test-quactlize-scheduler" --tp2-cache-write "$RUN/device-cache" 2>&1 2812101 Done | tee "$RUN/results/tp2-device-cold.log" KPACK_TP2 FAIL stage=two-device-cache-cold line=139 rc=134
+- (2026-09-18 13:35 UTC) 还有多久
+- (2026-09-18 13:45 UTC) 其他的不需要修改吗？
+- (2026-09-18 13:46 UTC) 我的意思是后续是不是要针对TP的case设定一些选择
+- (2026-09-18 13:47 UTC) 比如S4就不应该选到，不论格式
+- (2026-09-19 00:11 UTC) KPACK_TP2_MISMATCH q=12 experts=4 tokens=1 split=K replay=0 relative=0.1823166 scheduler check failed: relative < .02
+- (2026-09-19 00:14 UTC) 上传了
+- (2026-09-19 00:32 UTC) 上传了
+- (2026-09-19 00:33 UTC) 是quactlize的库的错误？
+- (2026-09-19 00:40 UTC) 如果是simt可以在5070上复现？
+- (2026-09-19 00:53 UTC) 给我ppu上的下一步的command
+- (2026-09-19 01:05 UTC) 还要多久上box，感觉还有几轮？
+- (2026-09-19 01:23 UTC) 上传了
+- (2026-09-19 01:34 UTC) f
+- (2026-09-19 01:35 UTC) 找到问题了吗找到问题了吗还有几次bozboz
+- (2026-09-19 01:35 UTC) box
+- (2026-09-19 01:40 UTC) 上传了
+- (2026-09-19 01:51 UTC) 所以问题是什么
+- (2026-09-19 01:53 UTC) 这个会影响速度？
+- (2026-09-19 01:53 UTC) 这个会影响速度吗？
+- (2026-09-19 01:54 UTC) 问题是根因没有找到？
+- (2026-09-19 02:00 UTC) 继续
+- (2026-09-19 04:47 UTC) [kpack-cache] published: total_seconds=0.02 flush_seconds=0.01 KPACK_TP2_CHAIN_MISMATCH q=12 tokens=32 replay=0 relative=0.0267095549 scheduler check failed: maximum<.02 KPACK_TP2 FAIL stage=two-device-cache-cold line=151 rc=1 results=/sim/eec/shared/junfu.qx/kpack-newbox.QYl8F9/kpack-tp2.SIgUYu.results.tgz runner_rc=1 stage=two-device-cache-cold
+- (2026-09-19 04:48 UTC) 上传了这一次的结果
+- (2026-09-19 04:55 UTC) 是moe-gemm的bf16的舍入误差？对比的是什么？TC的累加器是fp32吗？
+- (2026-09-19 04:58 UTC) 如果是这样可能是可以接受的误差范围？
+- (2026-09-19 05:09 UTC) 可以按照BF16来设计CPU的refenrece
+- (2026-09-19 06:53 UTC) 上传了这一次的结果
+- (2026-09-19 07:42 UTC) 上传了这一次的结果
+- (2026-09-19 07:45 UTC) 但是decoding的利用率太低了，要优化
+- (2026-09-19 07:49 UTC) 专用快路径不能适用于其他的shape吗？那也太不灵活了
+- (2026-09-19 07:49 UTC) asys抓取的问题i还是要修复，要不然看不了对应的单算子时间
+- (2026-09-19 08:00 UTC) 还有什么类似的只适用于单个shape的优化，都要尝试泛化。找一找。
+- (2026-09-19 08:16 UTC) 开始做吧。不用上box的直接本地做完
+- (2026-09-19 09:02 UTC) 给我上box的command，
+- (2026-09-19 09:11 UTC) 还要多久
+- (2026-09-19 09:35 UTC) 上传了这一次的结果
+- (2026-09-19 09:40 UTC) kernel的选择逻辑应该是根据测试出来的结果来选择啊，选择最优，为啥要像你这样一刀切呢
+- (2026-09-19 09:40 UTC) 这次的tpot
+- (2026-09-19 09:41 UTC) 另外都选择最优的tpot是多少
+- (2026-09-19 09:48 UTC) 各个算子的MBU合理吗？
+- (2026-09-19 09:51 UTC) 继续优化这几个case，之前的kernel没有解决这些问题嘛？还是这些都是fallback的kernel。我希望之前在35B-A3B上的很多改动可以繁华。
+- (2026-09-19 09:54 UTC) 后续和之前的35B-A3B的优化应该很多都是通用优化，这些都要泛化到其他的shape
+- (2026-09-19 09:58 UTC) 通用的优化应该作为fallback的一部分。。要不然fallback一直没有任何的提升。
+- (2026-09-19 10:20 UTC) 给我command
+- (2026-09-19 10:29 UTC) 现在的代码架构是不是已经很复杂了，heuristic部分要重新思考一下如何设计，另外起一个agent让他review一下，plan一下架构是不是需要code refactor来code clean。不起另外的agent也可以，用claude的fable5。1的max thinking来设计。
+- (2026-09-19 10:33 UTC) 你可以调用claude code review一下设计
+- (2026-09-19 10:59 UTC) 重构完成了吗？
+- (2026-09-19 11:00 UTC) 你自己review，不用claude
+- (2026-09-19 11:00 UTC) review之后直接修改。最后我一起上box
+- (2026-09-19 11:56 UTC) 现在结构清晰一点了吗
+- (2026-09-19 12:11 UTC) 上传了
+- (2026-09-19 12:14 UTC) 设计一下，我还是希望最终能够选到最优配置，这是底线，在这个之上我们再看如何重构更好
+- (2026-09-19 12:40 UTC) 给我command
+- (2026-09-19 12:41 UTC) 按照你的顺序继续，直到给我command
+- (2026-09-19 12:54 UTC) 选择直接你本地验证不久可以了吗？反正测似的结果你这里都有的
+- (2026-09-19 13:20 UTC) 还有多久
+- (2026-09-19 13:46 UTC) 上传了
+- (2026-09-19 13:59 UTC) 继续
+- (2026-09-20 00:50 UTC) 上传了
+- (2026-09-20 01:14 UTC) 继续修复，直到我上box。Q8的小KV还能优化吗？Q8的shared down和moe down都好低啊
+- (2026-09-20 01:46 UTC) 还要多久
+- (2026-09-20 01:47 UTC) 下次跑在6，7卡上
+- (2026-09-20 02:26 UTC) 上传了
+- (2026-09-20 02:59 UTC) 上传了
+- (2026-09-20 03:03 UTC) chain swiglu不是可以合并到gateup的gemm计算之后吗？
+- (2026-09-20 03:11 UTC) 下一步
+- (2026-09-20 03:23 UTC) 还要多久
+- (2026-09-20 04:06 UTC) 上传了
+- (2026-09-20 04:32 UTC) 这个选择性的接入有优雅的方法code clean的接入吗？
+- (2026-09-20 04:50 UTC) 细化方案
+- (2026-09-20 05:23 UTC) 按照计划执行
+- (2026-09-20 05:31 UTC) 要多久
+- (2026-09-20 07:04 UTC) 上传了
+- (2026-09-20 07:09 UTC) 可能有其他的任务。现在没有了
+- (2026-09-20 07:33 UTC) 上传了
+- (2026-09-20 07:35 UTC) 继续
+- (2026-09-20 08:07 UTC) 122B-A10B从算子上分析还有哪些提升点，假设所有的gemv都达到25%以上的MBU，最后能到多少tpot
+- (2026-09-20 08:18 UTC) all-reduce和同步时间现在多长，纯kernel时间多大
+- (2026-09-26 01:39 UTC) 看一下根目录下的cutlass3。6。0，这里包含了1。7。0的ppu的cutlass的信息。我们保持1。0和1。5还是用actlize，但是1。7用cutlass3。6。0，注意大部分的1。7指令 和hopper兼容，sm90。有一些特殊的指令对于fp8和fp4进行了特殊的加速。这里应该可以忽略。尝试接入到这个cutlass3。6。0。但是我们的接入点应该是最小修改，你先计划一下。
+- (2026-09-26 02:15 UTC) 为什么需要机器呢？
+- (2026-09-26 02:15 UTC) 之前那个目标丢掉。
+- (2026-09-26 02:16 UTC) 继续当前的1。7的接入。不是最小接入。但是对于原本的代码不要影响
+- (2026-09-26 02:16 UTC) 继续当前的1。7的接入。不是最小接入。但是对于原本的代码不要影响
+- (2026-09-26 03:18 UTC) 我有ssh -p 19819 root@connect.westb.seetacloud.com 9y3RCJWPMGBK的H800机器，应该是可以直接直接使用的
+- (2026-09-26 03:20 UTC) 注意性能要在没其他任务的时候验证
+- (2026-09-26 04:02 UTC) 先编译吧
+- (2026-09-26 04:12 UTC) 看看空了吗
+- (2026-09-26 04:31 UTC) 继续
+- (2026-09-26 05:50 UTC) 对比machete和marlin的实现的速度要比这两种实现在h800強強
+- (2026-09-26 07:27 UTC) 一个是baseline不应该这么差另外我们本身有gmarlin和machete的scheduler
+- (2026-09-26 07:39 UTC) 我们应该有narlin和machete的scheduler至少h800上性能要对齐速度
+- (2026-09-26 08:32 UTC) 实现先对齐可以吗,我们应还有实现machete和marlin的scheduler我希望perf先对齐?
+- (2026-09-26 09:16 UTC) machete呢
+- (2026-09-26 09:16 UTC) 我们的machete的shceder也要复刻同样的性能
+- (2026-09-26 09:50 UTC) gguf呢,我们可能需要参考类似的方法修改我们的gguf的kpack的方法
+- (2026-09-26 09:54 UTC) 继续
+- (2026-09-26 11:16 UTC) 继续
+- (2026-09-26 12:40 UTC) FQ比SF慢是预期内的啊
+- (2026-09-28 07:51 UTC) 切换到root目录下的cutlass3_4.3.0，放弃之前的3.6.0，有一些函数的入口应该是不同的
+- (2026-09-28 07:51 UTC) goal丢弃掉。然后切换到上面的任务
+- (2026-09-28 08:19 UTC) push
+- (2026-09-28 08:58 UTC) 清理一下branch，有哪些无用的
+- (2026-09-29 05:54 UTC) 清理几个失效的branch。另外其他的为什么不能动，清理的条件是什么。
+- (2026-09-29 06:10 UTC) artifacts里面主要是什么制品？
+- (2026-09-29 08:07 UTC) 这些artifact都不需要了，可以box上编译
+- (2026-09-29 08:19 UTC) 还是240325
+- (2026-09-29 08:20 UTC) 为什么还有17个源码分支
+- (2026-09-29 08:21 UTC) 清理一下
+- (2026-09-29 08:21 UTC) tp2的内容不能合并到develop吗？
+- (2026-09-29 08:22 UTC) 最终我只需要一个main一个develop
+- (2026-10-01 03:31 UTC) 继续
+- (2026-10-01 04:35 UTC) 现在应该可以把大部分的develop挪到main了
+- (2026-10-01 08:28 UTC) llamacpp有pdl的选项吗
+- (2026-10-01 08:32 UTC) pdl不需要重复修改kernel吗要不然怎么知道cta之间的depsdeps
+- (2026-10-01 08:37 UTC) 我们的kernel需要怎么对应修改?ppu1.7支持pdl
+- (2026-10-01 08:46 UTC) 列一个计划
+- (2026-10-01 08:49 UTC) 开始吧
+- (2026-10-01 08:50 UTC) 直到你需要机器告诉我我去开一个
+- (2026-10-01 08:50 UTC) 你直接开一个h800
+- (2026-10-01 08:50 UTC) autodl上
+- (2026-10-01 09:33 UTC) 检查一下现在开了一个
+- (2026-10-01 09:36 UTC) 1925的jpeg上就是连接hopper机器的方法
+- (2026-10-01 10:17 UTC) 继续
+- (2026-10-01 11:33 UTC) 其他的呢？另外为什么SF开了还变慢
+- (2026-10-01 11:34 UTC) grouped整链快，但是其他的呢？
+- (2026-10-01 12:27 UTC) 能不能调研一下sglang的做法
+- (2026-10-01 12:49 UTC) 先修改吧，hopper的机器直到真正需要我再去开
+- (2026-10-08 13:13 UTC) 整理一下llama cpp的branches
+- (2026-10-08 13:26 UTC) TP2为什么没有合并到quactlize的开发线
+- (2026-10-08 13:29 UTC) 推进吧。我最终只希望有三个branch。
+- (2026-10-08 13:29 UTC) 推进吧。我最终只希望有三个branch。master，dev，以及quactlize
+- (2026-10-08 13:42 UTC) 这个结束之后我要逐渐merge quactlize到dev branch，但是我不想要一个giant PR，要atomic，首先创建一个offline shuffle以及online loading的PR，默认关掉这个路径，可以单独验证online shuffle的正确性。但是inference前向的时候assert报错。看一下改动多大。我需要侵入的改动最小化。
+- (2026-10-08 13:58 UTC) 开始切吧。并且创建临时的PR分支。
+- (2026-10-08 22:45 UTC) 大概多少行
+- (2026-10-09 01:08 UTC) ppu_dev apply ppu_dev-f1ad9d5c-to-37281d69.diff，然后quactlize的brnach和这个新的branch rebase到这个
+- (2026-10-09 01:16 UTC) 上一次的diff到哪个commit
+- (2026-10-09 01:28 UTC) 更新了ppudev和master的diff，，你用这个吧
+- (2026-10-09 01:42 UTC) push
+- (2026-10-09 01:53 UTC) kpack load only没有上传
+- (2026-10-09 01:54 UTC) 并且说明从哪个commit开始和dev diverse
+- (2026-10-09 02:10 UTC) 你改的这几个文件都是什么作用？在这个cli告诉我
+- (2026-10-09 02:15 UTC) 改动这么少是因为原来就有这个接口？llamacpp中，支持格式的切换？
+- (2026-10-09 02:17 UTC) 缓存落盘部分的代码作为第二阶段的pr。或者你规划一下后续还要多少个PR
+- (2026-10-09 02:22 UTC) 1，2，后面不应该接8和9吗？另外5我不理解，应该都是quactlize库内部发生吧
+- (2026-10-09 02:24 UTC) build脚本我只希望有一个，就是build。sh，所以你不要提供新的build脚本
+- (2026-10-09 02:30 UTC) 我如何在测试中独立验证加载的这个过程。
+- (2026-10-09 02:31 UTC) 或者说跑ci的时候需要能够测试到这个行为。
+- (2026-10-09 02:33 UTC) 另外要用clang-format reformat你的改动的文件
+- (2026-10-09 02:54 UTC) 参考ncp falsh lib的编译方法，是不是可以直接在build脚本中把quactlize的lib编译
+- (2026-10-09 03:07 UTC) 不应该还需要额外的kpack load输入，应该默认跑整网的时候不用quactlize，但是其他的测试能够测试到。
+- (2026-10-09 03:24 UTC) 测试有哪些，是如何加入CI的
+- (2026-10-09 03:31 UTC) 推送
+- (2026-10-09 03:34 UTC) 说明的readme去掉
+- (2026-10-09 04:04 UTC) GGML_NCP_QUACTLIZE打开的时候默认会走shuffle的路径吗？
+- (2026-10-09 04:06 UTC) clang format check不要改。另外参考其他的几个编译选项，你现在这个宏定义加的地方挺多的。另外build改的比我想的多。sdk和nvcc和cmake应该都是确定性的，按照原来就行了吧
+- (2026-10-09 04:49 UTC) 推送
+- (2026-10-09 04:55 UTC) 现在怎么控制后续的推理，，有宏定义吗？我看build都是打开的，这样推理不会报错吗？
+- (2026-10-09 05:31 UTC) common/arg.cpp if (buft) { buft_list[ggml_backend_buft_name(buft)] = buft; } // Load-only buffers are available to explicit overrides, not automatic model placement. for (const char * proc : {"ggml_backend_dev_get_extra_bufts", "ggml_cuda_quactlize_extra_bufts"}) { AoneD 24分钟前 可维护性 · 低 这里在通用层（common/）硬编码了 CUDA 后端私有符号名 “ggml_cuda_quactlize_extra_bufts”，造成跨层耦合： 该名字只在 ggml/src/ggml-cuda/ggml-cuda.cu 的 ggml_backend_cuda_reg_get_proc_address 中（且受 GGML_NCP_QUACTLIZE 保护）注册。一旦后端侧重命名或改走标准名 ggml_backend_dev_get_extra_bufts，这里会静默返回 nullptr，用户只会看到 “unknown buffer type” 而没有任何诊断信息。 与 src/llama-model.cpp（第 1047/1103 行）只查询标准名 ggml_backend_dev_get_extra_bufts 的做法不一致，两处枚举逻辑容易随时间发散。 建议优先让 CUDA 后端把 quactlize 的 extra bufts 合并进标准的 ggml_backend_dev_get_extra_bufts 入口；若确实要保持“仅显式 override 可用、不参与自动放置”的语义，则至少把这些 proc 名抽成一个带注释的公共常量列表（例如放在头文件中供后端与 common 共享），避免字符串字面量在两个模块中各自维护。 common/arg.cpp for (const char * proc : {"ggml_backend_dev_get_extra_bufts", "ggml_cuda_quactlize_extra_bufts"}) { auto get_extra = (ggml_backend_dev_get_extra_bufts_t) ggml_backend_reg_get_proc_address( ggml_backend_dev_backend_reg(dev), proc); if (get_extra) { auto ** extra = get_extra(dev); for (size_t j = 0; extra && extra[j]; ++j) { buft_list[ggml_backend_buft_name(extra[j])] = extra[j]; } AoneD 24分钟前 可维护性 · 低 两个可改进点： buft_list[...] = extra[j] 会无条件覆盖同名条目。extra buft 是后端私有的“load-only”缓冲（如 CUDA0_KPACK），一旦某个后端的 extras 里出现与主 buft 相同的名字（或多个设备的 extras 重名），-ot tensor=CUDA0 就会被静默改绑到 load-only 缓冲上，用户只会看到加载/构图阶段的报错，很难定位。建议用 emplace（先到先得 …
+- (2026-10-09 05:44 UTC) 后续改完直接推送
+- (2026-10-09 05:59 UTC) 最近几个commit合并成单个。我希望最后merge的时候只有一个commit
+- (2026-10-09 06:10 UTC) .aoneci/scripts/build.sh echo " cleaning build-ci..." rm -rf build-ci fi mkdir -p build-ci PACK_BUILD_DIR=$(mktemp -d "${LLAMA_CI_DIR}/build-ci/packer.XXXXXXXX") echo "==> Building Quactlize pack library..." python3 "${QUACTLIZE_ROOT}/tools/build_kpack_pack.py" \ --sdk "${PPU_NVCC%/CUDA_SDK/bin/nvcc}" --output "${PACK_BUILD_DIR:?}/build" AoneD 1分钟前 缺陷 · 中 --sdk 依赖 PPU_NVCC 恰好以 /CUDA_SDK/bin/nvcc 结尾（config.sh 的默认值如此，但该变量可被外部覆盖）。一旦路径形态不同（软链、.../CUDA_SDK/bin/../bin/nvcc 等），后缀剥离会静默失效，把完整 nvcc 路径当作 SDK 根目录传入，导致打包库用错 SDK 或报出难以定位的错误。建议显式校验剥离结果（或直接使用 PPU_SDK 根路径变量）。 Suggested change python3 "${QUACTLIZE_ROOT}/tools/build_kpack_pack.py" \ --sdk "${PPU_NVCC%/CUDA_SDK/bin/nvcc}" --output "${PACK_BUILD_DIR:?}/build" PPU_SDK_ROOT="${PPU_NVCC%/CUDA_SDK/bin/nvcc}" if [ "${PPU_SDK_ROOT}" = "${PPU_NVCC}" ] || [ ! -d "${PPU_SDK_ROOT}/CUDA_SDK" ]; then echo "ERROR: cannot derive the PPU SDK root from PPU_NVCC='${PPU_NVCC}' (expected .../CUDA_SDK/bin/nvcc)" >&2 exit 1 fi python3 "${QUACTLIZE_ROOT}/tools/build_kpack_pack.py" \ --sdk "${PPU_SDK_ROOT}" --output "${PACK_BUILD_DIR}/build" .aoneci/scripts/test_kpack_load.py args.packer = args.binary.resolve().parent / 'libquactlize_ppu_pack.so' for path in (args.binary, args.packer, args.quactlize / 'reference/gguf_kpack.py'): if not path.is_file(): parser.error(f'missing {path}') if args.output is None: args.output = Path(tempfile.mkdtemp(prefix='kpack-load-', dir=Path.cwd())) else: args.output.mkdir(parents=True, exist_ok=False) AoneD 1分钟前 可维护性 · 低  …
+- (2026-10-09 06:14 UTC) python3 "${QUACTLIZE_ROOT}/tools/build_kpack_pack.py" \ --sdk "${PPU_NVCC%/CUDA_SDK/bin/nvcc}" --output "${PACK_BUILD_DIR:?}/build" 默认应该不需要传sdk吧。
+- (2026-10-09 06:30 UTC) quactlize的test如何构建ci测试
+- (2026-10-09 06:30 UTC) 我说的是在quactlize自己repo
+- (2026-10-09 07:29 UTC) 我的quactlize放到了ncp flash lib，你要对应修改：llama.cpp 后续应： 删除 .aoneci/QUACTLIZE_VERSION。 将 Quactlize/actlize checkout 路径移至 ncp_flash_lib/third_party/。 调用： bash "${NCP_LIB_DIR}/build.sh" fa moe quactlize 从 ${NCP_LIB_DIR}/build/include 获取 Quactlize 头文件。 从 ${NCP_LIB_DIR}/build/libquactlize_ppu_pack.so 安装动态库。 删除 QUACTLIZE_ROOT 环境变量和 llama.cpp 内的独立编译逻辑。
+- (2026-10-09 08:33 UTC) 请修改 llama.cpp 的 pr/kpack-load-only 分支，只处理 Quactlize 接入 ncp_flash_lib，不修改其他 K-pack 功能。 目标： Quactlize 的版本管理、checkout、编译和精度测试全部由 ncp_flash_lib 负责。llama.cpp 不再配置 QUACTLIZE_ROOT，不再直接编译 Quactlize，只使用 ncp_flash_lib 导出的头文件和动态库。 ncp_flash_lib 固定提交： 9fb3cc549ffdfc8e6efeabc6c5e466cc9ceca5e8 分支：integrate-quactlize 需要修改： 1. 更新 `.aoneci/NCP_LIB_VERSION` 到上述完整 SHA。 2. 删除 `.aoneci/QUACTLIZE_VERSION`。 3. 修改 `.aoneci/test_ci.yaml`： - 不再把 Quactlize checkout 到 llama_cpp/thirdparty。 - ncp_flash_lib checkout 使用 `submodules: false`。 - 从 ncp_flash_lib 的 `third_party/quactlize` gitlink读取固定 SHA。 - 使用 `bot_ssh_key` checkout 到： `/workspace/ncp_flash_lib/third_party/quactlize` - 从 Quactlize gitlink读取 actlize SHA，并使用 `bot_ssh_key` checkout 到： `/workspace/ncp_flash_lib/third_party/quactlize/third_party/actlize` - 删除 `QUACTLIZE_ROOT` 环境变量。 4. 修改 `.aoneci/scripts/build.sh`： - 删除 QUACTLIZE_VERSION、QUACTLIZE_ROOT 校验。 - 删除直接调用 `tools/build_kpack_pack.py` 的逻辑。 - 通过以下命令统一构建： `bash "${NCP_LIB_DIR}/build.sh" fa moe quactlize` - 检查并安装： `libncp_fa.so` `libncp_moe.so` `libquactlize_ppu_pack.so` - 三个库都从 `${NCP_LIB_DIR}/build/` 移到 `build-ci/bin/`。 5. 修改 llama.cpp CMake： - 删除 `GGML_QUACTLIZE_ROOT`。 - 新增 ncp 根目录或 include 目录参数。 - `quactlize/packing/api.h` 和 `quactlize_ppu_config.h` 从 `${NCP_LIB_DIR}/build/include` 获取。 - `ggml-cuda` 和 `test-backend-ops` 都使用该导出 include 目录。 6. `test_kpack_load.py` 所需的 Python reference 可从： `${NCP_LIB_DIR}/third_party/quactlize/reference` 获取，但生产编译不能依赖 Quactlize 源码目录。 7. 在 PPU 测试阶段运行 ncp 的 Quact …
+- (2026-10-09 09:30 UTC) 写好了吗？
+- (2026-10-09 09:32 UTC) push
+- (2026-10-10 01:49 UTC) 因为GGML_BACKEND_PROC_GET_EXTRA_BUFTS的改动导致有三个文件改了，尤其是ggml/src/ggml-hexagon/ggml-hexagon.cpp，这个可以不改吗？为什么要改。以及arg为什么要改
+- (2026-10-10 01:58 UTC) 按照你说的改掉
+- (2026-10-10 01:59 UTC) 然后直接push
+- (2026-10-10 02:23 UTC) 不define，直接用#define GGML_BACKEND_PROC_GET_OVERRIDE_BUFTS "ggml_backend_dev_get_override_bufts"，后面这个str不行吗？
+- (2026-10-10 02:45 UTC) AI 评审成功 均夫于 2026.10.10 10:29:46 发起 AI 评审，给出 3 个评审建议，烦请处理，若再次评审将清空待采纳的建议 待采纳(3) 已采纳(0) 已忽略(0) 误报(0) 全部(3) .aoneci/test_ci.yaml run_image: ${{vars.run_image}} image_url: ${{jobs.build.outputs.oss_url}} cmd: | set -eu echo "========== ctest Started ==========" AoneD 48秒前 缺陷 · 中 缺少 pipefail，管道中 ctest 的失败可能被静默吞掉。 set -eu 不包含 -o pipefail，因此管道的退出码仅由最后一个命令 (grep -q) 决定。如果 ctest 失败（例如构建目录损坏）但仍然输出了包含 Total Tests: 1 的内容，grep 会成功匹配，管道返回 0，ctest 的错误被掩盖。 同项目的 build.sh 已经使用了 set -euo pipefail，建议此处保持一致。 Suggested change set -eu echo "========== ctest Started ==========" set -euo pipefail echo "========== ctest Started ==========" ggml/src/ggml-cuda/ncp-quactlize-lib.h #ifdef __cplusplus extern "C" { #endif #define QUACTLIZE_PPU_Q4_KPACK4_MAPPING_ID UINT64_C(0x51344b5034540001) #define QUACTLIZE_PPU_KQUANT_KPACK_MAPPING_ID UINT64_C(0x514b504b54000001) #define QUACTLIZE_PPU_Q8_KPACK2_MAPPING_ID UINT64_C(0x51384b5032540001) AoneD 48秒前 test · 中 Q8_0（GGML_TYPE_Q8_0 = 8）这条 KPACK2 路径在本次新增的 CI 校验里没有被覆盖：.aoneci/scripts/test_kpack_load.py 只生成 range(10, 15) 即 Q2_K…Q6_K 的张量，而 quactlize-buft.cu 的 ggml_quactlize_can_load 明确接受 Q8_0 并按 QUACTLIZE_PPU_Q8_KPACK2_MAPPING_ID 校验。也就是说该 mapping id、以及 Q8_0 独有的 high_bytes==0（pack 调用时 high 传 NULL）分支完全依赖人工核对：一旦这里与库导出的 id 不一致，症状是 Q8_0 权重被静默拒绝加载，而 CI 全绿。建议把 Q8_0 加入测试的类型集合（range(8, 15) 或显式列出 8），让三个 mapping id 都有在线/离线一致性校验。 ggml/src/ggml-cuda/ncp-quactlize-lib.h int32_t group_size; int32_t reserved; uint64_t mapping_id; } quactlize_ppu_placed_arrangement_v2; typedef struct …
+- (2026-10-10 03:31 UTC) #ifdef GGML_NCP_QUACTLIZE // Check before graph fusion or capture can bypass individual operator entries. ggml_quactlize_assert_no_compute(cgraph); #endif 是干啥
+- (2026-10-10 03:32 UTC) #ifdef GGML_NCP_QUACTLIZE for (const ggml_tensor * src : op->src) { if (src && src->buffer && ggml_cuda_buft_is_quactlize(src->buffer->buft)) { // Load-time placement only. graph_compute rejects all packed-weight execution. return src == op->src[0] && src->buffer->buft->device == dev && (op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) && ggml_quactlize_can_load(src, nullptr); } } #endif 呢》
+- (2026-10-10 03:39 UTC) 按照kpack-load-only-vs-ppu_dev.diff，按照这个作为最新的patch，apply上，然后我们基于这个写新的下一个mr
+- (2026-10-10 03:42 UTC) 下一个MR应该是落盘？
+- (2026-10-10 05:41 UTC) 提交了
+- (2026-10-10 05:41 UTC) 在root下面
+- (2026-10-10 05:47 UTC) 可以看看这此的改动，你就知道我的review的风格了。注意最小侵入，以及和原来的llama cpp的代码结偶，这样我后续rebase最方便。
+- (2026-10-10 06:01 UTC) 已经创建了吗
+- (2026-10-10 06:11 UTC) GitHub 的 pr/kpack-cache 已经拉下来了，但它的内容和内网最新 ppu_dev 完全一样，没有新改动，所以我没有建分支，也没有创建 MR。 GitHub tip：8760356ab（今天 13:49 提交），提交标题是 ppu_dev-vs-master.diff。 它是什么：父提交是 GitHub 上旧的 ppu_dev 快照 2215b3628。这个提交相当于把刚生成的 ppu_dev-vs-master.diff 应用上去，把基线更新到当前 ppu_dev。 和内网的比较：git diff thead/ppu_dev 8760356ab 是空的，两棵树完全相同。它多出来的 15 个文件（包括 tests/test-kpack-load.cpp/.py）都是已经合入 ppu_dev 的 kpack-load-only 内容。 GitHub 上相关分支：只有 pr/kpack-cache 和 pr/kpack-load-only 两个，没有其他 kpack 或 cache 分支。 看起来 kpack-cache 的功能代码还没推到 GitHub，这个分支目前只是把基线对齐到了 ppu_dev。你推上去之后告诉我，我再拉。新 MR 会这样做： 从 thead/ppu_dev 新建内网分支 kpack-cache，只取 8760356ab 之后的提交；
+- (2026-10-10 06:11 UTC) 改写作者为 junfu.qx，去掉 Assisted-by: Codex 这类标记；
+- (2026-10-10 06:11 UTC) 推送后创建 kpack-cache 到 ppu_dev 的 MR。
+- (2026-10-10 06:11 UTC) 我没有让你创建MR，这是我在本地的codex爆出来的错误信息。你还没有增加这个MR对应的功能代码？
+- (2026-10-10 06:12 UTC) 要增加，之后push
+- (2026-10-10 06:12 UTC) 写代码的逻辑要按照我们之前的逻辑
+- (2026-10-10 10:42 UTC) 保存位置不需要作为参数，直接/tmp之类的默认位置，或者env设置，类似于deepgemm的编译缓存位置之类的
+- (2026-10-10 11:00 UTC) llama model还有llama model的loader这几个文件必须要改动吗？
+- (2026-10-10 11:04 UTC) 所现在的方案已经比较优了
+- (2026-10-11 01:46 UTC) TP2的改动主要影响范围有多大？
+- (2026-10-11 01:56 UTC) 为什么原来的数据格式不需要这么做？不需要额外的代码
+- (2026-10-12 01:15 UTC) src/llama-model.cpp // contexts where the model tensors metadata is stored as well as the corresponding buffers: std::vector<std::pair<ggml_context_ptr, std::vector<ggml_backend_buffer_ptr>>> ctxs_bufs; #ifdef GGML_NCP_QUACTLIZE // Destroy first: the writer reads weights owned by ctxs_bufs. std::unique_ptr<llama_kpack_cache> kpack_cache; AoneD 2026.10.10 19:17 这里的正确性依赖成员声明顺序（~impl() = default 按声明逆序析构，kpack_cache 在 ctxs_bufs 之后声明才会先析构），一旦后续有人调整成员顺序或把该字段挪走，后台写线程就会在 ctxs_bufs 释放后继续访问 copy_reader 持有的 ggml_tensor* 与其 buffer，造成 use-after-free，且只靠注释很难防护。 建议在 ~impl() 中显式提前释放，让顺序不再依赖声明位置： ~impl() { #ifdef GGML_NCP_QUACTLIZE kpack_cache.reset(); // drain the writer before ctxs_bufs are released #endif } src/llama-model.cpp ml.init_mappings(true, use_mlock ? &pimpl->mlock_mmaps : nullptr); bool prefetch_source = true; #ifdef GGML_NCP_QUACTLIZE if (params.split_mode != LLAMA_SPLIT_MODE_TENSOR && params.split_mode != LLAMA_SPLIT_MODE_ROW) { pimpl->kpack_cache = llama_kpack_cache::create(ml); ml.kpack_cache = pimpl->kpack_cache.get(); prefetch_source = !ml.kpack_cache || !ml.kpack_cache->has_cached_tensors(); AoneD 2026.10.10 19:17 has_cached_tensors() 只判断「缓存里有没有 tensor」，粒度太粗：只要 sidecar 中存在任意一条记录，就会对整个 GGUF 关闭预取（init_mappings 里 prefetch=false → 不带 MAP_POPULATE、不发 POSIX_MADV_WILLNEED）。但缓存命中的前提是 api_for()/same_layout()/find(name) 全部通过，实际很容易出现「缓存存在但大部分 tensor 落空」的情况（例如上一次运行时 n_gpu_layers 更小、只缓存了部分层；或换了 GPU 导致 mapping_id 不一致而全部 miss）。此时这些 tensor 仍会走 load_all_data 的 mmap/文件读取路径，却失去了预取，加载速度可能比改动 …
+- (2026-10-12 01:18 UTC) 改吧
+- (2026-10-12 01:46 UTC) 默认应该我们不会打开加载online shuffle吧？或者我们现在测试看到lm eval测试越来越慢，跟我们的改动有关系吗？
+- (2026-10-12 01:50 UTC) 是tps变慢
+- (2026-10-12 01:54 UTC) 关键是越来越慢，是不是显存什么地方没有释放
+- (2026-10-12 02:07 UTC) 等一下，我们的显存占用应该不会比原来更大吧？
+- (2026-10-12 02:46 UTC) 思考一下是不是需要每次都check no use
+- (2026-10-12 02:52 UTC) 这样的鲁棒性分析一下
+- (2026-10-12 03:12 UTC) TPS下降跟这个没关系，你先按照这个增量push到cache的branch
+- (2026-10-12 05:43 UTC) TPS跟这个没有关系，是换了sdk
+- (2026-10-12 05:50 UTC) if (GGML_NCP_QUACTLIZE) find_package(Threads REQUIRED) if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux") message(FATAL_ERROR "K-pack cache requires Linux") endif() target_sources(llama PRIVATE llama-kpack-cache.cpp llama-kpack-sidecar.cpp) target_compile_definitions(llama PRIVATE GGML_NCP_QUACTLIZE) target_link_libraries(llama PRIVATE vendor::nlohmann Threads::Threads) endif() 为什么需要linux
+- (2026-10-12 05:55 UTC) llama cpp本身没有类似的调用吗？
+- (2026-10-12 05:57 UTC) 也就是拆分改完之后还是需要保留linux的平台的check？为什么呢？或者llama cpp本身有没有方法能够取代我们用的renameat2
+- (2026-10-12 05:59 UTC) llama cpp内部怎么写的，如果我们完全复用还是不能删掉这个依赖吗？
+- (2026-10-12 06:01 UTC) 重构
+- (2026-10-12 06:43 UTC) 原来保证断电持久性？
+- (2026-10-12 06:44 UTC) 现在呢
+- (2026-10-12 06:45 UTC) fsync需要linux？
+- (2026-10-12 06:46 UTC) 也就是你现在并没有落盘吗？
+- (2026-10-12 06:47 UTC) 没太理解？也就是现在也会写到磁盘，只是不保证？
+- (2026-10-12 06:49 UTC) 丢失或者损坏内存不影响下一次的推理吧？只是需要重新加载shuffle落盘？
+- (2026-10-12 06:51 UTC) 什么意思？那么会出现什么问题
+- (2026-10-12 06:53 UTC) 同步落盘为什么可以解决这个问题
+- (2026-10-12 06:55 UTC) 用fsync的话，需要对于windows平台特殊处理？
+- (2026-10-12 06:55 UTC) 不用fsync，通过某种校验判断有没有落盘成功不行吗？
+- (2026-10-12 06:58 UTC) llama cpp原来没有这类问题吗
+- (2026-10-12 07:01 UTC) 所以如果中途下电我们可能是会下次加载错误的模型
+- (2026-10-12 07:02 UTC) 下次文件大小应该不同吧。如果中途结束
+- (2026-10-12 07:07 UTC) A. 把落盘保证加回来，并做成跨平台： 写一个 sync_file() 辅助函数，POSIX 上用 fsync，macOS 上用 fcntl(F_FULLFSYNC)，Windows 上用 FlushFileBuffers。 weights.bin 和 manifest.json 在 fclose 之前各同步一次，staging 目录也同步一次。Windows 没有目录 fsync，跳过即可。 硬链接建好后，再同步目标目录和它的上一级目录。 一次写缓存只多几次 fsync，不影响加载速度。
+- (2026-10-12 07:33 UTC) 后续还有多少个拆分的PR
+- (2026-10-12 07:40 UTC) 1+2应该合并成一个
+- (2026-10-12 07:40 UTC) 2合并的时候是不是group的gemm的shuffle不能开？
+- (2026-10-12 07:43 UTC) 目前有这种分开打开的能力米啊
+- (2026-10-12 07:55 UTC) 更新了ppu dev和master的diff，你来基于这个给我下一个pr的branch。也就是tp的branch，你不是只有tp2吧，应该是所有的切分的case吧？
+- (2026-10-12 07:57 UTC) 实现方法应该按照我们之前的讨论的写法， 也就是gguf切分之后我们用同样的方法专程我们的格式，落盘
+- (2026-10-12 07:57 UTC) 关掉我们的llamacpp的ci
+- (2026-10-12 08:00 UTC) 继续
+- (2026-10-12 08:48 UTC) 提交吧。改动多吗？
+- (2026-10-12 08:49 UTC) 推送
+- (2026-10-12 09:04 UTC) ggml/src/ggml-backend-meta.cpp 为什么这么多改动，只是加载之后的shuffle需要这么麻烦吗？
+- (2026-10-12 09:18 UTC) 为什么要是kpack buffer，普通buffer不能用嘛
+- (2026-10-12 09:25 UTC) 那就改吧。还是思考一下最小改动怎么搞。当然也要考虑合理性
+- (2026-10-12 09:34 UTC) 给我一个aiu bulk load的纯读取数据的kernel。测试HBM的read上限。
+- (2026-10-12 09:36 UTC) 放Kernels目录下
+- (2026-10-12 09:36 UTC) 然后上传到github，Kernels的github
+- (2026-10-12 09:38 UTC) 我们要1。0，然后你先把llama cpp这个搞定
+- (2026-10-12 09:49 UTC) if (chunk_size_j == 0 || ggml_nelements(simple_tensor) == 0) { 为什么有这个判断？ ggml_backend_meta_buffer_type_context(std::vector<ggml_backend_buffer_type_t> simple_bufts) : simple_bufts(std::move(simple_bufts)) { name = "Meta("; for (size_t i = 0; i < simple_bufts.size(); i++) { for (size_t i = 0; i < this->simple_bufts.size(); i++) { if (i > 0) { name += ","; } name += ggml_backend_buft_name(simple_bufts[i]); name += ggml_backend_buft_name(this->simple_bufts[i]); }这里为什么要用thisthis->
+- (2026-10-12 10:02 UTC) commit信息量太低了
+- (2026-10-12 12:18 UTC) 推送了吗？
+- (2026-10-12 12:24 UTC) 好像aiu的load不够bulk。是不是
+- (2026-10-13 00:46 UTC) This kernel grid is too small to fill the available resources on this device, resulting in only 0.02 full waves across all CUs. Look at Launch Statistics for more details.
+- (2026-10-13 01:12 UTC) 现在已经支持ep的quactlize了吧？
+- (2026-10-13 01:29 UTC) 更新了ppu dev和main的diff文件，你更新一下，基于这个实现下一个MR，也就是dense的quactlize的接入
+- (2026-10-13 01:34 UTC) 先把llama cpp接线搞好，然后告诉我prompt ncp flashlib需要实现什么功能
+- (2026-10-13 01:50 UTC) 原生有什么融合，应该没有吧？
+- (2026-10-13 02:13 UTC) 当前 llama 默认 `GGML_QUACTLIZE_DENSE=0`（unset 也等价 0）。生产显式启用需要 `GGML_QUACTLIZE_DENSE=1` 加现有 `-ot tensor_pattern=CUDA0_KPACK`。可用 `QUACTLIZE_PPU_DENSE_LIBRARY` 指向候选库。缺库或不完整 ABI 会报错，不会静默回退。默认关闭时原来的 load-only forward 拒绝行为保留。我不希望有额外的ot输入，这个是为什么要有？打开QUACTLIZE dense的时候默认应该就是kpack，要不然无意义。然后dense应该默认打开
+- (2026-10-13 02:16 UTC) 之前的prompt应该不需要修改quactlize的repo吧，只需要修改ncp flash lib
+- (2026-10-13 02:40 UTC) 已完成 ncp-only 可行性审查，并按要求在发现硬缺口后停止，未修改任何仓库。结论：固定 Quactlize 版本无法完整满足新 ABI，不能诚实实现 provider。
+- (2026-10-13 02:40 UTC) SIMT/Q4 decode：支持动态 A/C/workspace/stream、F32 输出及完整 reducer，可复用。
+- (2026-10-13 02:40 UTC) TC decode：prepared handle 固化 A/C/workspace；run_v1 仅接收 handle 和 stream，无法动态重绑。
+- (2026-10-13 02:40 UTC) prefill：handle 保存完整 call，固定 A/C/workspace/stream。
+- (2026-10-13 02:40 UTC) 旧 dynamic device API：仅覆盖 Q2_K-Q6_K 的 FQ FP16 endpoint和旧 tactic inventory；不覆盖 Q8_0、F32 endpoint、production matched TC、SF/full-dequant 路由。
+- (2026-10-13 02:40 UTC) 因此无法保证 changing-address、双 stream、Graph replay、大幅值 F32，以及 production selector 无损执行。
+- (2026-10-13 02:40 UTC) M=0 也不能对 Q8_0 或所有 production route 返回 1，否则自动打包后将没有合法 fallback。
+- (2026-10-13 02:40 UTC) 相关依据：
+- (2026-10-13 02:40 UTC) dispatch/api.h dispatch/binding.cpp decode/api.h prefill/runtime.cpp
+- (2026-10-13 02:40 UTC) ppu_dense_backend.cu 最小缺失能力是 Quactlize 提供“prepared module/recipe + 每次传入完整动态 call”的执行入口，覆盖 selected TC、Q8、prefill/SF/full 路由。已核对：
+- (2026-10-13 02:40 UTC) llama caller：8952b3e276e88100fd6b868537c70a5475de8a45 Quactlize：347cd48d684be5ecfa2ec19da01c9604d1605f66 actlize：3d0e625a9c0c2f83580359c7c992434a78d05160 ncp 工作树干净；没有新提交 SHA。
+- (2026-10-13 02:40 UTC) 以上均为 host 源码检查，没有真 PPU 执行结果。
+- (2026-10-13 02:48 UTC) 原来的接线为什么没有这个问题
+- (2026-10-13 02:54 UTC) 哪种更好？
+- (2026-10-13 02:55 UTC) 直接修改quactlize支持，然后给我新的指令我去让本地ai更新ncp flash lib
+- (2026-10-13 03:32 UTC) 推到develop branch
+- (2026-10-13 03:32 UTC) quactlize
+- (2026-10-13 05:21 UTC) # libquactlize_ppu_pack.so (Quactlize K-pack producer), and libquactlize_ppu_dense.so.应该合并
+- (2026-10-13 05:32 UTC) 只给我这个新的合并之后的prompt
+- (2026-10-13 05:33 UTC) 应该是只交付build/libquactlize_ppu.so
+- (2026-10-13 05:34 UTC) 设计到quactlize的修改吗？
+- (2026-10-13 07:13 UTC) 看一下quactlize dense的txt文件，这个是ncp flash lib中的接口，但是我只看到了q4，看看所有的问题
+- (2026-10-13 07:23 UTC) 我不理解，quactlize应该本身提供一个非常完备的接口，不要把这些复杂度交给ncp flash lib
+- (2026-10-13 07:24 UTC) 而且我们之前的poc的llama cpp+quactlize已经work了啊
+- (2026-10-13 07:25 UTC) 直接在quactlize中编出所有需要的so，ncp flash lib只是一个浅wrapper
+- (2026-10-13 07:39 UTC) 也就是你现在再把之前llama cpp中的动态选择部分挪到quactlize中？
+- (2026-10-13 07:40 UTC) 注意我们是要复现性能的
+- (2026-10-13 07:50 UTC) 按照这个逻辑，其实不需要ncp flash lib。是不是可以直接去掉
+- (2026-10-13 08:00 UTC) 静态分析一下是不是选择的kernel和原来的llama cpp中的动态方法一致即可
+- (2026-10-13 08:15 UTC) 通用fallback好还是旧fallback好？
+- (2026-10-13 08:17 UTC) 按照你的计划。另外ncpflashlib只保留quactlize在thirdparty和build脚本中进行quactlize的编译。
+- (2026-10-13 08:34 UTC) 还要多久
+- (2026-10-13 08:43 UTC) ncp flash lib如何修改，是不是只需要build中包含就行了
+- (2026-10-13 08:46 UTC) build的include目录是为了jit
+- (2026-10-13 08:47 UTC) 刚才你还没有提交？
+- (2026-10-13 08:51 UTC) llama cpp的mr需要对应修改吗？
+- (2026-10-13 08:52 UTC) 改吧。改完之后提交
+- (2026-10-13 09:33 UTC) 这个branch没有测试能够测到quactlize的这些量化算子的测试？
+- (2026-10-13 09:39 UTC) 我的意思是没有gemm/gemv计算。独立注册独立的ctest。写的尽可能完备一点。
+- (2026-10-13 09:39 UTC) 我们现在不align的shape会出错吗？
+- (2026-10-13 10:00 UTC) 还要多久
+- (2026-10-14 00:57 UTC) 目前我们选择config的接线逻辑画出来给我
+- (2026-10-14 01:02 UTC) 大M为什么没有分痛
+- (2026-10-14 01:03 UTC) cublas的扫描是怎么做的？应该是直接在开始之前根据N和K扫不同的M的最优结果？
+- (2026-10-14 01:06 UTC) 我的意思是quantized gemm可以在每次初始化的时候，本来我们的前处理时间也挺长的。可以类似于cublas的扫描的方法，我们也扫描不同的config，动态编译出最优策略？
+- (2026-10-14 01:08 UTC) 因为我们目前的config选择策略已经非常复杂了。后续可能是查表+动态更新表的方式？表内没有的分桶。你觉得最好的方法是什么？自己和自己辩论一下。
+- (2026-10-14 01:21 UTC) 给我几个点解释，太长篇大论了
+- (2026-10-14 01:21 UTC) 我们缺哪些？
+- (2026-10-14 01:24 UTC) 你先把本地能做的做完
+- (2026-10-14 01:26 UTC) 我们不是已经有大量的box实测数据了吗？
+- (2026-10-14 01:27 UTC) ["/usr/local/PPU_SDK/bin/hgcc", "--forward-unknown-to-host-compiler", "--forward-unknown-to-host-linker", "-arch=ppu_10", "-x", "hg", "-DSWITCH_TO_HGGCRT", "-std=c++17", "-O3", "-Xcompiler", "-ftemplate-depth=8192", "-Xllvm", "-wno-loop-miss-transform", "-Xllvm", "-ppu-simt-branch=false", "-Xllvm", "-ppu-patch-fence-ppu=false", "-Xllvm", "-ppu-cg-to-kp1=true", "-Xllvm", "-ppu-fix-uninit=true", "--expt-relaxed-constexpr", "-DUSE_CLANG", "-DCUTLASS_USE_PACKED_TUPLE=1", "-DCUTE_USE_PACKED_TUPLE=1", "-fPIC", "-DPPU_PACKED_SCALE=1", "-DPPU_PACKED_FORMAT=0", "-I/workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/include", "-I/workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/runtime", "-I/workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/integrations", "-I/workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/decode", "-I/workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/third_party/actlize/include", "-I/workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/third_party/actlize/tools/util/include", "-I/workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/third_party/actlize/examples/common", "-c", "/root/.cache/quactlize/ppu/6d95ada77e076a886b951ad672bb68dcfa2bdb9b9a3439f0b9e7d07a41a42786/build-2fwwgl0j/kernel.cu", "-o", "/root/.cache/quactlize/ppu/6d95ada …
+- (2026-10-14 01:27 UTC) In file included from /root/.cache/quactlize/ppu/6d95ada77e076a886b951ad672bb68dcfa2bdb9b9a3439f0b9e7d07a41a42786/build-2fwwgl0j/kernel.cu:14: In file included from /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/runtime/module.cuh:3: In file included from /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/runtime/kernel_types.cuh:3:
+- (2026-10-14 01:27 UTC) In file included from /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/include/fpA_intB_ppu.cuh:44: In file included from /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/include/quactlize_actlize.hpp:41: /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/include/actlize_extensions/cutlass/gemm/collective/builders/quactlize_mma_builder.inl:186:30: error: use of undeclared identifier 'PPU0010_8x16x16_F32BF16BF16F32_TN' using Bf16Mma = MMA_Traits<PPU0010_8x16x16_F32BF16BF16F32_TN>; ^ /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/include/actlize_extensions/cutlass/gemm/collective/builders/quactlize_mma_builder.inl:187:68: error: use of undeclared identifier 'Bf16Mma' static_assert(cute::is_same_v<typename HalfMma::ALayout,typename Bf16Mma::ALayout> && ^ /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/include/actlize_extensions/cutlass/gemm/collective/builders/quactlize_mma_builder.inl:188:68: error: use of undeclared identifier 'Bf16Mma' cute::is_same_v<typename HalfMma::BLayout,typename Bf16Mma::BLayout> && ^ /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/include/actlize_extensions/cutlass/gemm/collective/builders/quactlize_mma_builder.inl:189:68: error: use of undeclared identifier 'Bf16Mma' cute::is_same_v<typename HalfMma::CLayou …
+- (2026-10-14 01:27 UTC) /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/quactlize-runtime/jit/quactlize/include/actlize_extensions/cutlass/gemm/collective/builders/quactlize_mma_builder.inl:190:42: error: use of undeclared identifier '
+- (2026-10-14 01:27 UTC) Bf16Mma' cute::is_same_v<typename Bf16Mma::ValTypeA,cutlass::bfloat16_t>, ^ 5 errors generated when compiling for host. hgcc error: Exited with error code 1
+- (2026-10-14 01:35 UTC) 远端容器未安装 rg，已用等价的 grep -nF 检查。两个指定头文件均无匹配（退出码 1），即已安装的 JIT 头文件中没有该符号。
+- (2026-10-14 01:36 UTC) 是你这边的问题吗？代码上出错了？还是我本地的submodule
+- (2026-10-14 02:06 UTC) 开始整理quactlize的新的config选择方法。quactlize的扫描可以先开始了
+- (2026-10-14 02:07 UTC) 开始整理quactlize的新的config选择方法。quactlize的扫描可以先开始了，先看一下原来的结果，能复用的有哪些？然后不能用的就丢掉，我们整理之后更新一个新的脚本去ppu上跑
+- (2026-10-14 02:07 UTC) 最终要和原来的接线对标。不能变差。
+- (2026-10-14 02:08 UTC) reducer和前后处理应该单独profile，不能三个kernel在一次计时，这样会重复跑很多，也有一些kernel laucnhtime的计算
+- (2026-10-14 02:39 UTC) ggml_cuda_init: found 1 CUDA devices (Total VRAM: 49152 MiB): Device 0: PPU-ZW610, compute capability 8.0, VMM: yes, VRAM: 49152 MiB KPACK_DENSE_START suite=gemm q=12 m=9 n=256 k=512 KPACK_JIT_RESOLVE parent=fqk_tc_q12_l1_a0_tm64_tn128_tk256_wm64_wn16_s2_bc0_ap0_dn0 cache=/root/.cache/quactlize/ppu KPACK_JIT parent=fqk_tc_q12_l1_a0_tm64_tn128_tk256_wm64_wn16_s2_bc0_ap0_dn0 cache_hit=0 seconds=61.148 key=94ed9ec2892fdd546c322e044534e3968b4d31f6bb1285d054257174e7ddf907 /workspace/llama-dense-ci-f38177b8/llama_cpp/ggml/src/ggml-cuda/quactlize-buft.cu:628: quactlize: dense prepare dense-online: loaded module device differs from policy: probe_rc=0 name=PPU-ZW610 ordinal=0 compute_units=64 expected_name=PPU-ZW810 expected_compute_units=72 previous_ordinal=-1 previous_compute_units=0 [New LWP 1873226] This GDB supports auto-downloading debuginfo from the following URLs: <https://debuginfod.ubuntu.com> Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal] Debuginfod has been disabled. To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+- (2026-10-14 02:39 UTC) Python Exception <class 'ModuleNotFoundError'>: No module named 'math' [Thread debugging using libthread_db enabled]
+- (2026-10-14 02:39 UTC) Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+- (2026-10-14 02:39 UTC) 0x0000710e77bb9813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6
+- (2026-10-14 02:39 UTC) #0 0x0000710e77bb9813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x0000710e78079853 in ggml_print_backtrace () from /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/libggml-base.so.0 #2 0x0000710e780799fb in ggml_abort () from /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/libggml-base.so.0
+- (2026-10-14 02:39 UTC) #3 0x0000710e69bc220b in ggml_quactlize_prepare_graph(ggml_backend_cuda_context&, ggml_cgraph const*) () from /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/libggml-cuda.so.0
+- (2026-10-14 02:39 UTC) #4 0x0000710e69a64445 in ggml_backend_cuda_graph_compute(ggml_backend*, ggml_cgraph*) () from /workspace/llama-dense-ci-f38177b8/llama_cpp/build-ci/bin/libggml-cuda.so.0
+- (2026-10-14 02:42 UTC) #5 0x00005a9aa357b181 in test_kpack_dense(ggml_backend*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int, bool) () #6 0x00005a9aa3576ad2 in main () [Inferior 1 (process 1873225) detached] 我想了一下，如果jit编译+对比多种config性能，还是太慢了，应该以查表+规则的fallback为主。你觉得呢？
+- (2026-10-14 02:45 UTC) 根据这个我们思考一下怎么做比较好。列一个计划，另外610新的设备是一个很好的测试的机会。也可以认为是fallback
+- (2026-10-14 02:46 UTC) 但是之前查表中需要补测的还是要继续的。
+- (2026-10-14 02:48 UTC) 多久给我重新测似的脚本。
+- (2026-10-14 02:55 UTC) 继续，补测的时间要考虑，之前遇到这个问题，测试的config太多，导致要好几周时间才能完整测试
+- (2026-10-14 02:56 UTC) 每个shape选择的config要先筛。
+- (2026-10-14 02:58 UTC) 之前的结果如果可利用的不多，也可以重新跑
+- (2026-10-14 03:10 UTC) 只需要3-4个吗？你确定？我们最终是要和原来的写法对比性能的
+- (2026-10-14 03:18 UTC) 继续
+- (2026-10-14 03:19 UTC) 另外我期望的是你根据某种规则选择中包含之前的冠军，而不是直接把之前的最优结果放进去。这样才能证明你的选择正确性。
+- (2026-10-14 03:25 UTC) 这样你可以自己迭代
+- (2026-10-14 03:42 UTC) 原来的persistent的grid是写死的？不是动态获取吗？
+- (2026-10-14 03:49 UTC) 这个地方是不是要改掉
+- (2026-10-14 04:04 UTC) 继续之前的config的修改
+- (2026-10-14 05:31 UTC) 继续
+- (2026-10-14 06:26 UTC) 剩下来的问题是什么
+- (2026-10-14 06:27 UTC) 继续第一步
+- (2026-10-14 06:28 UTC) 后续你自己迭代，直到需要上box在跟我说
+- (2026-10-14 07:44 UTC) 为什么要求优先用610
+- (2026-10-14 07:45 UTC) 为什么不直接上传github，然后给我command我来box测试。
+- (2026-10-14 08:05 UTC) 必须要上传吗？这个只是一个test吧
+- (2026-10-14 08:06 UTC) 怎么判断结果正确性
+- (2026-10-14 08:08 UTC) STRATEGY_RESOURCES_DONE {"status": "COMPLETE", "missing": [], "counts": {"modules": 58, "queries": 222}, "ready": 222, "unavailable": 0, "build_wall_seconds": 85.01471859030426, "q uery_wall_seconds": 41.39270465634763, "total_seconds": 127.11282979696989, "resolved_rule_arms": 474, "kernel_launches": 0, "performance_proven": false, "production_changed": fals e, "scope": "COMPILE_AND_RESOURCE_QUERY_ONLY_FULL_TIMING_RUNNER_STILL_PENDING"} STRATEGY_PROBE_COMPLETE scope=RESOURCE_ONLY kernel_launches=0 performance_proven=0 production_changed=0 results=/workspace/kpack-rule-probe.Ki5bUxmB.results.tgz runner_rc=0 stage=complete
+- (2026-10-14 08:11 UTC) zw810
+- (2026-10-14 08:23 UTC) 还要多久
+- (2026-10-14 08:38 UTC) root@aiswu52:/sim/eec/shared/junfu.qx/quactlize# ( STRATEGY_EXEC_DONE {"status": "FAIL", "passed": 8, "expected": 12, "cases": {"0ee23350441f1714812d39d335c52fb402ac73dcbc0ab43bc3f51f7db0011956": "PASS", "d1db7a1dbfd168626d127648cdbbea427c1aa5ea84142e9fe3c67931a2255790": "PASS", "170e20673c65ce25516f79b27ab302c9856652bf2069ec10a36e8f6c59fedab3": "PASS", "38ad0750d3a48ef470a64320da2a34fbb3abafb4be7313b22c6c814d6b8eefbe": "PASS", "de8b9d15dd533f5b80952a55fac45dbf8d4aa39b7582f0b349d6d9e7f2ec0634": "PASS", "f115cff115cf0fb64bf50a2ca329457e987fe5fc5f2c068b4607b8afc60a378818aaac": "PASS", "967de1eff84ff672c3079a88e0eac265acc6d1c8abc788290f21adc604448ec6": "PASS", "00efc93bfe14c02d4500612f9704ccf93104867fc81176b03b42c1931986d057": "PASS", "272be615532697297d642fd476da972104c6f4fe286345f9c817e80701ebc29c509a0c9654fcfb0a840008ab78296903e9b332ea782a417700": "FAIL"}, "elapsed_seconds": 105.53299930132926, "new_compiles": 0, "device": {"host": "aiswu52.eng.t-head.cn", "ordinal": 0, "pci": "0000:08:00.0", "compute_units": 72, "warp_size": 32, "max_threads": 1024, "DriverGetVersion": 13000, "RuntimeGetVersion": 13000}, "scope": "TC_EXECUTION_AND_SINGLE_KERNEL_TIMER_SMOKE_NOT_SELECTION", "performance_admitted": false, "production_changed": false, "full_sweep_started": false, "omissions": ["SIMT_AND_Q4_SEARCH", "KQUANT_SF_EXPANSION", "FULL_DEQUANT", "COLD_WEIGHT_COMPARISON", "ORIGINAL_WIRING_AB", "FULL_CAMPAIGN"]} results=/workspace/kpack-rule-exec.sLpVM0ct.1791967072845455453.results.tgz ru …
+- (2026-10-14 08:39 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/run_kpack_strategy_pilot.py", line 112, in main result = validate_pass(case, measure_case(SDK(args.sdk), case, record, File "/sim/eec/shared/junfu.qx/quactlize/dev/strategy/pilot_native.py", line 227, in measure_case
+- (2026-10-14 08:39 UTC) raise ValueError('unexpected captured component inventory: ' + repr(kinds)) ValueError: unexpected captured component inventory: ['prepare', 'prepare', 'postprocess']
+- (2026-10-14 08:59 UTC) STRATEGY_EXEC_DONE {"status": "PASS", "passed": 4, "expected": 4, "cases": {"272be615532697297d642fd476da972104c6f4fe286345f9c817e80701ebc29c": "PASS", "ccdcb5435c8cf2349cd8177f99412a6d0d2e82162b2f58d6075670113f9428dc": "PASS", "2efb6ec3b83302a618591da71a6d0007da7e1d25669f3e66f6f8184680eb59b2": "PASS", "fd1b796d5705c2509a0c9654fcfb0a840008ab78296903e9b332ea782a417700": "PASS"}, "elapsed_seconds": 38.86826090887189, "new_compiles": 0, "device": {"host": "aiswu52.eng.t-head.cn", "ordinal": 0, "pci": "0000:08:00.0", "compute_units": 72, "warp_size": 32, "max_threads": 1024, "DriverGetVersion": 13000, "RuntimeGetVersion": 13000}, "scope": "TC_EXECUTION_AND_SINGLE_KERNEL_TIMER_SMOKE_NOT_SELECTION", "performance_admitted": false, "production_changed": false, "full_sweep_started": false, "omissions": ["SIMT_AND_Q4_SEARCH", "KQUANT_SF_EXPANSION", "FULL_DEQUANT", "COLD_WEIGHT_COMPARISON", "ORIGINAL_WIRING_AB", "FULL_CAMPAIGN"], "previous_passed": 8, "original_expected": 12, "retry": {"previous_output": "/workspace/kpack-rule-exec.sLpVM0ct/pilot", "scope": "FAILED_CASES_ONLY_PREVIOUS_PASS_NOT_REMEASURED_OR_RELABELLED"}} STRATEGY_EXEC_RESULTS /workspace/kpack-rule-exec.DVdxvgaY/pilot/summary.json results=/workspace/kpack-rule-exec.DVdxvgaY.1791968341227668030.results.tgz runner_rc=0 stage=complete
+- (2026-10-14 09:07 UTC) 下一步
+- (2026-10-14 09:42 UTC) 还有多久上box
+- (2026-10-14 09:42 UTC) 完整的测试还要多久，几轮
+- (2026-10-14 10:08 UTC) STRATEGY_DECODE_DONE {"status": "PASS", "counts": {"points": 5, "arms": 406, "vector_modules": 63, "reused_tc_modules": 50, "expansion_jobs": 10}, "elapsed_seconds": 984.8900877628475, "production_changed": false, "performance_admitted": false, "full_campaign": false, "scope": "FIVE_POINT_COLD_SMALLM_SCREEN_NOT_FULL_CAMPAIGN", "remaining": ["ALTERNATING_FINALIST_CONFIRMATION", "LARGE_M_FULL_DEQUANT", "ORIGINAL_WIRING_MODEL_AB"]}
+- (2026-10-14 10:08 UTC) STRATEGY_DECODE_RESULTS /workspace/kpack-rule-decode.IdVdoJoi/decode/summary.json results=/workspace/kpack-rule-decode.IdVdoJoi.1791972466442038336.results.tgz runner_rc=0 stage=complete
+- (2026-10-14 10:12 UTC) 为什么还要上传，这个也不是全量吧？
+- (2026-10-14 12:13 UTC) 上传了
+- (2026-10-14 12:28 UTC) 继续下一步
+- (2026-10-14 12:42 UTC) 还要多久给我command上box
+- (2026-10-14 13:27 UTC) 这个是完整的吗？
+- (2026-10-14 13:29 UTC) 后续的command也给我，因为我有多台机器
+- (2026-10-14 14:00 UTC) 后一步呢
+- (2026-10-14 22:37 UTC) 小M跑完了，最后的tar太大了，重新思考如何打包
+- (2026-10-14 22:38 UTC) 只打包需要的部分，对于你来说是不是只需要精度，速度，以及错误问题。
+- (2026-10-14 22:49 UTC) 推送，然后给我command
+- (2026-10-14 22:52 UTC) /workspace/kpack-rule-campaign.OXZL69AV.1792014038706652938.results.tgz是这个吗？
+- (2026-10-14 22:53 UTC) 这个呢？STRATEGY_PREPARE_START task=prefill-resources run=/workspace/kpack-rule-prepare.GdcdVnzk scope=PREPARATION_NOT_FULL_TIMING 第二次你让我跑的
+- (2026-10-14 22:54 UTC) STRATEGY_RESOURCES_DONE {"status": "COMPLETE", "missing": [], "counts": {"modules": 138, "queries": 13140}, "ready": 13140, "unavailable": 0, "build_wall_seconds": 138.88656117091887, "query_wall_seconds": 247.62534490018152, "total_seconds": 401.0142269730568, "resolved_rule_arms": 42171, "kernel_launches": 0, "performance_proven": false, "production_changed": false, "scope": "COMPILE_AND_RESOURCE_QUERY_ONLY_FULL_TIMING_RUNNER_STILL_PENDING"} STRATEGY_PREPARE_DONE scope=PREFILL_TC_RESOURCE_ONLY kernel_launches=0 performance_proven=0 RESOURCE_RUN=/workspace/kpack-rule-prepare.GdcdVnzk RESOURCE_CACHE=/workspace/kpack-rule-prepare.GdcdVnzk/cache results=/workspace/kpack-rule-prepare.GdcdVnzk.1791986514444259082.results.tgz runner_rc=0 stage=complete
+- (2026-10-14 22:57 UTC) 之前的小M的结果已经上传了。
+- (2026-10-14 22:59 UTC) 首先小M rc=1，先看一下这个，另外判断是不是会影响大M的遍历。
+- (2026-10-14 22:59 UTC) 如果不影响先给我大M的测试命令。另外大M《
+- (2026-10-14 23:00 UTC) 之后还需要moe-gemm吗？还是都在这里包含了
+- (2026-10-14 23:01 UTC) 多长时间给我command
+- (2026-10-14 23:04 UTC) 小M如何补测六个失败的case
+- (2026-10-14 23:05 UTC) 30, "all_families": 86, "modules": 138, "queries": 13152, "shard": 0, "shards": 1, "duration_guaranteed": false, "production_changed": false, "scope": "LARGE_M_COMPONENT_SCREEN"} [2026-10-15 07:05:50:898965][ALINPU ERROR]: [device_mem_pool.hpp:40]CUDA error at ../../utils/device_mem_pool.hpp:40 code=1(invalid argument) "hggcFreeAsync(ptr_, stream_)"
+- (2026-10-14 23:06 UTC) STRATEGY_PREFILL_START run=/workspace/kpack-rule-prefill.NnxcoHLF shard=0/1 model_admission=0 STRATEGY_PREFILL_PLAN {"points": 430, "families": 86, "all_points": 430, "all_families": 86, "modules": 138, "queries": 13152, "shard": 0, "shards": 1, "duration_guaranteed": false, "production_changed": false, "scope": "LARGE_M_COMPONENT_SCREEN"}
+- (2026-10-15 00:51 UTC) Traceback (most recent call last): File "/workspace/kpack-prefill-src.veKpVJ6f/source/tools/run_kpack_strategy_prefill.py", line 384, in <module> raise SystemExit(main()) File "/workspace/kpack-prefill-src.veKpVJ6f/source/tools/run_kpack_strategy_prefill.py", line 318, in main raise ValueError('resource phase incomplete; completed modules are resumable') ValueError: resource phase incomplete; completed modules are resumable
+- (2026-10-15 01:08 UTC) 之前的小MSTRATEGY_CAMPAIGN_DONE {"status": "INCOMPLETE", "passed": 1114, "expected": 1114, "unresolved_selection": 7, "prior_screen_reused": 5, "budget_reached": false, "elapsed_seconds": 149.94041970930994, "production_changed": false, "performance_admitted": false, "full_campaign": false, "remaining": ["LARGE_M_FULL_DEQUANT_PROVIDER", "ORIGINAL_WIRING_MODEL_AB"]} retry_rc=1 log=/workspace/kpack-smallm-retry.o93n4wOL/retry.log { "status": "INCOMPLETE", "passed": 1114, "expected": 1114, "unresolved_selection": 7, "budget_reached": false } r
+- (2026-10-15 01:16 UTC) 结果需要重新给你妈？
+- (2026-10-15 01:19 UTC) 结果在哪里，我怎么给你，给我command
+- (2026-10-15 01:32 UTC) STRATEGY_PREFILL_PROVIDER phase=cublas-identity status=PASS KPACK_DEQUANT_BUILD {"seconds": 16.060790448915213, "library": "/workspace/kpack-rule-prefill.N0sKzCzg/measurement/build-attempts/dequant-09774e2c9dea451b94425daf5600cbd4/libquactlize_ppu _dequant.so"} Traceback (most recent call last): File "/workspace/kpack-prefill-fix.cInFTRdB/source/tools/run_kpack_strategy_prefill.py", line 398, in <module> raise SystemExit(main()) ^^^^^^ File "/workspace/kpack-prefill-fix.cInFTRdB/source/tools/run_kpack_strategy_prefill.py", line 338, in main hp = stable_build(args, 'helpers', build_helpers, lambda path, sdk: verify_helpers(sdk, path)) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/workspace/kpack-prefill-fix.cInFTRdB/source/tools/run_kpack_strategy_prefill.py", line 101, in stable_build build(args.sdk, attempt) File "/workspace/kpack-prefill-fix.cInFTRdB/source/dev/strategy/prefill_build.py", line 54, in build list(pool.map(run, [(Path(p).stem, c) for p, c in zip(SOURCES, jobs)]))
+- (2026-10-15 01:32 UTC) File "/usr/local/lib/python3.12/concurrent/futures/_base.py", line 619, in result_iterator yield _result_or_cancel(fs.pop()) ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+- (2026-10-15 01:32 UTC) File "/usr/local/lib/python3.12/concurrent/futures/_base.py", line 317, in _result_or_cancel
+- (2026-10-15 01:32 UTC) return fut.result(timeout)
+- (2026-10-15 01:32 UTC) ^^^^^^^^^^^^^^^^^^^
+- (2026-10-15 01:32 UTC) File "/usr/local/lib/python3.12/concurrent/futures/_base.py", line 456, in result
+- (2026-10-15 01:32 UTC) return self.__get_result()
+- (2026-10-15 01:32 UTC) ^^^^^^^^^^^^^^^^^^^
+- (2026-10-15 01:32 UTC) File "/usr/local/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result raise self._exception
+- (2026-10-15 01:32 UTC) File "/usr/local/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+- (2026-10-15 01:32 UTC) result = self.fn(*self.args, **self.kwargs)
+- (2026-10-15 01:32 UTC) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+- (2026-10-15 01:32 UTC) File "/workspace/kpack-prefill-fix.cInFTRdB/source/dev/strategy/prefill_build.py", line 51, in run subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+- (2026-10-15 01:32 UTC) File "/usr/local/lib/python3.12/subprocess.py", line 571, in run
+- (2026-10-15 01:32 UTC) raise CalledProcessError(retcode, process.args,
+- (2026-10-15 01:32 UTC) subprocess.CalledProcessError: Command '['/sim/eec/shared/junfu.qx/PPU_SDK/bin/hgcc', '--forward-unknown-to-host-compiler', '--forward-unknown-to-host-linker', '-arch=ppu_10', '-x', 'hg', '-DSWITCH_TO_HGGCRT', '-std=c++17', '-O3', '-Xcompiler', '-ftemplate-depth=8192', '-Xllvm', '-wno-loop-miss-transform', '-Xllvm', '-ppu-simt-branch=false', '-Xllvm', '-ppu-patch-fence-ppu=false', '-Xllvm', '-ppu-cg-to-kp1=true', '-Xllvm', '-ppu-fix-uninit=true', '--expt-relaxed-constexpr', '-DUSE_CLANG', '-DCUTLASS_USE_PACKED_TUPLE=1', '-DCUTE_USE_PACKED_TUPLE=1', '-fPIC',
+- (2026-10-15 01:32 UTC) '-I/workspace/kpack-prefill-fix.cInFTRdB/source', '-I/workspace/kpack-prefill-fix.cInFTRdB/source/quactlize/include', '-I/workspace/kpack-prefill-fix.cInFTRdB/source/third_party/actlize/include', '-c', '/workspace/kpack-prefill-fix.cInFTRdB/source/dev/strategy/prefill_helpers.cu', '-o', '/workspace/kpack-rule-prefill.N0sKzCzg/measurement/build-attempts/helpers-c3b38a65af324cddb9dd8adfbd1bda52/prefill_helpers.o']' returned non-zero exit status 5. results=/workspace/kpack-rule-prefill.N0sKzCzg.1792026736794156594.setup-errors.tgz
+- (2026-10-15 01:32 UTC) runner_rc=1 stage=large-m-components
+- (2026-10-15 01:32 UTC) Current Docker shell is preserved.
+- (2026-10-15 01:32 UTC) root@aiswu96:/workspace/pytorch#
+- (2026-10-15 01:34 UTC) 算了，为了避免这个情况，我还是在一台机器上跑。
+- (2026-10-15 01:34 UTC) 先解决M小的问题
+- (2026-10-15 01:34 UTC) kpack-rule-campaign.OXZL69AV.retry6.1792027993167069813.tgz已经上传
+- (2026-10-15 02:02 UTC) fatal: clone of 'https://github.com/DrXuQian/actlize.git' into submodule path '/workspace/kpack-smallm-r25-src.mzaLMezu/source/third_party/actlize' failed
+- (2026-10-15 02:02 UTC) Failed to clone 'third_party/actlize'. Retry scheduled Cloning into '/workspace/kpack-smallm-r25-src.mzaLMezu/source/third_party/actlize'... fatal: remote error: Public/Github/DrXuQian/actlize unavailable
+- (2026-10-15 02:23 UTC) 已经上传了
+- (2026-10-15 02:29 UTC) 绝对耗时应该是接近的。因为是同一台机器的不同卡。但是卡是一样的幸好。
+- (2026-10-15 02:29 UTC) 所以小M结束了吗？
+- (2026-10-15 02:32 UTC) 接线吧。
+- (2026-10-15 02:32 UTC) 大概要多久，是不是同时可以给我大M的指令
+- (2026-10-15 02:35 UTC) 给我从头开始跑的command，对于大M换了机器
+- (2026-10-15 02:47 UTC) In file included from <command-line>:0:
+- (2026-10-15 02:47 UTC) In file included from /usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/include/hggc_runtime.h:242: /usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/include/hgrt/hggc_common_functions.h:67:57: warning: replacement function 'operator new' cannot be declared 'inline' [-Winline-new-delete]STRATEGY_PREFILL_JOB point=e20e50a62468 job=e7f5859f1c0e status=PASS seconds=6.814 Traceback (most recent call last): File "/workspace/kpack-prefill-src.nrEkVW3w/source/tools/run_kpack_strategy_prefill.py", line 202, in child data = measure_core(b, core, canonical, journal.authority, File "/workspace/kpack-prefill-src.nrEkVW3w/source/dev/strategy/prefill_measure.py", line 154, in measure_core rows, pending = stages(capture, b, recipe, authority, source, output, b.check) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/workspace/kpack-prefill-src.nrEkVW3w/source/dev/strategy/prefill_measure.py", line 33, in stages
+- (2026-10-15 02:47 UTC) raise ValueError('prefill component inventory differs: '+repr(list(zip(roles, nodes)))) ValueError: prefill component inventory differs: [('adapter', {'name': 'quactlize::prefill::gather_bf16(float const*, __ppu_bfloat16*, int const*, int, long, int, int*)', 'symbol': '_ZN9q
+- (2026-10-15 02:48 UTC) uactlize7prefill11gather_bf16EPKfP14__ppu_bfloat16PKiiliPi', 'grid': [1024, 1, 1], 'block': [256, 1, 1], 'shared_bytes': 0}), ('prepare', {'name': 'void quactlize::runtime::grouped_splitk_device_metadata<cute::packed_tuple<int, int, int>, cute::packed_tuple<long, cute::C<1>, cute::C<0> > >(int const*, float*, cute::packed_tuple<int, int, int>*, float**, cute::packed_tuple
+- (2026-10-15 03:00 UTC) 还有多久给我新的command
+- (2026-10-15 04:28 UTC) STRATEGY_PREFILL_START run=/workspace/kpack-rule-prefill.kNoiYjGJ shard=0/1 model_admission=0 STRATEGY_PREFILL_PLAN {"points": 430, "families": 86, "all_points": 430, "all_families": 86, "modules": 138, "queries": 13152, "shard": 0, "shards": 1, "duration_guaranteed": false, "production_changed": false, "scope": "LARGE_M_COMPONENT_SCREEN"} Traceback (most recent call last): File "/workspace/kpack-prefill-retry-src.SC60aBro/source/tools/run_kpack_strategy_prefill.py", line 434, in <module> raise SystemExit(main()) File "/workspace/kpack-prefill-retry-src.SC60aBro/source/tools/run_kpack_strategy_prefill.py", line 338, in main probe = previous_probe(previous, frozen, harness_identity(ROOT), ROOT) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/workspace/kpack-prefill-retry-src.SC60aBro/source/dev/strategy/prefill_retry.py", line 79, in previous_probe raise ValueError('retry frozen workload/config inventory changed') ValueError: retry frozen workload/config inventory changed
+- (2026-10-15 05:32 UTC) 继续小m的代码编写
+- (2026-10-15 07:30 UTC) 这要跑多久啊？
+- (2026-10-15 07:30 UTC) STRATEGY_PREFILL_WAIT phase=family-2/86 minutes=75.5 log=/workspace/kpack-rule-prefill.yaU5FaWP/measurement/family-035c388e8f5e3ae6faaed861bd94e8796edbcf8db75d35f5e413f60f56980b52-1792044884902310451.log
+- (2026-10-15 07:30 UTC) 1到7卡都可以跑。
+- (2026-10-15 07:37 UTC) 可以重新跑，本来也就跑了一会儿
+- (2026-10-15 07:37 UTC) 不需要resume，多久给我command上box
+- (2026-10-15 07:55 UTC) Traceback (most recent call last): File "/workspace/kpack-prefill-7gpu.js14yGTG/source/tools/run_kpack_strategy_prefill.py", line 198, in child data = measure_core(b, full, r, journal.authority, provider_source, File "/workspace/kpack-prefill-7gpu.js14yGTG/source/dev/strategy/prefill_measure.py", line 147, in measure_core with prepared(b, core, recipe, config=config, full=full) as (capture, data): File "/usr/local/lib/python3.12/contextlib.py", line 137, in __enter__ return next(self.gen) ^^^^^^^^^^^^^^ File "/workspace/kpack-prefill-7gpu.js14yGTG/source/dev/strategy/prefill_measure.py", line 114, in prepared capture = core.capture() if full else Captured(b.rt, [lambda i=i: core.launch(i) for i in range(copies)]) ^^^^^^^^^^^^^^ File "/workspace/kpack-prefill-7gpu.js14yGTG/source/dev/strategy/prefill_full.py", line 151, in capture checked(self.b.helpers.clone(self.b.r.stream, C.byref(graph)), 'clone provider graph during capture') File "/workspace/kpack-prefill-7gpu.js14yGTG/source/quactlize/runtime/native.py", line 105, in checked raise RuntimeError(f"{operation} failed: status={status}") RuntimeError: clone provider graph during capture failed: status=801 [2026-10-15 15:54:20:192757][ALINPU ERROR]: [device_mem_pool.hpp:91]CUDA error at ../../utils/device_mem_pool.hpp:91 code=801(operation not supported) "hggcMemPoolDestroy(pool_)"
+- (2026-10-15 07:58 UTC) STRATEGY_PREFILL_JOB point=12a7de7e06d9 job=fb0e79cbc195 status=PASS seconds=1.066 STRATEGY_PREFILL_JOB point=12a7de7e06d9 job=5288e236ca5c status=PASS seconds=1.088
+- (2026-10-15 07:58 UTC) STRATEGY_PREFILL_WAIT phase=family-1/13 minutes=0.5 log=/workspace/kpack-prefill-7gpu.js14yGTG/gpu-1/kpack-rule-prefill.gV95Jmum/measurement/family-006055ca5d0b0f21504dbdc4879b471b187fce23913e27e132273690eae07470-1792050833230279806.log
+- (2026-10-15 07:58 UTC) 分别是前后
+- (2026-10-15 08:03 UTC) root@aiswu52:/sim/eec/shared/junfu.qx/llama.cpp.ncp# grep -n -m1 -B8 -A4 -F \
+- (2026-10-15 08:03 UTC) 'clone provider graph during capture failed' \ /workspace/kpack-prefill-7gpu.js14yGTG/gpu-*/kpack-rule-prefill.*/measurement/family-*.log /workspace/kpack-prefill-7gpu.js14yGTG/gpu-7/kpack-rule-prefill.Nhsp9746/measurement/family-12e45d75b4a2e601f0abce3b78a8fce921a557481e7c763b9fd9fcb35ded75c2-1792050842639219281.log-20- ^^^^^^^^^^^^^^ /workspace/kpack-prefill-7gpu.js14yGTG/gpu-7/kpack-rule-prefill.Nhsp9746/measurement/family-12e45d75b4a2e601f0abce3b78a8fce921a557481e7c763b9fd9fcb35ded75c2-1792050842639219281.log-21- File "/workspace/kpack-prefill-7gpu.js14yGTG/source/dev/strategy/prefill_measure.py", line 114, in prepared /workspace/kpack-prefill-7gpu.js14yGTG/gpu-7/kpack-rule-prefill.Nhsp9746/measurement/family-12e45d75b4a2e601f0abce3b78a8fce921a557481e7c763b9fd9fcb35ded75c2-1792050842639219281.log-22- capture = core.capture() if full else Captured(b.rt, [lambda i=i: core.launch(i) for i in range(copies)]) /workspace/kpack-prefill-7gpu.js14yGTG/gpu-7/kpack-rule-prefill.Nhsp9746/measurement/family-12e45d75b4a2e601f0abce3b78a8fce921a557481e7c763b9fd9fcb35ded75c2-1792050842639219281.log-23- ^^^^^^^^^^^^^^ /workspace/kpack-prefill-7gpu.js14yGTG/gpu-7/kpack-rule-prefill.Nhsp9746/measurement/family-12e45d75b4a2e601f0abce3b78a8fce921a557481e7c763b9fd9fcb35ded75c2-1792050842639219281.log-24- File "/workspace/kpack-prefill-7gpu.js14yGTG/source/dev/strategy/prefill_full.py", line 151, in capture /workspace/kpack-prefill-7gpu.js14yGTG/gpu-7/kpack-rule-prefill.Nhsp9746/measurement/fami …
+- (2026-10-15 08:07 UTC) cublas的性能测试要注意有tuning。怎么排除
+- (2026-10-15 08:10 UTC) 是不是一开头先跑一遍cublas的对应shape，然后后续计时就不会有问题？
+- (2026-10-15 08:12 UTC) 先预热，确认连续两次选出的 kernel 和 launch 配置一致，再提取 kernel 计时。其他的框架怎么处理cublas的计时，cublas本身有吗？你这个方法太tricky了
+- (2026-10-15 08:16 UTC) 继续
+- (2026-10-15 08:16 UTC) 还有多久给我command上box
+- (2026-10-15 08:31 UTC) 还有多久
+- (2026-10-15 08:39 UTC) checked(self.b.helpers.clone(self.b.r.stream, C.byref(graph)), 'clone provider graph during capture') File "/workspace/kpack-prefill-capture.AUnIU81R/source/quactlize/runtime/native.py", line 105, in checked raise RuntimeError(f"{operation} failed: status={status}") RuntimeError: clone provider graph during capture failed: status=801
+- (2026-10-15 08:40 UTC) /workspace/kpack-prefill-capture.AUnIU81R/console.log:3:STRATEGY_CAPTURE_ARM arm=default rc=1 passed=0 log=/workspace/kpack-prefill-capture.AUnIU81R/probe/default.log
+- (2026-10-15 08:42 UTC) 错误还是801】
+- (2026-10-15 08:46 UTC) root@aiswu52:/sim/eec/shared/junfu.qx/llama.cpp.ncp# grep -n 'STRATEGY_PROVIDER_CAPTURE' /workspace/kpack-prefill-capture.AUnIU81R/probe/resident.log 2:STRATEGY_PROVIDER_CAPTURE stage=capture-info rc=0 capture_status=1 3:STRATEGY_PROVIDER_CAPTURE stage=node-count rc=0 nodes=60 4:STRATEGY_PROVIDER_CAPTURE stage=inventory nodes=60 non_kernel=0 5:STRATEGY_PROVIDER_CAPTURE stage=clone rc=0
+- (2026-10-15 08:46 UTC) STRATEGY_PROVIDER_CAPTURE stage=reject-non-kernel rc=801 origin=HARNESS_NOT_CLONE_API
+- (2026-10-15 08:47 UTC) STRATEGY_PROVIDER_CAPTURE stage=non-kernel index=76 type=11 STRATEGY_PROVIDER_CAPTURE stage=non-kernel index=79 type=10 STRATEGY_PROVIDER_CAPTURE stage=non-kernel index=82 type=11 STRATEGY_PROVIDER_CAPTURE stage=non-kernel index=85 type=10 STRATEGY_PROVIDER_CAPTURE stage=non-kernel index=88 type=11 STRATEGY_PROVIDER_CAPTURE stage=inventory nodes=90 non_kernel=30 STRATEGY_PROVIDER_CAPTURE stage=reject-non-kernel rc=801 origin=HARNESS_NOT_CLONE_API Traceback (most recent call last): File "/workspace/kpack-prefill-capture.AUnIU81R/source/tools/probe_kpack_prefill_capture.py", line 205, in <module> try: raise SystemExit(main()) ^^^^^^ File "/workspace/kpack-prefill-capture.AUnIU81R/source/tools/probe_kpack_prefill_capture.py", line 190, in main if args.arm: return child(args) ^^^^^^^^^^^ File "/workspace/kpack-prefill-capture.AUnIU81R/source/tools/probe_kpack_prefill_capture.py", line 63, in child data = measure_core(b, full, recipe, digest([authority, args.arm]), ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/workspace/kpack-prefill-capture.AUnIU81R/source/dev/strategy/prefill_measure.py", line 147, in measure_core with prepared(b, core, recipe, config=config, full=full) as (capture, data): File "/usr/local/lib/python3.12/contextlib.py", line 137, in __enter__ return next(self.gen) ^^^^^^^^^^^^^^ File "/workspace/kpack-prefill-capture.AUnIU81R/source/dev/strategy/prefill_measure.py", line 114, in prepared capture = core.capture() if full else Captured(b.rt, [la …
+- (2026-10-15 08:48 UTC) 这个错误是预期的？
+- (2026-10-15 08:55 UTC) [顶部内容截断]
+- (2026-10-15 08:55 UTC) ": "ACTIVE_DEQUANT_AND_BF16_PROVIDER_COMPONENTS_NOT_MODEL_E2E", "provider": {"provider": "CUBLAS_PPU_SDK", "entry": "cublasGemmEx", "version": 130000, "library": "/usr/local/PPU_SDK/CUDA_ SDK/targets/x86_64-linux/lib/libcublas.so.13.0.0.19", "sha256": "23b07b7addd29e4d650423fc9f61329a84013700ac898e06df13433906abe763", "a": "BF16_M_K", "b": "BF16_N_K", "output": "BF16_M_N", "compute": "CUBLAS_COMPUTE_32F", "math_mode": 16, "algorithm": "CUBLAS_GEMM_DEFAULT", "workspace": {"mode": "CALLER_OWNED", "bytes": 33554432, "alignment": 256, "entry": "cublasSetWorks pace_v2", "algorithm": "CUBLAS_GEMM_DEFAULT", "allocation_timed": false}} STRATEGY_PROVIDER_CAPTURE stage=capture-info rc=0 capture_status=1 STRATEGY_PROVIDER_CAPTURE stage=node-count rc=0 nodes=60 STRATEGY_PROVIDER_CAPTURE stage=inventory nodes=60 non_kernel=0 STRATEGY_PROVIDER_CAPTURE stage=clone rc=0 [2026-10-15 16:53:01:281989][AINPU ERROR]: [device_mem_pool.hpp:91]CUDA error at ../../utils/device_mem_pool.hpp:91 code=500(named symbol not found) "hggcMemPoolDestroy(pool_)" Traceback (most recent call last): File "/workspace/kpack-prefill-capture.qiUnYdHg/source/tools/probe_kpack_prefill_capture.py", line 205, in <module> try: raise SystemExit(main()) ^^^^^^ File "/workspace/kpack-prefill-capture.qiUnYdHg/source/tools/probe_kpack_prefill_capture.py", line 190, in main if args.arm: return child(args) ^^^^^^^^^^^ File "/workspace/kpack-prefill-capture.qiUnYdHg/source/tools/probe_kpack_prefill_capture.py", line 63, in child  …
+- (2026-10-15 09:00 UTC) 为什么要构图？
+- (2026-10-15 09:03 UTC) cublas不要用cudagraph
+- (2026-10-15 09:04 UTC) 七卡任务我已经停掉了，等你结果
+- (2026-10-15 09:11 UTC) 还有多久
+- (2026-10-15 09:24 UTC) 还有多久
+- (2026-10-15 09:40 UTC) raise ValueError(f'Asys measured range coverage differs: {len(ranges)}/{len(expected)}') ValueError: Asys measured range coverage differs: 0/135
+- (2026-10-15 09:41 UTC) 为什么不直接计时呢？不用asys
+- (2026-10-15 10:04 UTC) 上传了
+- (2026-10-15 10:54 UTC) 继续这个不稳定有点难理解
+- (2026-10-15 12:09 UTC) 上传了
+- (2026-10-15 12:23 UTC) 继续
+- (2026-10-16 00:44 UTC) /workspace/kpack-prefill-events-3vmtuq_7/shard-1/measurement/family-d425019cc977dfaa7f6c228e7d14dc56a344fcb27e4c10691c3dea2967b1-1792099114083073637.log shard=2 STRATEGY_PREFILL_WAIT phase=family-10/12 minutes=77.5 log=/workspace/kpack-prefill-events-3vmtuq_7/shard-2/measurement/family-c6d8c3313132c46a251d7ad1bbe449e0682e0514683844d9e8f975174db5-1792100920338405392.log
+- (2026-10-16 00:44 UTC) 还要多久
+- (2026-10-16 01:05 UTC) STRATEGY_PREFILL_MULTI_WAIT alive=2/7 elapsed_minutes=730.0 logs=/workspace/kpack-prefill-events-3vmtuq_7/shard-*/console.log shard=1 STRATEGY_PREFILL_WAIT phase=family-13/13 minutes=35.5 log=/workspace/kpack-prefill-events-3vmtuq_7/shard-1/measurement/family-ffd87ae9da066fd5aecf1dcdb846754ea33811b339252d00cb2d7df1212a96d4-1792110560176569367.log shard=2 STRATEGY_PREFILL_WAIT phase=family-12/12 minutes=51.5 log=/workspace/kpack-prefill-events-3vmtuq_7/shard-2/measurement/family-f1c6ab0440b8a5e6c3e7e18b024ab6af15b3a570e7b5a8baad5704b1e09c4767-1792109617492511675.log
+- (2026-10-16 03:03 UTC) 上传了
+- (2026-10-16 03:14 UTC) 已上传
+- (2026-10-16 03:29 UTC) 继续下一步，原配置兜底是什么意思？
+- (2026-10-16 03:30 UTC) 我希望这几轮结束之后我们不需要兜底
+- (2026-10-16 03:33 UTC) 明显落后时因为原配置没有在扫描列表还是为什么
+- (2026-10-16 03:35 UTC) 如果这样，是不是全部都要新测一些配置
+- (2026-10-16 03:35 UTC) 这样才全面
+- (2026-10-16 03:43 UTC) 继续
+- (2026-10-16 03:51 UTC) 大概多久给我command
+- (2026-10-16 04:01 UTC) decoding没有类似的config缺失测试的情况吗？
+- (2026-10-16 04:41 UTC) 如何执行这个box命令
+- (2026-10-16 04:44 UTC) 小M的缺口修复需要上box吗？
+- (2026-10-16 04:44 UTC) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/workspace/kpack-prefill-supplement-src.0Qy9ij2M/source/dev/strategy/prefill_supplement.py", line 57, in check_harness raise ValueError('supplement changed the measured child or job semantics') ValueError: supplement changed the measured child or job semantics
+- (2026-10-16 04:54 UTC) 重新给我command
+- (2026-10-16 05:45 UTC) 逻辑上是不是如果有一张卡有其他的workload，我们的计时也不会受影响？因为是cudagraph？
+- (2026-10-16 05:49 UTC) 那只有六卡，给我一个用卡1到6的command
+- (2026-10-16 06:17 UTC) 现在有7卡了，忽略上面的要求。现在我需要有一个测试就是测试我们的实现和llama cpp原始实现的性能对比，不能有regression。设计一个脚本。测试的内容就是覆盖我们目前的shape吧。
+- (2026-10-16 06:31 UTC) 给我command。这样扫描之后基本可以确认性能没有regression
+- (2026-10-16 08:07 UTC) 之前的任务暂时停掉了，后续如何resume？我说的是大M的
+- (2026-10-16 08:40 UTC) 为什么现在跑这么久，不应该比之前更久，对吗？
+- (2026-10-17 09:53 UTC) 上传了完整的结果
+- (2026-10-17 09:58 UTC) 那就还要继续，给我command
+- (2026-10-18 01:20 UTC) shard1he和shard2的workload是不是安排多了？shard=1 STRATEGY_PREFILL_WAIT phase=family-13/13 minutes=143.5 log=/workspace/kpack-prefill-supplement-uedmwhxm/shard-1/measurement/family-ffd87ae9da066fd5aecf1dcdb846754ea33811b339252d00cb2d7df1212a96d4-1792277777124137336.log shard=2 STRATEGY_PREFILL_WAIT phase=family-12/12 minutes=33.0 log=/workspace/kpack-prefill-supplement-uedmwhxm/shard-2/measurement/family-f1c6ab0440b8a5e6c3e7e18b024ab6af15b3a570e7b5a8baad5704b1e09c4767-1792284416158304599.log
+- (2026-10-18 01:22 UTC) 现在还是超过24小时会主动kill掉？
+- (2026-10-18 05:15 UTC) STRATEGY_PREFILL_MULTI_WAIT alive=1/7 elapsed_minutes=1153.0 logs=/workspace/kpack-prefill-supplement-uedmwhxm/shard-*/console.log shard=2 STRATEGY_PREFILL_WAIT phase=family-12/12 minutes=267.5 log=/workspace/kpack-prefill-supplement-uedmwhxm/shard-2/measurement/family-f1c6ab0440b8a5e6c3e7e18b024ab6af15b3a570e7b5a8baad5704b1e09c4767-1792284416158304599.log 是不是又要overtime了，如何看这个1还有多少没有做的，预估时间
+- (2026-10-18 09:13 UTC) STRATEGY_REVIEW_DONE {"output": "/workspace/kpack-prefill-supplement-uedmwhxm/shard-6/review-1792312011022577389.jsonl.xz", "bytes": 7180108, "secon: 33.53, "records": {"format": 1, "definition": 41386, "run": 1, "point": 60, "screen": 60, "arm": 16275, "supplement_run": 1, "supplement_authority2, "reuse_binding": 5245, "component": 22122, "end": 1}, "raw_results_unchanged": true, "gpu_work": false} results=/workspace/kpack-prefill-supplement-uedmwhxm/shard-6/review-1792312011022577389.jsonl.xz results=/workspace/kpack-prefill-supplement-uedmwhxm/review-1792311707684248419.tgz
+- (2026-10-18 09:15 UTC) 上传了完整的结果
+- (2026-10-18 09:24 UTC) 继续收尾，收尾之后完整接线。
+- (2026-10-18 09:36 UTC) 还有多久给我command上box收尾
+- (2026-10-18 09:36 UTC) box上应该还要跑的很少了吧
+- (2026-10-18 16:22 UTC) 上传了
+- (2026-10-18 16:22 UTC) 我要睡觉了，后续的你能在本地昨晚的继续做完
+- (2026-10-18 22:33 UTC) 32点实际AB是什么意思
+- (2026-10-18 22:34 UTC) 实际AB我希望是大规模的测试，而不是只有32个点，要跟llamacpp的原生实现大规模对比
+- (2026-10-18 22:34 UTC) 起码我们测试到的shape都要对比
+- (2026-10-18 22:49 UTC) 给我command cesium
+- (2026-10-18 22:52 UTC) llama要更新到什么版本
+- (2026-10-18 23:00 UTC) 等一下 我本地是在pr/kpack-dense这个branch上测试，测试可以基于这个对比吗？
+- (2026-10-18 23:01 UTC) 应该在quactlize有脚本对比，llamacpp本身也只是单kernel执行，所以应该不在乎是那个brnach
+- (2026-10-18 23:02 UTC) llama cpp dir = /sim/eec/shared/junfu.qx/llama.cpp.ncp
+- (2026-10-18 23:03 UTC) 大概多久给我command重新上box
+- (2026-10-18 23:04 UTC) 我的意思是对比单kernel的性能，不需要修改接线吧？直接单独运行不久好了
+- (2026-10-18 23:05 UTC) 之前不是跑过quactlize的时间吗？同样的方法跑一下llama的原生实现的时间对比一下？
+- (2026-10-18 23:06 UTC) 大概多久给我command上box，你觉得这个测试的方法有问题吗？
+- (2026-10-18 23:07 UTC) 最终肯定是整体的helper kernel+主kernel一起加起来对比，但是单独的helper kernel测试时间也是我说的方法。单独测试时间。quactlize有什么需要补充的测试，以及llamacpp的测试，你都整一下。
+- (2026-10-19 00:57 UTC) NATIVE_COMPONENT_MULTI_DONE {"status": "INCOMPLETE", "returncodes": [1, 1, 1, 1, 1, 1, 1], "measured": 0, "scope": "NATIVE_AND_SUPPLEMENT_COMPONENTS_HISTORICAL_COMPARISON_NOT_MODEL_TPOT", "no_regression_admitted": false, "production_changed": false} results=/workspace/kpack-native-components.m9TzJudz/review-1792370984983374467.tgz
+- (2026-10-19 00:58 UTC) 继续
+- (2026-10-19 01:00 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/quactlize/tools/run_native_components.py", line 357, in <module> if __name__=='__main__':raise SystemExit(main()) if __name__=='__main__':raise SystemExit(main()) ^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/run_native_components.py", line 311, in main adapter,receipt=build_adapter(a.llama_source,a.llama_build,a.sdk,a.output/'build') ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/native_components/build.py", line 146, in build_adapter subprocess.run(command, cwd=build, stdout=log, stderr=subprocess.STDOUT, check=True) File "/usr/local/lib/python3.12/subprocess.py", line 571, in run raise CalledProcessError(retcode, process.args, subprocess.CalledProcessError: Command '['/usr/local/PPU_SDK/CUDA_SDK/bin/nvcc', '-DGGML_BACKEND_BUILD', '-DGGML_BACKEND_SHARED', '-DGGML_CUDA_PEER_MAX_BATCH_SIZE=128', '-DGGML_CUDA_USE_GRAPHS', '-DGGML_NCP_FA', '-DGGML_NCP_MOE', '-DGGML_NCP_QUACTLIZE', '-DGGML_SCHED_MAX_COPIES=4', '-DGGML_SHARED', '-DGGML_USE_NCCL', '-DGGML_USE_PPU', '-D_GNU_SOURCE', '-D_XOPEN_SOURCE=600', '-Dggml_cuda_EXPORTS', '--options-file', 'CMakeFiles/ggml-cuda.dir/includes_CUDA.rsp', '-O3', '-DNDEBUG', '-std=c++17', '-Xcompiler=-fPIC', '-use_fast_math', '-extended-lambda', '-compress-mode=size', '-Xcompiler', '-Wmissing-declarations -Wmissing-noreturn -Wall -Wextra -Wpedantic -Wcast-qual -Wno-unused-function -Wno-array-bounds -Wextra-semi …
+- (2026-10-19 01:12 UTC) ( set -e cd /sim/eec/shared/junfu.qx/quactlize git pull --ff-only origin develop unset RUN LLAMA_CI_DIR=/sim/eec/shared/junfu.qx/llama.cpp.ncp \ LLAMA_CI_BUILD_DIR=/sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci \ PPU_SDK=/usr/local/PPU_SDK \ GPUS=1,2,3,4,5,6,7 \ L2_BYTES=67108864 IDLE_CONFIRMED=1 \ bash tools/run_native_components_box.sh ) \"/usr/local/lib/python3.12/subprocess.py\", line 571, in run\n raise CalledProcessError(retcode, process.args,\nsubprocess.CalledProcessError: Command '['g++', '-std=c++17', '-O2', '-Wall', '-Wextra', '-I/sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/include', '-I/sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src', '-I/sim/eec/shared/junfu.qx/llama.cpp.ncp/vendor', '/sim/eec/shared/junfu.qx/quactliize/dev/native_components/carrier.cpp', '-L/sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci/bin', '-Wl,-rpath,/sim/eec/"}
+- (2026-10-19 01:18 UTC) 是因为llama cpp没有在当前的环境重新build，我来编译一下
+- (2026-10-19 01:57 UTC) /sim/eec/shared/junfu.qx/ncp_flash_lib/third_party/DeepGemm/deep_gemm/include/deep_gemm/profiling_interface.hpp:2:10: fatal error: hgtx3/hgToolsExt.h: No such file or directory 2 | #include <hgtx3/hgToolsExt.h>
+- (2026-10-19 01:58 UTC) find /usr/local/PPU_SDK/ -name hgToolsExt.h /usr/local/PPU_SDK/targets/x86_64-linux/include/hgtx3/hgToolsExt.h /usr/local/PPU_SDK/targets/x86_64-linux/include/hgToolsExt.h
+- (2026-10-19 02:11 UTC) /sim/eec/shared/junfu.qx/llama.cpp.ncp/src/llama-kpack-sidecar.cpp:1553:53: warning: ignoring attributes on template argument ‘int (*)(FILE*)’ [-Wignored-attributes] 1553 | std::unique_ptr<FILE, decltype(&std::fclose)> fp(ggml_fopen((I.staging + "/manifest.json").c_str(), "wbx"), | ^
+- (2026-10-19 02:12 UTC) In file included from <command-line>:0:In file included from /usr/local/PPU_SDK/targets/x86_64-linux/include/hggc_runtime.h:197: In file included from /usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/include/hgrt/details/system/clang/13.0.1/include/hggc_patch/math.h:30: In file included from /usr/include/c++/13/math.h:36: /usr/include/c++/13/cmath:1097:3: error: constexpr function 'fpclassify' without __host__ or __device__ attributes cannot overload __device__ function with same signature. Add a __host__ attribute, or build with -fno-cuda-host-device-constexpr. fpclassify(float __x) ^ /
+- (2026-10-19 02:15 UTC) ls /usr/bin/g++ g++ g++-13
+- (2026-10-19 02:26 UTC) 还是In file included from /usr/include/c++/12/math.h:36: /usr/include/c++/12/cmath:566:3: error: constexpr function 'isfinite' without __host__ or __device__ attributes cannot overload __device__ function with same signature. Add a __host__ attribute, or build with -fno-cuda-host-device-constexpr.
+- (2026-10-19 02:29 UTC) cd /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci/ggml/src/ggml-cuda && /usr/local/PPU_SDK/CUDA_SDK/bin/nvcc -forward-unknown-to-host-compiler -ccbin=/usr/bin/g++-12 -DGGML_BACKEND_BUILD -DGGML_BACKEND_SHARED -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128 -DGGML_CUDA_USE_GRAPHS -DGGML_NCP_FA -DGGML_NCP_GDN -DGGML_NCP_MOE -DGGML_NCP_QUACTLIZE -DGGML_SCHED_MAX_COPIES=4 -DGGML_SHARED -DGGML_USE_NCCL -DGGML_USE_PPU -D_GNU_SOURCE -D_XOPEN_SOURCE=600 -Dggml_cuda_EXPORTS --options-file CMakeFiles/ggml-cuda.dir/includes_CUDA.rsp -O3 -DNDEBUG -std=c++17 -Xcompiler=-fPIC -use_fast_math -extended-lambda -compress-mode=size -Xcompiler "-Wmissing-declarations -Wmissing-noreturn -Wall -Wextra -Wpedantic -Wcast-qual -Wno-unused-function -Wunreachable-code-break -Wunreachable-code-return -Wmissing-prototypes -Wextra-semi -Wno-pedantic" -MD -MT ggml/src/ggml-cuda/CMakeFiles/ggml-cuda.dir/acc.cu.o -MF CMakeFiles/ggml-cuda.dir/acc.cu.o.d -x cu -c /sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/ggml-cuda/acc.cu -o CMakeFiles/ggml-cuda.dir/acc.cu.o In file included from <command-line>:0: In file included from /usr/local/PPU_SDK/targets/x86_64-linux/include/hggc_runtime.h:197: In file included from /usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/include/hgrt/details/system/clang/13.0.1/include/hggc_patch/math.h:30: In file included from /usr/include/c++/12/math.h:36: /usr/include/c++/12/cmath:537:3: error: constexpr function 'fpclassify' without __host__ or __device__ attributes cannot overload __device__  …
+- (2026-10-19 02:30 UTC) -I"/sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/ggml-cuda/.." -I/sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/../include -isystem /usr/local/PPU_SDK/CUDA_SDK/include
+- (2026-10-19 02:44 UTC) 编译好了，给我command继续之前的性能对比
+- (2026-10-19 02:50 UTC) 大概多久
+- (2026-10-19 02:57 UTC) 没有卡6
+- (2026-10-19 03:05 UTC) NATIVE_COMPONENT_WORKER_FAIL {"worker": "gpu-1", "returncode": 1, "log": "/workspace/kpack-native-components.bR8xRPDM/gpu-1/console.log", "diagnostic": "NATIVE_COMPONENT_FAIL point=9dd835cb99ce241a58b696541bdb7c7e28ef0da1b8fc114dbf1c7b6e93fef63e rc=1 remaining_continue=1\nNATIVE_COMPONENT_FAIL point=da4d2f156c298ece96041513fc8b9b3782d2df93f0ac6bdf4e1056487aa96a8e rc=1 remaining_continue=1\nNATIVE_COMPONENT_FAMILY index=16/18 points=13\nNATIVE_COMPONENT_FAMILY index=17/18 points=1\nNATIVE_COMPONENT_FAMILY index=18/18 points=1\nNATIVE_COMPONENT_DONE {\"status\": \"INCOMPLETE\", \"expected\": 239, \"measured\": 202, \"helper_jobs\": 6, \"failed_helper_jobs\": 0, \"no_regression_admitted\": false, \"model_tpot_admitted\": false}"}
+- (2026-10-19 03:09 UTC) /workspace/kpack-native-components.bR8xRPDM/gpu-1/attempts/082fc8c06faf4bf188e3d9c1c5657ddf/run.log:18:NATIVE_COMPONENT_FAIL: native kernel params: named symbol not found
+- (2026-10-19 03:09 UTC) --/workspace/kpack-native-components.bR8xRPDM/gpu-1/attempts/1dc728b7096f49099efd7e28819f51b3/run.log:14:NATIVE_COMPONENT_FAIL: independent GGUF spot dot error native=0.005278 candidate=0.000000 exceeds .005 abs-dot normalization
+- (2026-10-19 03:09 UTC) 两种错误
+- (2026-10-19 03:16 UTC) 上传了
+- (2026-10-19 03:50 UTC) File "/sim/eec/shared/junfu.qx/quactlize/tools/probe_native_component_failures.py", line 74, in check_binding raise ValueError('production binding changed: '+key) ValueError: production binding changed: llama_head
+- (2026-10-19 03:56 UTC) 上传了
+- (2026-10-19 05:31 UTC) 原生的fp16的点积误差是llamacpp的吗？还是cublas
+- (2026-10-19 05:32 UTC) 先不管这个问题，这个不是我们的关注点，这个我会报给对应算子库
+- (2026-10-19 05:34 UTC) review_new。tgz上传了
+- (2026-10-19 05:47 UTC) 还要多久
+- (2026-10-19 05:48 UTC) 补测这些点是为什么
+- (2026-10-19 05:50 UTC) 你确定这些点我们之前进行config的sweep的时候有覆盖吗？
+- (2026-10-19 05:52 UTC) 继续
+- (2026-10-19 05:52 UTC) 给我command还要多久
+- (2026-10-19 05:59 UTC) 其他的结果呢？
+- (2026-10-19 06:43 UTC) 大M dense你说的更慢如何理解？不应该啊。对比的是什么？
+- (2026-10-19 06:45 UTC) 不对啊，我们的full到bf16没有理由比原生的反量化到FP16更慢啊，cublas部分是一样的。只有dequant不同，但是我们的dequnt应该是更高效的。
+- (2026-10-19 06:46 UTC) 大M先不管吧。
+- (2026-10-19 06:47 UTC) 这个我们显然更好。因为dequant+cublas的接线本身就是我们选择的一部分
+- (2026-10-19 06:48 UTC) 小M，我们不是都更好吗？刚才ni shuo d
+- (2026-10-19 06:51 UTC) Q6选择的是simt的cudacore版本吗？
+- (2026-10-19 06:53 UTC) 抓acu对比
+- (2026-10-19 06:58 UTC) 大概还要多久
+- (2026-10-19 07:16 UTC) 还要多久
+- (2026-10-19 07:17 UTC) acu文件本身的位置呢？
+- (2026-10-19 07:21 UTC) 这是m=1吗？
+- (2026-10-19 07:21 UTC) 如果是quantize q8之后比较，应该不是fair comparision，因为我们没有用int8进行计算
+- (2026-10-19 07:25 UTC) 应该对比的是原生路径，但是不走quantize q8 1的路径，而是直接fp16计算的。
+- (2026-10-19 07:29 UTC) mul_mat_vec_q内部应该有不转q8的版本吧。
+- (2026-10-19 07:32 UTC) v.shrl.i特别多，我们的case。convert也不少。
+- (2026-10-19 07:32 UTC) review.tgz里面有acurep吗？
+- (2026-10-19 07:33 UTC) 上传了，你分析一下，有没有优化手段，
+- (2026-10-19 07:43 UTC) Q4的小M的一些优化应该有一些可以复用到其他的格式
+- (2026-10-19 07:47 UTC) 先不管原生，我们这个kernel是可以继续优化的
+- (2026-10-19 08:47 UTC) 为什么测了这么久，测似的是什么
+- (2026-10-19 08:49 UTC) 跑了快一个小时了
+- (2026-10-19 08:51 UTC) /usr/local/bin/python3 [Asight]: The current collecting environment is PPU [Asight]: Starting target app: /usr/local/bin/python3 /workspace/kpack-q6-metadata.t9kvgAVo/source/tools/run_q6_metadata.py --sdk /usr/local/PPU_SDK --output /workspace/kpack-q6-metadata.t9kvgAVo/results --l2-bytes 67108864 --child 0 --result /workspace/kpack-q6-metadata.t9kvgAVo/results/profile-0.json
+- (2026-10-19 08:51 UTC) --profile-arm 0
+- (2026-10-19 08:51 UTC) [Asight]: Target application pid: 851462, pgrp:851462 GPU_COMPACT_ACU_RANGE begin warmed_graph_calls=1 [Asight]: ==PROF== Profiling "register_reuse" - 0 (1/1): 0%....50%....100% - 30 passes GPU_COMPACT_ACU_RANGE end stop_rc=0 Q6_METADATA_POINT {"point": 0, "status": "PASS", "delta_pct": null} [Asight]: All target application created processes are terminated. Processing [======================================================================] 100 % [Asight]: Trace written into the output file: /workspace/kpack-q6-metadata.t9kvgAVo/results/profile-0.acurep root@aiswu52:/sim/eec/shared/junfu.qx/llama.cpp.ncp# cat /workspace/kpack-q6-metadata.t9kvgAVo/results/acu-1.log /usr/local/bin/python3
+- (2026-10-19 08:52 UTC) 那为什么旧版的跑了快一个小时才抓完
+- (2026-10-19 08:53 UTC) 直接给我一个单独抓arm1的指令
+- (2026-10-19 08:55 UTC) [Asight]: Target application pid: 1708510, pgrp:1708510 卡在这里，我怀疑是你的指令的acu有一选项的问题
+- (2026-10-19 08:56 UTC) acu不需要这些冷循环环
+- (2026-10-19 09:12 UTC) 上传了arm1的acurep
+- (2026-10-19 09:16 UTC) 这个加速可以作为最终的一部分，因为shm开销减少了很多，tsm的流量少了
+- (2026-10-19 09:22 UTC) 后续还有什么优化的点、
+- (2026-10-19 09:28 UTC) 大概多久给出下一个优化的profile的command
+- (2026-10-19 09:30 UTC) 为什么会有这么多的shrl，这部分可能会影响上限，是kpack格式带来的？但是我们的格式还挺好的啊。
+- (2026-10-19 09:31 UTC) 继续直到给我下一个优化的点的command
+- (2026-10-19 09:54 UTC) 已上传
+- (2026-10-19 10:01 UTC) 什么意思，这次的加速来自于哪里
+- (2026-10-19 10:02 UTC) 来自于ce frequency的提升。只看cycles
+- (2026-10-19 10:02 UTC) 继续优化
+- (2026-10-19 10:03 UTC) 最重要还是提速，shrl的指令家少能不能提速你要判断
+- (2026-10-19 11:43 UTC) 上传了
+- (2026-10-19 11:51 UTC) 还有别的优化思路吗？
+- (2026-10-19 11:57 UTC) 先1，2
+- (2026-10-19 12:37 UTC) 上传了
+- (2026-10-19 12:51 UTC) 其他还有什么优化有段吗？
+- (2026-10-19 12:53 UTC) 另外这些优化应该要推广到其他的dtype和shape，以及非moe
+- (2026-10-19 12:54 UTC) 按照你说的来吧
+- (2026-10-19 12:55 UTC) 多长时间给我command上box
+- (2026-10-19 13:15 UTC) 还有多久
+- (2026-10-19 14:14 UTC) 已上传
+- (2026-10-20 00:48 UTC) 已上传
+- (2026-10-20 01:01 UTC) Q2到Q5的MOE呢？然后继续调整Q8的dense
+- (2026-10-20 01:02 UTC) 然后是不是要重新sweep？最近的测试都是1。7GHZ的，之前sweep是1。0GHZ
+- (2026-10-20 01:31 UTC) 已上传
+- (2026-10-20 01:42 UTC) 先不管这个，或者先给我command让我们sweep起来。
+- (2026-10-20 01:42 UTC) 我说的是之前的1。0GHZ的sweep结果不能代表正确接线的问题
+- (2026-10-20 01:43 UTC) Q8的优化放到备选。另外这几次的simt的结果更优的接线固化成默认了吗
+- (2026-10-20 01:45 UTC) Q2-Q5不能服用Q6的metadata，地址计算优化吗？
+- (2026-10-20 01:46 UTC) 接入生产模板。
+- (2026-10-20 01:47 UTC) 等一下，其他的splitk，我们也可以验证一下。
+- (2026-10-20 01:48 UTC) splitk我们先验证一下速度，接入这些通用优化之前和之后，如果都是有效的，就直接都接入这些优化，要不然代码复杂度太高了
+- (2026-10-20 01:49 UTC) 多久给我command上box
+- (2026-10-20 02:17 UTC) 多用几个device
+- (2026-10-20 02:17 UTC) 卡1到k7都可以
+- (2026-10-20 02:40 UTC) 怎么结果这么大
+- (2026-10-20 02:40 UTC) 不需要acurep的上传吧
+- (2026-10-20 02:41 UTC) 给我指令重新打包
+- (2026-10-20 02:51 UTC) 已上传
+- (2026-10-20 02:56 UTC) 接入之后我们继续之前的sweep
+- (2026-10-20 02:57 UTC) Q8的优化继续，给我command
+- (2026-10-20 03:11 UTC) 先跑Q8的新候选吧，要不然后续sweep的Q8还要改
+- (2026-10-20 03:28 UTC) 已上传
+- (2026-10-20 03:44 UTC) m1不需要看看吗？
+- (2026-10-20 03:57 UTC) 已上传
+- (2026-10-20 05:25 UTC) 已上传
+- (2026-10-20 05:54 UTC) 下一步的command。
+- (2026-10-20 09:45 UTC) 已上传
+- (2026-10-20 10:05 UTC) 还没有开始全量的重新sweep？
+- (2026-10-20 10:08 UTC) 测试之前直接锁屏到1700MHZ
+- (2026-10-20 10:13 UTC) 锁频之后就不管实际频率了，可能是触发tdp
+- (2026-10-20 10:13 UTC) 这种不应该标记为faill
+- (2026-10-20 10:17 UTC) 这次小M你跑的是和llamacpp原生实现的对比还是最优config的扫描
+- (2026-10-20 10:18 UTC) 对的，我就是要这个，继续吧
+- (2026-10-20 10:42 UTC) 已上传
+- (2026-10-20 11:08 UTC) 上传了
+- (2026-10-20 11:17 UTC) 继续整理选路表
+- (2026-10-20 11:41 UTC) 第一个先收尾
+- (2026-10-20 12:15 UTC) 继续继续第二项最后给我command
+- (2026-10-20 13:31 UTC) 已上传，rc=1
+- (2026-10-20 13:49 UTC) 已上传 ]
+- (2026-10-20 14:20 UTC) 还有多少步骤
+- (2026-10-20 14:21 UTC) 大M呢
+- (2026-10-20 14:23 UTC) 大box的复测先要做完吧
+- (2026-10-20 14:27 UTC) 给我command
+- (2026-10-20 14:31 UTC) 多久给我command
+- (2026-10-20 22:25 UTC) 上传了
+- (2026-10-20 22:29 UTC) 有可能
+- (2026-10-20 22:33 UTC) 可以在其他的卡上测试吗？
+- (2026-10-20 22:34 UTC) 给我commnad
+- (2026-10-20 22:42 UTC) 还有多久给我command
+- (2026-10-21 00:19 UTC) 上传了
+- (2026-10-21 00:33 UTC) 继续后续的步骤，按照计划，本地能做完的直接做完
+- (2026-10-21 00:35 UTC) 后续box应该只有完整验证的时候需要吧
+- (2026-10-21 00:40 UTC) 我说的是后续是不是只剩下llama cpp集成之后的验证了
+- (2026-10-21 00:41 UTC) 但是你本地要验证quactlize的选择是正确的。
+- (2026-10-21 00:47 UTC) 大概多久
+- (2026-10-21 01:05 UTC) llamacpp的代码你本地需要修改吗？
+- (2026-10-21 01:09 UTC) 都修改一下
+- (2026-10-21 02:53 UTC) llama cpp这个kpack-dense的branch默认会用quactlize吗
+- (2026-10-21 02:57 UTC) DeepSeek-V4-Flash-0731-UD-Q4_K_XL/DeepSeek-V4-Flash-0731-UD-Q4_K_XL-00001-of-00005.gguf 这个conversion的时间是不是太长了
+- (2026-10-21 02:57 UTC) 现在的conversion在哪里做的。是cpu还是gpu kernel
+- (2026-10-21 03:00 UTC) 一开始很慢，我不知道在什么阶段啊
+- (2026-10-21 03:06 UTC) 等一下，计算一下我们的peak显存占用，不会超出原来的gguf的load的显存吧
+- (2026-10-21 03:20 UTC) 考虑到后续有其他的模型，我们应该加入一个脚本，能够一键扫描新的模型的新的shape在quactliz上，然后添加到bucket
+- (2026-10-21 03:32 UTC) 跑qwen3-32B-Q4-K-M的时候出现了segment fault。
+- (2026-10-21 03:33 UTC) 0.43.720.543 E quactlize: unsupported load: blk.63.ffn_gate.weight (view) (q4_K) 0.43.720.550 E quactlize: unsupported load: blk.63.ffn_up.weight (view) (q4_K) 0.43.720.551 E quactlize: unsupported load: blk.63.ffn_down.weight (view) (q6_K)
+- (2026-10-21 03:33 UTC) 跟这个有关系吗？之前也不支持吗？这个好像我记得原来不支持
+- (2026-10-21 03:33 UTC) 不记得
+- (2026-10-21 03:33 UTC) 原来跑过这个模型的测试的测试
+- (2026-10-21 03:36 UTC) /sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/Qwen3-32B-Q4_K_M-GGUF/Qwen3-32B-Q4_K_M.gguf 目录是这个，给我command，跑
+- (2026-10-21 03:40 UTC) 已上传
+- (2026-10-21 03:44 UTC) 修改代码
+- (2026-10-21 03:44 UTC) 另外这几个view不支持是正常的吗？还是我们也可以接入
+- (2026-10-21 04:02 UTC) 这个bug是为什么？权重的view的问题是什么？我们能支持吗？
+- (2026-10-21 04:04 UTC) 我们应该要支持啊，因为本身权重就是offline的，思考一下如何支持
+- (2026-10-21 04:08 UTC) 什么时候会有N和K的切片，TP我们应该单独支持了，如果是其他的case，是不是可以直接不支持
+- (2026-10-21 04:12 UTC) 什么情况了
+- (2026-10-21 04:16 UTC) 添加第一个支持
+- (2026-10-21 04:32 UTC) 推送，不要不定。
+- (2026-10-21 04:32 UTC) 直接提交到pr kpack-dense就行了，我的fork是啥，内网你访问不了
+- (2026-10-21 05:32 UTC) 重新编译了，我要重新跑测试，给我command
+- (2026-10-21 05:36 UTC) KPACK_COMPUTE_START suite=contract case=q8 log=/workspace/kpack-qwen32-retest.KVpIH7LZ/contract/q8.log KPACK_COMPUTE_FAIL q=8 error=q8: unexpected rc=-6 or rejection marker; see /workspace/kpack-qwen32-retest.KVpIH7LZ/contract/q8.log remaining_continue=1 KPACK_COMPUTE_START suite=contract case=q10 log=/workspace/kpack-qwen32-retest.KVpIH7LZ/contract/q10.log
+- (2026-10-21 05:37 UTC) quactlize: unsupported weight view: (view) quactlize: unsupported weight view: (view) quactlize: unsupported weight view: (view) quactlize: unsupported weight view: (view) quactlize: unsupported weight view: (reshaped) quactlize: unsupported weight view: (transposed) /sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/ggml-backend.cpp:2087: GGML_ASSERT(tensor->buffer == NULL) failed [New LWP 1192860] Python Exception <class 'ModuleNotFoundError'>: No module named 'math' 0x00007f0e9f9f8813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007f0e9f9f8813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007f0e9feb85db in ggml_print_backtrace () from /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci/bin/libggml-base.so.0 #2 0x00007f0e9feb877b in ggml_abort () from /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci/bin/libggml-base.so.0 #3 0x00007f0e9fed65f8 in ggml_backend_tensor_alloc () from /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci/bin/libggml-base.so.0 #4 0x00007f0e9fecf804 in ggml_gallocr_alloc_graph () from /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci/bin/libggml-base.so.0 #5 0x00007f0e9fed619f in ggml_backend_sched_alloc_graph () from /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci/bin/libggml-base.so.0 #6 0x0000556cf09f59fd in test_dense_empty(ggml_backend*, ggml_tensor*, bool) () #7 0x0000556cf09f7c3a in test_kpack_dense(ggml_backend*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int, bool) () #8 0x0000556cf09f4cbc  …
+- (2026-10-21 06:00 UTC) quactlize: unsupported weight view: (view) quactlize: unsupported weight view: (view) quactlize: unsupported weight view: (view) quactlize: unsupported weight view: (view) quactlize: unsupported weight view: (reshaped) quactlize: unsupported weight view: (transposed) CUDA Graph id 2 reused ggml_backend_cuda_graph_compute: CUDA graph warmup complete CUDA Graph id 2 reused /sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/ggml-backend.cpp:2087: GGML_ASSERT(tensor->buffer == NULL) failed 还是一样啊
+- (2026-10-21 06:01 UTC) 你本地能复现的话应该让你本地修复啊
+- (2026-10-21 06:35 UTC) 4.57.125.770 I [quactlize-dense] tensor=blk.8.ffn_up.weight device=0 q=12 m=1 n=25600 k=5120 route=0 policy=18 split=1 compute=0 workspace=0 config=fqk_tc_q12_l1_a0_tm8_tn64_tk256_wm8_wn16_s2_c0_ap1_dn32 KPACK_JIT_RESOLVE parent=sf_q12_a0_tm8_tn16_tk256_wm8_wn16_s2_bc0_ap1_dn16 cache=/root/.cache/quactlize/ppu 是在干啥
+- (2026-10-21 07:24 UTC) 从单kernel的角度我们应该是比之前的quactliz的llamacpp的branch强的，但是我现在测试下来速度基本上持平，对于dense的模型，因为moe的量化算子目前还没有接入，能看一下可能是哪里的问题吗？
+- (2026-10-21 07:27 UTC) 预热之后的
+- (2026-10-21 07:28 UTC) 很奇怪的也是prefill应该有很大优势，但是其实也没有
+- (2026-10-21 07:28 UTC) 所以我怀疑有一些接线没有生效
+- (2026-10-21 07:29 UTC) 怎么排查一下
+- (2026-10-21 07:35 UTC) 啥意思，选录还没有更新完全吗
+- (2026-10-21 07:36 UTC) 直接抓asys吧
+- (2026-10-21 07:41 UTC) /sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/Qwen3-32B-Q4_K_M-GGUF/Qwen3-32B-Q4_K_M.gguf
+- (2026-10-21 07:49 UTC) 我们以2048的prefill为用例
+- (2026-10-21 07:56 UTC) 上一条的prefill总共多大？
+- (2026-10-21 07:59 UTC) 原来的asys你这里还有吗？
+- (2026-10-21 07:59 UTC) 我说的之前的quactlize的llamacpp全部接线的结果
+- (2026-10-21 08:08 UTC) /sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/Qwen3.5-35B-A3B-Q4_K_M-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf 那我们先对比这个，这个也不对
+- (2026-10-21 08:11 UTC) 已上传
+- (2026-10-21 08:14 UTC) 注意moe没有接入
+- (2026-10-21 08:17 UTC) 这个是/sim/eec/shared/junfu.qx/llama.cpp/build-kpack-9f86a1340/bin之前用的binary吗？
+- (2026-10-21 08:18 UTC) 继续对比吧
+- (2026-10-21 08:21 UTC) 只看quactlize部分
+- (2026-10-21 08:38 UTC) 其他的生下来还有哪些改动需要PR进去，列出来
+- (2026-10-21 08:44 UTC) quactlize的库的工作你先做完
+- (2026-10-21 08:55 UTC) /sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/Qwen3.8-27B-Q4_K_M-GGUF/Qwen3.8-27B-UD-Q4_K_M.gguf/sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/Qwen3.5-35B-A3B-Q4_K_M-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf/sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/Qwen3-32B-Q4_K_M-GGUF/Qwen3-32B-Q4_K_M.gguf先看这几个模型的单卡性能对比，抓一下build-ci-ppu-dev和build-ci-quactlize-dense-gemm/的llamacpp的性能asys，然后上传给你分析差异，都是单卡。bottomline是我们的单个quactlize的算子不能相对于llamacpp有regression。这个是我们之前的single算子测试保证的。
+- (2026-10-21 09:16 UTC) DENSE_MODEL_AB_MODEL {"model": "qwen35-35b-a3b", "reference": {"pp_total_ms": 251.85999999999999, "tpot_ms": 7.65140625}, "quactlize": {"pp_total_ms": 260.893, "tpot_ms": 7.3373359375}, "delta_pct": {"pp_total_ms": 3.586516318589683, "tpot_ms": -4.104739733300667}, "no_regression_admitted": false} 还变差了？
+- (2026-10-21 09:18 UTC) 结果太大了，先只上传Qwen3.8-27B-Q4_K_M-GGUF
+- (2026-10-21 09:20 UTC) 先只上传qwen35-35b-a3b
+- (2026-10-21 09:20 UTC) Qwen3-32B-Q4_K_M-GGUF 这个吧，这个之前有对比数据。
+- (2026-10-21 09:21 UTC) 我上传了，在归档的zip
+- (2026-10-21 09:21 UTC) 我上传了，在归档的zip
+- (2026-10-21 09:26 UTC) 尤其是prefill，这里很显然不对啊。之前的结果是549左右。我们是不是有一些选的不够好
+- (2026-10-21 09:28 UTC) 没有之前的asys的话可以从之前的接线上静态分析一下，差距在哪里。
+- (2026-10-21 09:35 UTC) 另外两个模型也上传了。，统一分析之后给我解决的方案
+- (2026-10-21 09:40 UTC) FQ的 fallback比原生慢太多，显然是问题。
+- (2026-10-21 09:40 UTC) 原生也就是用dequant+bf16的gemm
+- (2026-10-21 09:40 UTC) 另外这种fallback的写法也是问题，应该是分桶，而不是naive的直接fallback。
+- (2026-10-21 09:41 UTC) 具体分析一下，是我们的反量化的问题，还是gemm的精度问题
+- (2026-10-21 09:43 UTC) FQ里面应该是scale和zero处理吧，没有矩阵乘法。
+- (2026-10-21 09:44 UTC) Fully quantize就是慢的，不能fallback到这个。先把这个记录下来，先看其他两个网络
+- (2026-10-21 09:45 UTC) quactlize的dense部分增加是为什么？
+- (2026-10-21 09:46 UTC) 你说的是fp16的gemm还是什么？
+- (2026-10-21 09:52 UTC) 之前的对比，我们的35B-A3B的量化版本，比llamacpp好了70ms。这里就不对了。
+- (2026-10-21 09:54 UTC) ok，我们先不引入moe部分，其他的部分不能更慢，也就是目前只有Q8的prefill是更慢的？
+- (2026-10-21 09:56 UTC) 现在整体耗时多少，对比之前的结果
+- (2026-10-21 09:57 UTC) 这就很吊诡了，本地有原来的代码，应该可以直接静态分析出来吧
+- (2026-10-21 10:07 UTC) 只说32B的prefill的区别
+- (2026-10-21 10:11 UTC) 逻辑上我们不应该比原生的慢，因为原生的dequant first在我们的搜索范围。对吗？先对比单个算子，抓出来我们更差的点，以及如果原生使用了fp16作为中间acc，我们也可以
+- (2026-10-21 10:12 UTC) 另外我们的bf16输入是为什么，这个好像更慢，除了moe需要，其他的应该是fp16就可以吧
+- (2026-10-21 10:12 UTC) 先保证我们的gemm的输入和acc的dtype一致吧
+- (2026-10-21 10:13 UTC) 原来的实验我们的dense full dequant是不是用了fp16的gemm？除了fully dequant，sf之类的我们也是bf16吗？
+- (2026-10-21 10:21 UTC) 对齐应该把原生的改成fp32累加
+- (2026-10-21 10:24 UTC) 你改了没有用
+- (2026-10-21 10:24 UTC) 需要box改
+- (2026-10-21 10:25 UTC) 给quactlizequactlize添加fp16的累加累加複雜度高嗎
+- (2026-10-21 10:26 UTC) simt在llamacpp中原生也是fp16累加吗?moe的gemm呢,是bf16的累加吗
+- (2026-10-21 10:27 UTC) 另外还是没有解释我们之前更快的原因
+- (2026-10-21 10:40 UTC) 我还是先把llamapp默认改成用fp32累加,要不然无法对比
+- (2026-10-21 10:46 UTC) 单纯的dequantdequant的时间先对比一下我们的视线和原生
+- (2026-10-21 10:49 UTC) 记到todo
+- (2026-10-21 12:05 UTC) 环境变量是什么？控制accumulator的
+- (2026-10-21 12:07 UTC) 给我promtp
+- (2026-10-21 12:34 UTC) build-ci-32F-cublas 这个目录下。给我command测试，上传
+- (2026-10-21 12:40 UTC) 已上传
+- (2026-10-21 12:46 UTC) 这些转换在后续的MR里面吗？
+- (2026-10-21 12:48 UTC) 应该单独补上，但是为了对齐，是不是要改成fp16的格式
+- (2026-10-21 12:49 UTC) 除了这个之外还有别的吗？我们把所有的优化点和对应的ms数量列出来。要对比每个量化算子+脚手架和原来的llamacpp的写法的对比。然后我们具体分析哪里可以优化。预期收益
+- (2026-10-21 13:06 UTC) prefill的原生路径没有写出来
+- (2026-10-21 13:07 UTC) 我要横向对比的表哥
+- (2026-10-21 13:07 UTC) 先只看prefill
+- (2026-10-21 13:11 UTC) 不对啊，我们自己的比较的时候没有输出转换这个步骤吧？是不是？就是选择config的时候，如果没有的话为什么我们的Q4KV没有选择full-BF16？
+- (2026-10-21 13:19 UTC) 把原生的fp16放到上面的表哥
+- (2026-10-21 13:22 UTC) 怎么能差这么多？历史数值是不是1。0GHZ
+- (2026-10-21 13:25 UTC) 先简单测试一下1。7GHZ的单个算子。然后填一下上面的表格，我们需要理解单个算子和实际网络中的测试结果的差距，要不然单个算子的结果就不可信
+- (2026-10-21 13:40 UTC) 还要多久
+- (2026-10-21 14:24 UTC) raise ValueError('llama sources are newer than libggml-cuda; rebuild before this comparison')不需要比较吧
+- (2026-10-21 14:26 UTC) 刚才搞错了，我好像没有编译32F，你确定我的kernel能看出来是32F吗？
+- (2026-10-21 14:44 UTC) 上传了review的tgz
+- (2026-10-21 14:48 UTC) 这些应该asys抓去之后读数据
+- (2026-10-21 14:53 UTC) 还要多久
+- (2026-10-21 14:54 UTC) 我们先单独测，然后扫一个网络的特定的M，重新接线，然后推广到其他模型和其他的M
+- (2026-10-21 14:54 UTC) 先测单个shape
+- (2026-10-21 15:00 UTC) 事实上这个肯定能对上asys的整网。所以我们直接sweep吧，用asys抓去的方法sweep，对于这个模型的这个M，我们先扫描一下所有的gemm的config。当然之前需要先把能够优化的优化完成。比如输出的格式转换
+- (2026-10-21 15:00 UTC) 算了，先sweep吧，然后我们判断哪些需要优化
+- (2026-10-21 15:01 UTC) 多久给我command
+- (2026-10-21 15:07 UTC) 多久给我command
+- (2026-10-21 22:39 UTC) Traceback (most recent call last): File "/workspace/qwen32-prefill-asys.JAwI3k2Z/source/tools/run_prefill_model_asys.py", line 372, in <module> if __name__=='__main__':raise SystemExit(main()) ^^^^^^ File "/workspace/qwen32-prefill-asys.JAwI3k2Z/source/tools/run_prefill_model_asys.py", line 311, in main receipt=read(a.output/'build/receipt.json') if (a.output/'build/receipt.json').exists() else build(a) ^^^^^^^^ ValueError: llama sources are newer than libggml-cuda; rebuild before this comparison
+- (2026-10-21 22:42 UTC) 我要重新跑怎么弄
+- (2026-10-21 22:43 UTC) 我要重新跑怎么弄
+- (2026-10-21 22:43 UTC) File "/workspace/qwen32-prefill-asys.BaU1EeeL/source/dev/native_components/build.py", line 171, in build_adapter raise ValueError('llama sources are newer than libggml-cuda; rebuild before this comparison') ValueError: llama sources are newer than libggml-cuda; rebuild before this comparison
+- (2026-10-21 22:44 UTC) 之前不是让你不要检查吗？
+- (2026-10-21 22:47 UTC) 现在你是怎么跑的？一个asys跑所有kernel，还是asys不同的跑不同的kernel，还是什么
+- (2026-10-21 22:50 UTC) 之前可以优化的kernel列出来
+- (2026-10-21 22:52 UTC) 1，2，3，5要做，4可能是选择最优的config的问题
+- (2026-10-21 22:53 UTC) 你先修改完之后上box测acu。都改完
+- (2026-10-22 01:02 UTC) 上传了
+- (2026-10-22 01:04 UTC) 我感觉有一些simt上的做法可以迁移过来
+- (2026-10-22 01:15 UTC) 现在看到的几个问题：profile-11的dense dequant packed很明显是指令太多了。导致反而成为了计算密集。profile-13的dense dequant packed的grid太小导致occupancy只有50%。profile-6的gather的带宽利用率只有55%，感觉上是on the fly的ldg不够导致latency bound了。profile-9的full wide是指令太多导致instruction pipe busy了。dense convert vec8的profile-4是不是没有合并访存。profil-10的dense dequant packed和profile11类似。profile-5的问题和profile-4一致。profile-3的finish bf16和gather类似。profile-13的full transpose大量的指令，但是这个只有21us，可以先暂缓，但是没有懂为什么要这个算子。profile-7的dense convert vec8还可以，但是看上去还是有一部分吗没有访存合并。profile8和7类似。profile-14和profile11类似
+- (2026-10-22 01:25 UTC) 继续下一轮
+- (2026-10-22 01:48 UTC) 还要多久
+- (2026-10-22 02:13 UTC) quactlize下面的测试怎么手动跑
+- (2026-10-22 02:17 UTC) 我说的是全部测试，我要找ci的集成人员集成
+- (2026-10-22 02:19 UTC) 整理一下ci的入口，有一些改删掉的就删掉，最后给我统一的入口。
+- (2026-10-22 02:19 UTC) 该补充的补充
+- (2026-10-22 02:21 UTC) 之前的sweep跑完了。上传了
+- (2026-10-22 02:25 UTC) 第二轮helper也上传了。落后原生可能是因为helperfunction的问题。
+- (2026-10-22 02:26 UTC) 另外我看到第二轮dense dequant packed还是一样大量的shm读写，以及shrl madliinstruction。这些可以减少吗？我们simt有类似的优化。
+- (2026-10-22 02:27 UTC) 巨量的convert是不是可以用fast dequant方法？
+- (2026-10-22 02:38 UTC) 我想知道现在加上这些优化zhi hou，我们是不是fully dequant的kernel时间比原生要快了
+- (2026-10-22 02:40 UTC) 其他的几个helper也可以比较啊
+- (2026-10-22 02:50 UTC) 我的意思是如果我们的fully dequnat比原生更强，那么肯定我们的sweep扫出来不能比原生差。
+- (2026-10-22 02:52 UTC) 先继续优化helper
+- (2026-10-22 02:58 UTC) 另外int转fp32也是一样可以fast dequant。
+- (2026-10-22 03:15 UTC) 大概有多久给我command
+- (2026-10-22 03:38 UTC) profile-10是不是很多访存没有合并
+- (2026-10-22 03:39 UTC) dense-dequant-pair
+- (2026-10-22 03:40 UTC) 以上传
+- (2026-10-22 03:46 UTC) 继续
+- (2026-10-22 03:46 UTC) 其他的呢
+- (2026-10-22 03:46 UTC) 都分析完一起改掉
+- (2026-10-22 04:48 UTC) 先静态分析一下dense dequant pair的访存是不是没有合并
+- (2026-10-22 04:57 UTC) 上传了
+- (2026-10-22 05:05 UTC) 整合进生产路金，然后我们重新sweep这个模型的单个M
+- (2026-10-22 05:05 UTC) 然后对比原生
+- (2026-10-22 05:19 UTC) dense dequant cooperative中的这么多的shrl/mov/madl是什么？可以去掉吧
+- (2026-10-22 05:36 UTC) 继续整理ci的入口和test部分的文件
+- (2026-10-22 05:39 UTC) 先给我之前的我们接入生产的acu文件对应的profile-id是多少，我看一下，你继续写ci这部分
+- (2026-10-22 06:04 UTC) 还要多久
+- (2026-10-22 06:44 UTC) 优化优先级
+- (2026-10-22 06:44 UTC) 先改 high plane 的载入任务分配：按物理 packed word 唯一读取，再分发给多个 K32/N 任务；不能只换 lane 顺序。 减少 Q6 metadata 重复搬运：比较只载入所需 superblock与扩大 K tile 的收益，保持原格式和舍入。 定位 shared consumer 的具体冲突指令，不要只看总 bank-conflict 数。 保留当前输出 store，暂不为追求“更连续”增加额外转置。 结论：最新 N64 cooperative 并不是“大量 low/store 都没合并”；更准确的是，访存合并改善了，但冗余读取和片上搬运仍有优化空间，尤其是 Q6 的 high plane 与 metadata。
+- (2026-10-22 06:44 UTC) 合理吗
+- (2026-10-22 06:56 UTC) 修改吧
+- (2026-10-22 07:05 UTC) 还要多久
+- (2026-10-22 07:05 UTC) 这个改了之后需要重新sweep吗？
+- (2026-10-22 07:35 UTC) DENSE_R5_CYCLES {"pair": 0, "cycles": {"control": [324146.0, 329329.0], "candidate": [325383.0, 320175.0]}, "median_cycles": {"control": 326737.5, "candidate": 322779.0}, "cycle_delta_pct": -1.2115230115918751, "frequency_hz": [1700000000.0, 1700000000.0, 1700000000.0, 1700000000.0], "scope": "SAME_COMPONENT_ABBA_CYCLES_NOT_FREQUENCY_NORMALIZED_LATENCY", "performance_admitted": false} DENSE_R5_CYCLES {"pair": 1, "cycles": {"control": [15505.0, 15401.0], "candidate": [15456.0, 15476.0]}, "median_cycles": {"control": 15453.0, "candidate": 15466.0}, "cycle_delta_pct": 0.08412605966479081, "frequency_hz": [1700000000.0, 1700000000.0, 1700000000.0, 1700000000.0], "scope": "SAME_COMPONENT_ABBA_CYCLES_NOT_FREQUENCY_NORMALIZED_LATENCY", "performance_admitted": false} DENSE_R5_CYCLES {"pair": 2, "cycles": {"control": [304656.0, 304357.0], "candidate": [303123.0, 301812.0]}, "median_cycles": {"control": 304506.5, "candidate": 302467.5}, "cycle_delta_pct": -0.6696080379236524, "frequency_hz": [1700000000.0, 1700000000.0, 1700000000.0, 1700000000.0], "scope": "SAME_COMPONENT_ABBA_CYCLES_NOT_FREQUENCY_NORMALIZED_LATENCY", "performance_admitted": false} DENSE_R5_CYCLES {"pair": 3, "cycles": {"control": [14023.0, 14153.0], "candidate": [15203.0, 14710.0]}, "median_cycles": {"control": 14088.0, "candidate": 14956.5}, "cycle_delta_pct": 6.164821124361164, "frequency_hz": [1700000000.0, 1700000000.0, 1700000000.0, 1700000000.0], "scope": "SAME_COMPONENT_ABBA_CYCLES_NOT_FREQUENCY_NORMALIZED_LAT …
+- (2026-10-22 07:36 UTC) 那这个就先不管了。
+- (2026-10-22 07:36 UTC) 整理一下代码，我现在用develop作为默认的branch
+- (2026-10-22 07:36 UTC) 代码太乱了，中间很多调试的代码去掉
+- (2026-10-22 07:42 UTC) 是不是有很多临时的kernel
+- (2026-10-22 07:42 UTC) helper文件
+- (2026-10-22 07:42 UTC) 之类的
+- (2026-10-22 07:42 UTC) 要去掉
+- (2026-10-22 08:45 UTC) ci需要提供一个build脚本和test执行的脚本
+- (2026-10-22 08:52 UTC) benchmark下面的脚本都需要吗？我看大部分都要删掉吧
+- (2026-10-22 08:55 UTC) 先继续给我ci测似的脚本，然后继续整理全域冗余的文件。
+- (2026-10-22 08:59 UTC) 如果不提供output，默认会发生什么
+- (2026-10-22 09:44 UTC) 之前的结果上传了，config的sweep
+- (2026-10-22 09:48 UTC) 你已经挑选了最优的结果了吗？
+- (2026-10-22 09:49 UTC) 跟之前的asys比呢？这个结果的latency可信吗？
+- (2026-10-22 09:51 UTC) 如果可信的话，我们继续扫全部的shape。然后对于shape分桶。加入Qwen3。8-27B-Q4_k_M以及DeepSeek-V4-Flash-0731-UD-Q4_K_XL的TP4的shape。
+- (2026-10-22 09:58 UTC) 按照最优我们相对于原生整体节省多少时间
+- (2026-10-22 10:01 UTC) 继续给我command，还要多久
+- (2026-10-22 10:06 UTC) Full-F16 provider 需要支持Q8
+- (2026-10-22 10:07 UTC) 注意扫描的时候结果parse需要支持我们后续的单点算子优化。更新表格和桶
+- (2026-10-22 12:08 UTC) 那就以deepseek作为分桶的验证集合，另外是tp，所以你是可以本地推到的
+- (2026-10-22 12:11 UTC) 还没给你反馈你先别分桶吧
+- (2026-10-22 13:46 UTC) 为什么现实kpack_component_policy_20260914.json缺失，测似的时候
+- (2026-10-22 13:49 UTC) 这个json是干嘛的。我之前删掉了
+- (2026-10-22 13:50 UTC) 我们的测试有性能的门限吗？
+- (2026-10-22 13:54 UTC) 那为什么要教研呢
+- (2026-10-22 13:54 UTC) 或者测试为什么用到这个文件
+- (2026-10-22 14:04 UTC) 这部分测试去掉
+- (2026-10-22 22:38 UTC) asys跑的时候即使有其他的gpu program，计时影响应该很小吧，毕竟我们看的kernel时间
+- (2026-10-22 22:39 UTC) 同卡并发
+- (2026-10-22 22:41 UTC) 我们开cudagrah了吗？如果开了，1和2影响也很小吧
+- (2026-10-22 22:42 UTC) 并发也是一个个调度，不会同时在gpu上
+- (2026-10-22 23:15 UTC) ppu1.0上的SM的smem 大小是多少？
+- (2026-10-22 23:18 UTC) api获取
+- (2026-10-23 00:49 UTC) 好像跑了一半挂了，我上传了
+- (2026-10-23 01:02 UTC) 上传了
+- (2026-10-23 01:06 UTC) 继续下一步
+- (2026-10-23 01:36 UTC) 继续下一步
+- (2026-10-23 01:51 UTC) 继续优化
+- (2026-10-23 02:19 UTC) 还要对酒
+- (2026-10-23 02:19 UTC) 多久
+- (2026-10-23 02:44 UTC) 上传了
+- (2026-10-23 02:51 UTC) 之前的其他的优化手段都上了吗？还有别的数据格式没有优化的吗？
+- (2026-10-23 03:31 UTC) 继续，能不能一把解决这些全部问题，我现在在想提升和你交互的吞吐。因为我在box上测试始终有latency，但是不要超过你的context，单词
+- (2026-10-23 05:32 UTC) 怎么看进度：DENSE_HELPERS_MULTI_WAIT {"alive": 7, "workers": 7, "elapsed_minutes": 61.0007279498813, "logs": "/workspace/kpack-dense-helpers.oZAVU5uX/results/gpu-*/worker-*.log"}
+- (2026-10-23 05:44 UTC) rc=1，结果上传了
+- (2026-10-23 06:12 UTC) Q8比原生慢的是dequant？
+- (2026-10-23 06:13 UTC) 上传了
+- (2026-10-23 06:13 UTC) 这个Q8的dequant还有优化空间吗？
+- (2026-10-23 06:24 UTC) 已上传
+- (2026-10-23 06:30 UTC) 开始
+- (2026-10-23 06:30 UTC) Q8的后期要抓acu
+- (2026-10-23 06:43 UTC) 还要多久
+- (2026-10-23 07:01 UTC) 上传了
+- (2026-10-23 07:03 UTC) 没有fast dequant，另外没有合并方寸
+- (2026-10-23 07:03 UTC) tail effect非常严重
+- (2026-10-23 07:04 UTC) 前一半时间的带宽利用率78%，后一半35%
+- (2026-10-23 07:04 UTC) 我说的是profile-5-24-s1
+- (2026-10-23 07:06 UTC) 现在对比性能呢
+- (2026-10-23 07:07 UTC) review-1792738826567943419.A wave of thread blocks is defined as the maximum number of blocks that can be executed in parallel on the target PPU. The number of blocks in a wave depends on the number of CUs and the theoretical occupancy of the kernel. This kernel launch results in 1 full waves and a partial wave of 896 thread blocksUnder the assumption of a uniform execution duration of all thread blocks, this partial wave may account for up to 50.0% of the total runtime of this kernel. Try launching a grid with no partial wave. The overall impact of this tail effect also lessens with the number of full waves executed for a grid.
+- (2026-10-23 07:08 UTC) fast dequant也要上
+- (2026-10-23 07:10 UTC) 继续优化
+- (2026-10-23 07:12 UTC) weibo的问题你在优化吗？
+- (2026-10-23 07:14 UTC) 合并访存的问题也要严肃看一下
+- (2026-10-23 07:43 UTC) 上传了
+- (2026-10-23 08:04 UTC) 没有其他的需要合并方寸的吗？不可能啊
+- (2026-10-23 08:04 UTC) 现在跟原生差距多少片
+- (2026-10-23 08:12 UTC) 看一下原生的实现，为什么比我们快zhemeduo
+- (2026-10-23 08:14 UTC) 等一下，原生是不是所有的dequant都是用half
+- (2026-10-23 08:14 UTC) 如果这样的话，我们的所有的dequant都有大量优化空间
+- (2026-10-23 08:21 UTC) 继续优化
+- (2026-10-23 08:27 UTC) 要多久
+- (2026-10-23 08:36 UTC) 还有多久
+- (2026-10-23 08:44 UTC) 上传了
+- (2026-10-23 08:46 UTC) 等一下，那为什么原生快，直接对比】
+- (2026-10-23 08:55 UTC) 还有多久
+- (2026-10-23 08:59 UTC) 我跑的时候你继续静态分析差距
+- (2026-10-23 09:09 UTC) 哪些acurep对应哪些case啊，我上传了。
+- (2026-10-23 09:13 UTC) 从case4看我们的指令多了很多啊。
+- (2026-10-23 09:19 UTC) 思考一下如何解决，我要最终指令是类似的。
+- (2026-10-23 09:26 UTC) 继续，给我command上box
+- (2026-10-23 09:29 UTC) 大概多久
+- (2026-10-23 09:30 UTC) 指令的减少你本地就可以论证
+- (2026-10-23 09:31 UTC) 但是这次测试为什么没有看到差距很大的情况，你之前的结果有差40%的
+- (2026-10-23 09:32 UTC) 我需要根据这个判断你的结果的可信程度，以及实际跑的时候到底应该按照什么口径进行config选择
+- (2026-10-23 09:36 UTC) 算了，你先优化吧
+- (2026-10-23 09:37 UTC) 优化之后，我们就直接可以接线了对吧，分桶
+- (2026-10-23 09:38 UTC) 我说的桶是重新测试之后有时间了，进行整体选择的分桶，不是dequant的分桶
+- (2026-10-23 09:40 UTC) 先完成helper优化实测之后，看还需要什么测试，是不是数据足够分桶和更新选择表
+- (2026-10-23 10:10 UTC) 上传了
+- (2026-10-23 10:18 UTC) 我们先看性能是否已经达标。达标之后我们重新跑需要box重跑的command
+- (2026-10-23 10:20 UTC) 这点差距可以忽略
+- (2026-10-23 10:20 UTC) 这点差距可以忽略
+- (2026-10-23 10:20 UTC) 这样我们之前的测试是不是已经闭环了
+- (2026-10-23 10:21 UTC) 继续
+- (2026-10-23 10:44 UTC) sf的dwquantkernel是不是也可以类似优化
+- (2026-10-23 10:44 UTC) 现在现在选择的比例分别是多少
+- (2026-10-23 10:51 UTC) 要看一下从比例上时间来说空间大不大比如同样优二十百分比可能也不会选择sf就没以u性价比了
+- (2026-10-23 10:55 UTC) dequant的这些优化有没有有没有能够挪到主gemm的
+- (2026-10-23 11:06 UTC) 那你先看看
+- (2026-10-23 11:21 UTC) 优化可能性多大
+- (2026-10-23 11:22 UTC) 先不管给我command跑sweep的下一个
+- (2026-10-23 12:56 UTC) 上传了
+- (2026-10-23 13:00 UTC) 然后我们看一下现在我们比原生优化了多少整网来说
+- (2026-10-23 13:19 UTC) 现在看起来32B能省这么多是不是因为我们选择了更多的sf，而27B的tuning中没有加入最优的sf的config搜索
+- (2026-10-23 13:24 UTC) 理解了。继续接线这些winningg configh，然后修改分桶
+- (2026-10-23 13:37 UTC) 性能优先
+- (2026-10-23 13:57 UTC) 提交。
+- (2026-10-23 13:57 UTC) 推送
+- (2026-10-23 13:58 UTC) Qwen3。5-122B-A10B的tp2的shape没有扫把
+- (2026-10-23 13:59 UTC) DeepSeek的tp4也没有
+- (2026-10-23 14:00 UTC) Qwen3.5-122B-A10B-GGUF-Q4_K_M以及DeepSeek-V4-Flash-0731-UD-Q4_K_XL
+- (2026-10-23 14:02 UTC) 给我command补测
+- (2026-10-23 14:02 UTC) 大概多久
+- (2026-10-23 14:14 UTC) 还有多久
+- (2026-10-23 23:49 UTC) ValueError: expected one Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf under /sim/eec/shared/AI_workspace/llm-models; found ['/sim/eec/shared/AI_workspace/llm-models/Qwen3.5-122B-A10B-GGUF-Q4_K_M/Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf', '/sim/eec/shared/AI_workspacce/llm-models/bench_model_zoo/Qwen3.5-122B-A10B-GGUF-Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf']; use --qwen-model/--deepseek-model with an exact first-shard file
+- (2026-10-23 23:51 UTC) File "/sim/eec/shared/junfu.qx/quactlize/tools/run_tp_prefill_supplement.py", line 47, in model_path raise ValueError(f'expected one {filename} under {root}; found {sorted(map(str,found))}; ' ValueError: expected one DeepSeek-V4-Flash-0731-UD-Q4_K_XL-00001-of-00005.gguf under /sim/eec/shared/AI_workspace/llm-models; found ['/sim/eec/shared/AI_workspace/llm-models/DeepSeek-V4-Flash-0731-UD-Q4_K_XL/DeepSeek-V4-Flash-0731-UD-Q4_K_XL-00001-of-00005.gguf'/sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/DeepSeek-V4-Flash-0731-UD-Q4_K_XL/DeepSeek-V4-Flash-0731-UD-Q4_K_XL-00001-of-00005.gguf']; use --qwen-model/--deepseek-model with an exact first-shard file
+- (2026-10-23 23:51 UTC) File "/sim/eec/shared/junfu.qx/quactlize/tools/run_tp_prefill_supplement.py", line 72, in probe raise ValueError(f'{binary} lacks {flag}; use a TP-capable llama build') ValueError: /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci-32F-cublas/bin/llama-batched-bench lacks --no-warmup; use a TP-capable llama build
+- (2026-10-23 23:54 UTC) 为什么还要跑llama，你要获取llama跑的时候的直接的shape吗？
+- (2026-10-23 23:54 UTC) 继续
+- (2026-10-24 00:13 UTC) 没有卡6
+- (2026-10-24 00:30 UTC) 上传了，现在sweep比之前快挺多的。是因为我们prune了大部分的config
+- (2026-10-24 00:38 UTC) 这些慢的点都是dequant吗？Q8
+- (2026-10-24 00:40 UTC) 主gemm怎么能慢呢？是因为i我们用了fp32的accumulator？
+- (2026-10-24 00:41 UTC) 那就无所谓了，但是dequant延迟比原生慢的问题还是要看一下
+- (2026-10-24 00:42 UTC) 我先看一下整体按照静态分析这两个模型能省多长时间。
+- (2026-10-24 00:42 UTC) 优化q8 dequant之后能省多少
+- (2026-10-24 00:46 UTC) 为什么差距这么小？之前其他的模型差距还有不少
+- (2026-10-24 00:48 UTC) 理解。
+- (2026-10-24 00:51 UTC) 继续
+- (2026-10-24 02:09 UTC) 上传了
+- (2026-10-24 02:24 UTC) 那这些dequant是不是需要重新搞？
+- (2026-10-24 02:25 UTC) 剩余转换和reducer你说的是什么
+- (2026-10-24 02:28 UTC) 原生有规约吗？
+- (2026-10-24 02:29 UTC) 但是convert cont ppu kernel已经有现成的代码了，应该直接能够参考或者copy
+- (2026-10-24 02:34 UTC) 我们差了哪些？其他的kernel是不是可以利用
+- (2026-10-24 02:54 UTC) 继续
+- (2026-10-24 04:42 UTC) 上传了
+- (2026-10-24 04:53 UTC) 上传了
+- (2026-10-24 05:05 UTC) 上传了
+- (2026-10-24 05:40 UTC) 上传了
+- (2026-10-24 06:38 UTC) 继续
+- (2026-10-24 06:52 UTC) 还要扫几轮？
+- (2026-10-24 07:39 UTC) 上传了
+- (2026-10-24 08:52 UTC) quactlize需要按照之前逻辑整理一下develo branch
+- (2026-10-25 12:18 UTC) 我们的性能对比中测试1-8的M了吗？
+- (2026-10-25 12:20 UTC) 我说的是1。我们有没有sweep过最优config，2。有没有对比原生看有没有regression？我们现在的表里面为什么不是所有的N和K都覆盖
+- (2026-10-25 12:26 UTC) 最终我们要在几乎所有的M上赢过原来的config。你思考一下。怎么做合理。另外你的接线里面5120的M会发生什么？千万不要给prefill fallback到fully quantize。如果要补充sweep以及对比测试，给我command，最终要接线
+- (2026-10-25 12:29 UTC) 你没有分桶吗
+- (2026-10-25 12:30 UTC) 桶的小M也要覆盖
+- (2026-10-25 12:31 UTC) 而且不同的config影响很大，sf里面有很多重config
+- (2026-10-25 12:38 UTC) 给我下一轮的command
+- (2026-10-25 12:41 UTC) 预计要多久
+- (2026-10-25 13:18 UTC) 只有5，6，7，8
+- (2026-10-25 13:33 UTC) 大M为什么PREFILL_COHORT_DONE {"returncodes": [1, 1, 1, 1], "review_rc": 1, "review": "/workspace/kpack-dense-m.DSPVYeDg/run/review-1792934999980506969.json.xz", "production_changed": false, "status": "INCOMPLETE"}
+- (2026-10-25 13:35 UTC) native-dispatch-f2c1ad.o:(.text._ZL20ggml_cuda_mul_mat_idR25ggml_backend_cuda_contextP11ggml_tensor[_ZN2nc7Session6recordEP11ggml_tensor]+0x8a4): undefined reference to `ggml_quactlize_is_alias(ggml_tensor const*)'
+- (2026-10-25 13:44 UTC) 应该不太需要和原生比较了，因为dequant的kernel已经和原生比较过了，这个和M无关，
+- (2026-10-25 13:46 UTC) 先给我command，然后我小M上传了，你继续分析
+- (2026-10-25 14:04 UTC) 是不是要修改生产接线。
+- (2026-10-25 14:05 UTC) 先更新表吧
+- (2026-10-25 22:16 UTC) PREFILL_COHORT_WORKER_FAIL {"worker": "gpu-4", "returncode": 1, "log": "/workspace/kpack-dense-m-qzonly.k5n7szBI/run/gpu-4/console-1792936582890815231.log", "diagnic": "RuntimeError: asys-sweep rc=1; /workspace/kpack-dense-m-qzonly.k5n7szBI/run/gpu-4/qwen32-prefill-asys.0ghlpeou/results/reducer-gate-1792936631524526239.log\nueError: reducer gate workload differs from native dense prefill"}
+- (2026-10-25 22:35 UTC) kpack_gpus不需要export吗？
+- (2026-10-25 22:35 UTC) 用5，6，7，8
+- (2026-10-25 22:36 UTC) 直接重跑
+- (2026-10-26 00:32 UTC) 刚开始PREFILL_COHORT_WAIT {"alive": 4, "workers": 4, "elapsed_minutes": 0.004730961595972379, "output": "/workspace/kpack-dense-m-rerun.jCAax18Z/run"} PREFILL_COHORT_WAIT {"alive": 3, "workers": 4, "elapsed_minutes": 0.5047348972099522, "output": "/workspace/kpack-dense-m-rerun.jCAax18Z/run"} 就有一个worker结束了
+- (2026-10-26 00:37 UTC) File "/workspace/kpack-dense-m-rerun.jCAax18Z/run/gpu-8/qwen32-prefill-asys.YFoUYtBW/source/quactlize/runtime/native.py", line 105, in checked raise RuntimeError(f"{operation} failed: status={status}") RuntimeError: resource GetDeviceCount failed: status=999
+- (2026-10-26 01:11 UTC) 小M需要对比原始的llamacpp实现有没有regression。大M不需要因为搜索空间包含原始的dequant+cublas
+- (2026-10-26 01:12 UTC) 在0，1，2，3卡上跑这个实验
+- (2026-10-26 01:36 UTC) 我现在看到M=4096和5120的结果都挺差的。为什么呢？我们现在怎么选择的。测试包括512，1024，2048，4096，5120。
+- (2026-10-26 01:42 UTC) 但是现在2048的Qwen3。5-122B-A10B的Q4KM也看到了regression，为什么
+- (2026-10-26 01:49 UTC) 从2048的M上看，我们慢了5ms
+- (2026-10-26 01:50 UTC) 而且bf16的模型也慢了5ms，为什么
+- (2026-10-26 02:00 UTC) 而且我们第一次的2048的时间也比较长，第二次才短下来？这是为什么，之前有过warmup解读哪
+- (2026-10-26 02:00 UTC) 我是说之前warmup跑过这个shape的prefill，第二次启动会重新warmup？
+- (2026-10-26 02:02 UTC) 啥意思？jit编译的产物不是已经有了吗？shape的运行时预热状态是啥？我们参考的是deepgemm，他没有这个问题
+- (2026-10-26 02:28 UTC) build-ci-ppu-dev 对比build-ci，build-ci目录下是带我们的dense quactlize的优化的。然后跑asys，抓/sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-BF16-00001-of-00002.gguf
+- (2026-10-26 02:41 UTC) 后期我们对于quactlize的优化可以直接覆盖build-ci/bin/quactlize，以及build-ci/bin/quactlize-runtime，这样比较方便测试整网性能。单个算子的对比还是在原始的quactlize的repo进行。原生使用build-ci-ppu-dev/或者build-ci-32F-cublas/作为对比。
+- (2026-10-26 02:44 UTC) 还要多久
+- (2026-10-26 02:49 UTC) DENSE_MODEL_AB_WAIT model=Qwen3.5-35B-A3B-GGUF arm=reference phase=perf minutes=0.5 log=/workspace/dense-model-ab.m7at5_oz/bf16-control/perf/reference/run.log DENSE_MODEL_AB_RESULT arm=reference phase=perf pp_ms=170.423 tpot_ms=11.303 DENSE_MODEL_AB_START model=Qwen3.5-35B-A3B-GGUF arm=quactlize phase=perf log=/workspace/dense-model-ab.m7at5_oz/bf16-control/perf/quactlize/run.log DENSE_MODEL_AB_RESULT arm=quactlize phase=perf pp_ms=170.412 tpot_ms=11.225 DENSE_MODEL_AB_START model=Qwen3.5-35B-A3B-GGUF arm=quactlize phase=trace log=/workspace/dense-model-ab.m7at5_oz/bf16-control/trace/quactlize/run.log DENSE_MODEL_AB_RESULT arm=quactlize phase=trace pp_ms=173.376 tpot_ms=13.820 DENSE_MODEL_AB_START model=Qwen3.5-35B-A3B-GGUF arm=reference phase=trace log=/workspace/dense-model-ab.m7at5_oz/bf16-control/trace/reference/run.log DENSE_MODEL_AB_RESULT arm=reference phase=trace pp_ms=171.255 tpot_ms=13.296 从这里看没有什么区别
+- (2026-10-26 02:50 UTC) 我们测试q4的模型
+- (2026-10-26 02:53 UTC) 模型位置你用的是什么
+- (2026-10-26 03:02 UTC) DENSE_MODEL_AB_RUN run=/workspace/dense-model-ab.ntu99rvq device=0 pp=2048 tg=1 request_batch=1 phases=perf,trace DENSE_MODEL_AB_START model=Qwen3.5-35B-A3B-Q4_K_M-GGUF arm=reference phase=perf log=/workspace/dense-model-ab.ntu99rvq/qwen35-35b-a3b/perf/reference/run.log DENSE_MODEL_AB_RESULT arm=reference phase=perf pp_ms=252.442 tpot_ms=10.096 DENSE_MODEL_AB_START model=Qwen3.5-35B-A3B-Q4_K_M-GGUF arm=quactlize phase=perf log=/workspace/dense-model-ab.ntu99rvq/qwen35-35b-a3b/perf/quactlize/run.log DENSE_MODEL_AB_RESULT arm=quactlize phase=perf pp_ms=252.421 tpot_ms=9.966 DENSE_MODEL_AB_START model=Qwen3.5-35B-A3B-Q4_K_M-GGUF arm=quactlize phase=trace log=/workspace/dense-model-ab.ntu99rvq/qwen35-35b-a3b/trace/quactlize/run.log DENSE_MODEL_AB_RESULT arm=quactlize phase=trace pp_ms=256.453 tpot_ms=11.193 DENSE_MODEL_AB_START model=Qwen3.5-35B-A3B-Q4_K_M-GGUF arm=reference phase=trace log=/workspace/dense-model-ab.ntu99rvq/qwen35-35b-a3b/trace/reference/run.log DENSE_MODEL_AB_RESULT arm=reference phase=trace pp_ms=253.654 tpot_ms=10.273 这个也是类似的啊。。。
+- (2026-10-26 03:04 UTC) 继续测试122B的
+- (2026-10-26 03:15 UTC) DENSE_MODEL_AB_FAIL {"model": "explicit-model", "phase": "perf", "arm": "quactlize", "error": "missing Quactlize dense plans for BOTH decode M1 and prefill; see run.log", "log": "/workspace/dense-model-ab.gxwdo_kr/explicit-model/perf/quactlize/run.log"}
+- (2026-10-26 03:18 UTC) 72:0.00.345.696 I llama_prepare_model_devices: using device Meta() (Meta()) (unknown id) - 196646 MiB free 没看到quactlize的相关信息156:0.03.159.144 I load_tensors: CPU_Mapped model buffer size = 772.97 MiB 157:0.03.159.146 I load_tensors: Meta(CUDA0,CUDA1) model buffer size = 36406.31 MiB 163:0.20.393.651 I llama_context: n_batch = 2048 164:0.20.393.652 I llama_context: n_ubatch = 2048 174:0.21.067.195 I llama_context: CUDA_Host output buffer size = 0.95 MiB 175:0.21.068.161 I llama_kv_cache: Meta(CUDA0,CUDA1) KV buffer size = 27.00 MiB 179:0.21.069.572 I llama_memory_recurrent: Meta(CUDA0,CUDA1) RS buffer size = 74.53 MiB 191:0.21.133.696 I sched_reserve: Meta(CUDA0,CUDA1) compute buffer size = 2021.07 MiB 192:0.21.133.701 I sched_reserve: CUDA_Host compute buffer size = 57.08 MiB 202:{"n_kv_max": 2304, "n_batch": 2048, "n_ubatch": 2048, "flash_attn": 1, "is_pp_shared": 0, "n_gpu_layers": -2, "n_threads": 16, "n_threads_batch": 32, "pp": 2048, "tg": 1, "pl": 1, "n_kv": 2049, "t_pp": 0.591016, "speed_pp": 3465.219238, "t_tg": 0.048501, "speed_tg": 20.618132, "t": 0.639517, "speed": 3203.980469}
+- (2026-10-26 03:20 UTC) 原因是什么，需要改哪里？
+- (2026-10-26 03:21 UTC) 也就是多卡其实没有quactlize的enable？
+- (2026-10-26 03:29 UTC) 继续修改llamacpp的接线
+- (2026-10-26 03:30 UTC) 支持多卡的quactlize
+- (2026-10-26 03:34 UTC) 大概要多久
+- (2026-10-26 03:41 UTC) 之前的quactliz额的branch是怎么做的。
+- (2026-10-26 03:58 UTC) 之前的大M的sweep还要跑多久
+- (2026-10-26 04:01 UTC) "remaining_minutes": 597.8380409699756 为什么这么久
+- (2026-10-26 04:50 UTC) /sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/ggml-cuda/quactlize-buft.cu:627: quactlize: unsupported packed operation MUL_MAT (result_output reads output.weight)
+- (2026-10-26 05:10 UTC) DENSE_MODEL_AB_RUN run=/workspace/dense-model-ab.jijwq4ba device=2,3 tp=2 pp=2048 tg=1 request_batch=1 phases=perf,trace DENSE_MODEL_AB_START model=Qwen3.5-122B-A10B-GGUF-Q4_K_M arm=reference phase=perf log=/workspace/dense-model-ab.jijwq4ba/explicit-model/perf/reference/run.log DENSE_MODEL_AB_RESULT arm=reference phase=perf pp_ms=483.893 tpot_ms=39.803 DENSE_MODEL_AB_START model=Qwen3.5-122B-A10B-GGUF-Q4_K_M arm=quactlize phase=perf log=/workspace/dense-model-ab.jijwq4ba/explicit-model/perf/quactlize/run.log DENSE_MODEL_AB_WAIT model=Qwen3.5-122B-A10B-GGUF-Q4_K_M arm=quactlize phase=perf minutes=0.5 log=/workspace/dense-model-ab.jijwq4ba/explicit-model/perf/quactlize/run.log DENSE_MODEL_AB_RESULT arm=quactlize phase=perf pp_ms=481.609 tpot_ms=37.318 是合理的吗？对比我们的单算子的差距
+- (2026-10-26 05:23 UTC) 那还是先静态来，M=512,1024,2048,4096,5120,以及1-8都要没有regression
+- (2026-10-26 05:24 UTC) 在我们的这几个模型上：DeepSeek-V4-Flash-0731-UD-Q4_K_XLQwen3-32B-Q4_K_M-GGUFQwen3.5-122B-A10B-GGUF-Q4_K_MQwen3.5-35B-A3B-Q4_K_M-GGUFQwen3.8-27B-Q4_K_M-GGUF
+- (2026-10-26 05:30 UTC) 大M应该在补充，小M的验证的脚本给我
+- (2026-10-26 05:31 UTC) 总共就是45组dense shape吗
+- (2026-10-26 05:32 UTC) LLAMA_CI_BUILD_DIR=/sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci 这个是包含quactlize的，没关系嘛？
+- (2026-10-26 05:32 UTC) 还是要用build-ci-32F
+- (2026-10-26 05:33 UTC) /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci-32F-cublas/
+- (2026-10-26 05:40 UTC) PREFILL_COHORT_WORKER_FAIL {"worker": "gpu-4", "returncode": 1, "log": "/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/console-1792975060958840141.log", "diagnostic": "est_recipe\": {\"kind\": \"full\", \"parameters\": [[\"dequant_variant\", 38], [\"provider\", \"typed-fp16\"], [\"vector_io\", 3]], \"route\": \"full\"}, \"same_dtype_best_us\": 72.12, \"same_dtype_best_id\": \"bdaf129a44dc1182c89a983952c264f8e45b59c1222b7f53515c90ec345f7f44\", \"same_dtype_best_roles\": [\"rule:full-f16\"], \"same_dtype_phases\": {\"error_reset\": 0.44, \"expansion\": 2.92, \"input\": 42.001, \"main\": 23.64, \"output\"\nPREFILL_REVIEW {\"points\": 76, \"incomplete\": 23, \"bytes\": 2762300, \"output\": \"/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/results/review-1792992806634766633.json.xz\", \"production_changed\": false}\nresults=/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/results/review-1792992806634766633.json.xz\nrunner_rc=1 review=/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/results/review-*\nAsys=/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/results/batches/*/attempt-*/trace.asysrep\nResume with RESUME_RUN=/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9 and the same GPU/environment. Do not delete its source/cache/results."} 这个是大M的结果
+- (2026-10-26 05:43 UTC) Traceback (most recent call last):\n File \"/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/source/tools/run_prefill_model_asys.py\", line 622, in <module>\n if __name__=='__main__':raise SystemExit(main())\n ^^^^^^\n File \"/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/source/tools/run_prefill_model_asys.py\", line 391, in main\n if a.worker: return worker(a)\n ^^^^^^^^^\n File \"/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/source/tools/run_prefill_model_asys.py\", line 127, in worker\n value = qz(a,case['arm'])\n ^^^^^^^^^^^^^^^^^\n File \"/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/source/dev/prefill_point/bench.py\", line 156, in qz\n return measure_full(args,b,timer,arm,recipe,dense)\n ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n File \"/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/source/dev/prefill_point/typed.py\", line 136, in measure_full\n core=TypedFull(b,library,args.sdk,storage,getattr(args,'helper_options',None))\n ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n File \"/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefill-asys.vGZWK6O9/source/dev/prefill_point/typed.py\", line 82, in __init__\n checked(library.query(C.byref(self.shape),C.byref(b.arr),C.byref(size)),'typed full workspace')\n File \"/workspace/kpack-dense-m-rerun.VVXiB8S9/run/gpu-4/qwen32-prefi …
+- (2026-10-26 05:48 UTC) 小M的结果上传了，你先把手上的任务做完
+- (2026-10-26 05:51 UTC) 大M的结果不光是gpu-4有问题啊
+- (2026-10-26 05:52 UTC) 上传了大M的结果
+- (2026-10-26 06:10 UTC) 给我command
+- (2026-10-26 06:16 UTC) 小M应该也有错误
+- (2026-10-26 06:34 UTC) 小M补测command给我
+- (2026-10-26 06:54 UTC) 上传了
+- (2026-10-26 07:01 UTC) 需要查看回退点，然后我们看一下是不是其他的decoding优化没有apply过来。静态分析一下，如果还是不行，就要上box测acu了
+- (2026-10-26 07:04 UTC) 差距分别多大？
+- (2026-10-26 07:06 UTC) 这些是不是没有重新sweep啊
+- (2026-10-26 07:08 UTC) 除了这两个shape之外其他的都sweep了？
+- (2026-10-26 07:11 UTC) 不稳定的如果平均更好，应该也要采纳
+- (2026-10-26 07:11 UTC) asys抓出来的我们应该按照最小的算？
+- (2026-10-26 07:12 UTC) 另外117个要判断一下，另外我觉得需要在sweep的latency上带上quactlize的commit信息。
+- (2026-10-26 07:12 UTC) 如果后面的commit会影响，应该都要重新更新
+- (2026-10-26 07:13 UTC) 所有测试都用asys
+- (2026-10-26 07:14 UTC) 那就全部重新扫描吧
+- (2026-10-26 07:15 UTC) 另外大M的还能追溯到commit id吗？如果能够追溯到，就添加，没有的要考虑重新扫描
+- (2026-10-26 07:17 UTC) 先给我小M的sweep脚本
+- (2026-10-26 07:20 UTC) 继续
+- (2026-10-26 07:20 UTC) 先给我小M的sweep脚本 继续
+- (2026-10-26 07:21 UTC) 先把几个regression的扫描了
+- (2026-10-26 07:41 UTC) 还要多久
+- (2026-10-26 07:58 UTC) 给我command，推送
+- (2026-10-26 08:06 UTC) 上传了
+- (2026-10-26 08:10 UTC) Q6的M5-7还是有regression喽，相对于原生实现
+- (2026-10-26 08:12 UTC) 原生应该是simt的实现
+- (2026-10-26 08:22 UTC) token应该在一个cta内处理。改掉
+- (2026-10-26 08:23 UTC) Q4的decoding选择tc的比例
+- (2026-10-26 08:23 UTC) 按照M不同区分一下
+- (2026-10-26 08:25 UTC) 继续吧，调整Q6
+- (2026-10-26 08:32 UTC) 还要对酒
+- (2026-10-26 08:32 UTC) 多久
+- (2026-10-26 08:40 UTC) 继续
+- (2026-10-26 08:52 UTC) 提交，给我command
+- (2026-10-26 09:04 UTC) 上传了
+- (2026-10-26 09:12 UTC) 时间戳重叠检查是什么？不可能重叠，不需要检查
+- (2026-10-26 09:13 UTC) 现在是不是没有regression了。Q5是不是也要跑？另外这个方法要推广到其他的量化精度
+- (2026-10-26 09:15 UTC) 然后我们需要一个command测试原生的对比的性能。作为baseline
+- (2026-10-26 09:17 UTC) 列一个todo一项一项完成吧
+- (2026-10-26 09:25 UTC) 先给我原生的测试的脚本吧
+- (2026-10-26 09:32 UTC) 还要多久
+- (2026-10-26 09:40 UTC) 继续M4的Q6以及推广到其他的精度
+- (2026-10-26 09:44 UTC) 上传了。另外原生结果也上传了
+- (2026-10-26 09:48 UTC) 继续其他的格式的推广
+- (2026-10-26 09:56 UTC) 还要多长时间
+- (2026-10-26 09:57 UTC) 这40个点的tc需要重新跑吗？
+- (2026-10-26 09:58 UTC) 另外之前的大M的结果也上传了，等你当前任务结束之后解析
+- (2026-10-26 11:08 UTC) 大M应该可以直接接吧？慢0。55%可以接受
+- (2026-10-26 11:46 UTC) 上传了
+- (2026-10-26 11:54 UTC) 接线
+- (2026-10-26 11:55 UTC) 现在tc的百分比
+- (2026-10-26 12:34 UTC) 接线结束了吗？
+- (2026-10-26 12:35 UTC) 其他的shape呢？还没扫
+- (2026-10-26 12:35 UTC) 我们关注的就是这几个模型的对应的小M的shape，你这个N1024/K5120怎么这么多个点，是不是这个shape的所有格式扫了一遍？
+- (2026-10-26 12:39 UTC) 给我扫描的command
+- (2026-10-26 13:40 UTC) 上传了
+- (2026-10-26 13:51 UTC) 修改生产接线
+- (2026-10-26 14:23 UTC) 现在可以说单算子没有regression了吗
+- (2026-10-26 14:25 UTC) 相对于原生的实现，要保证没有regression
+- (2026-10-26 14:31 UTC) 还要多久给我commnad
+- (2026-10-26 14:33 UTC) 16，32，64，128，256也要测试一下，作为分桶的中间数值。先给我这个command，然后再给我上面的单算子regression的command
+- (2026-10-26 22:47 UTC) PREFILL_COHORT_DONE {"returncodes": [0, 0, 1, 0], "worker_failures": [{"worker": "gpu-2", "returncode": 1, "log": "/workspace/kk-dense-middle.g1FwRO6S/run/gpu-2/console-1793025880418243343.log", "diagnostic": "[\"dn\", 64], [\"grid_b\", 0], [\"grid_mode\0], [\"persistent\", -1], [\"qtype\", 8], [\"split\", 4], [\"stages\", 3], [\"symbol\", \"sf_q8_a0_tm64_tn64_tk64_wm32_wn32_s3__, [\"persistent\", -1], [\"qtype\", 8], [\"split\", 4], [\"stages\", 3], [\"symbol\", \"sf_q8_a0_tm64_tn64_tk64_wm32_wn32_s3__ap0_dn64\"], [\"tk\", 64], [\"tm\", 64], [\"tn\", 64], [\"wm\", 32], [\"wn\", 32]], \"route\": \"sf\"}, \"same_dtype_best_us\"4.280000000000001, \"same_dtype_best_id\": \"69d20530ce7f84a9d14557b57fcaf4c10b5528244030b778c4123be26c349237\", \"same_dtype_b_r\nPREFILL_REVIEW {\"points\": 54, \"incomplete\": 1, \"bytes\": 2027208, \"output\": \"/workspace/kpack-dense-middle.g1FwRO6Sn/gpu-2/qwen32-prefill-asys.ND33mMaR/results/review-1793029588484582292.json.xz\", \"production_changed\": false}\nresults=/worace/kpack-dense-middle.g1FwRO6S/run/gpu-2/qwen32-prefill-asys.ND33mMaR/results/review-1793029588484582292.json.xz\nrunner_rc=1 iew=/workspace/kpack-dense-middle.g1FwRO6S/run/gpu-2/qwen32-prefill-asys.ND33mMaR/results/review-*\nAsys=/workspace/kpack-denseddle.g1FwRO6S/run/gpu-2/qwen32-prefill-asys.ND33mMaR/results/batches/*/attempt-*/trace.asysrep\nResume with RESUME_RUN=/workspakpack-dense-middle.g1FwRO6S/run/gpu-2/qwen32-prefill-asys.ND33mMaR and the same GPU/environment. Do not  …
+- (2026-10-26 22:51 UTC) MISSING: [] UNCONFIRMED: [('2c16683b4ebb1f3fd09389ce2f30a571ac1deffab5d9f63cdba309398875fecb', 'MISSING_CONFIRMATION'), ('99da32621177232871e9e8f10438884c1f16ff83df2b4aecc50fa5861213047c', 'MISSING_CONFIRMATION'), ('f3b85f3d9f0498ce0fa49fd6bdf6fa7049863db01dc0ea5f0f9aaedfe0786a4d', 'MISSING_CONFIRMATION'), ('b35e2234d4412e5752062edd7a068bf886da378e35995ab7e75aa3a42bdee2fd', 'MISSING_CONFIRMATION'), ('cea85c26ba45ff045bb9b672f11306c4a559757a2de22b2ffc7ee9dedf5382aa', 'MISSING_CONFIRMATION'), ('6e1ea2878f488766c85080dc0cdc5c2348995a224b983f4a139d7562bf2c17ce', 'MISSING_CONFIRMATION'), ('0f5588711835b4be080600d18da5dd5598dfc71b851d74c115c31fb62ae1c79f', 'MISSING_CONFIRMATION'), ('1291d5af4a6dd3090eb2e08ae38156da31146cb53f0b8236dde27b4f7fb84f82', 'MISSING_CONFIRMATION'), ('a0f9f4ae2b1f10c7499568ac35d03d81a5826aacc133e676fc5977ea426a9c0e', 'MISSING_CONFIRMATION'), ('963c920c086acd7488b5eb8108f5ea74bd65297adb60d8c2687e11a85c7cf304', 'MISSING_CONFIRMATION'), ('66bb65107dd740cc1f21251b129eed19b8abe44ff488ece9cc11b906225a4299', 'MISSING_CONFIRMATION'), ('bdaf129a44dc1182c89a983952c264f8e45b59c1222b7f53515c90ec345f7f44', 'MISSING_CONFIRMATION'), ('3e12d1c6238f282523d0e2bf0b3b8b465d6a387287f23ac45f9db2bdb772aece', 'MISSING_CONFIRMATION'), ('72b9c86f955f91920d87aa5dd7a7b391a364c5fd032e2e3b20e2fe8aca7d27d2', 'MISSING_CONFIRMATION'), ('1e1b8a112229be48709d204d0dd62bfaa83d42b48629f72dd6a595f2893650675', 'MISSING_CONFIRMATION')] {"path": "/workspace/kpack-dense-middle.g1FwR06S/run/gpu-2/qwen …
+- (2026-10-26 22:56 UTC) 可以卡1上跑
+- (2026-10-26 22:58 UTC) 可以拼起来，就是一种类型的卡，可以认为是一样的性能
+- (2026-10-26 23:04 UTC) 还要多久给我commnad
+- (2026-10-26 23:07 UTC) File "/sim/eec/shared/junfu.qx/quactlize/tools/retry_prefill_confirmation.py", line 285, in main fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+- (2026-10-27 01:08 UTC) 之前的结果上传了
+- (2026-10-27 01:10 UTC) 然后之前的对比的结果也上传了
+- (2026-10-27 01:17 UTC) 更新到表和分桶。Q8的回退净数值太少了，可以忽略
+- (2026-10-27 01:43 UTC) 可以跑几个随机的M，看看有没有相对于原始有regression，随机的M和精度
+- (2026-10-27 02:07 UTC) File "/sim/eec/shared/junfu.qx/quactlize/dev/strategy/smallm_asys.py", line 138, in revision raise ValueError('commit the sweep sources before a Box measurement') ValueError: commit the sweep sources before a Box measurement
+- (2026-10-27 02:10 UTC) 工作区干净就行了。另外我需要对于那几个模型进行性能测试，对比和我们自己的实现的差距。看看合不合理。可以直接把quactlize的编译挪到llama cpp的build-ci下面吧？
+- (2026-10-27 02:11 UTC) prefill的m范围是512，1024，2048，4096，5120
+- (2026-10-27 02:20 UTC) [{"worker": "gpu-0", "returncode": 1, "log": "/workspace/kpack-random-dense.aqvpgmi6/results/run/gpu-0/console-1793066908480872343.log", "diagnostic": "PREFILL_ASYS_BATCH_FAIL {\"point\": \"4633a350b042b7e1be7091571fa3590dfa480dc5d037cbd27de81cbacf69c3d2\", \"cases\": [\"native-fp16\"], \"error\": \"asys-sweep rc=1; /workspace/kpack-random-dense.aqvpgmi6/results/run/gpu-0/qwen32-prefill-asys.r0eiAYyD/results/batches/9d6db53cdec74635294aa9332cbfa4e9b789c26a755588a9f1cf3588d8e1ac71/attempt-1793067058465658485/profile.log\\n/usr/local/bin/python3\\n[Asight]: Pro"}, {"worker": "gpu-1", "returncode": 1, "log": "/workspace/kpack-random-dense
+- (2026-10-27 02:21 UTC) 等一下，上面的网络跑的时候你拷贝quactlize的编译到build-ci了吗
+- (2026-10-27 02:22 UTC) 你是修改了llamacpp添加了--quactlize-package？
+- (2026-10-27 02:23 UTC) 之前跑的random的对比上传了
+- (2026-10-27 02:36 UTC) 上查UN了
+- (2026-10-27 04:46 UTC) 继续
+- (2026-10-27 04:59 UTC) 提交，给我comand测试
+- (2026-10-27 05:40 UTC) 算了，这个先不管吧。pp 4096的时候，Qwen3.8-27B-Q4_K_M-GGUF我们的prefill比原生慢了5ms
+- (2026-10-27 05:40 UTC) 算了，这个先不管吧。pp 4096的时候，Qwen3.8-27B-Q4_K_M-GGUF我们的prefill比原生慢了3ms
+- (2026-10-27 06:05 UTC) 我们的dequant的kernel时间始终更长，不太理解。
+- (2026-10-27 06:06 UTC) 主要是Q8
+- (2026-10-27 06:09 UTC) 为什么我们的整数指令多这么多，思考一下如何减少。是不是可以参考原生
+- (2026-10-27 06:18 UTC) 先改完，我去测试一下。另外还有别的可以改动的吗？
+- (2026-10-27 06:38 UTC) 上传了
+- (2026-10-27 06:49 UTC) 还有别的思路吗？
+- (2026-10-27 06:50 UTC) 先不搞了。就这样吧。
+- (2026-10-27 06:50 UTC) 整理一下quactlize的develo
+- (2026-10-27 07:10 UTC) 如何单独看启动时间的影响。主要是我们的第一次shuffle
+- (2026-10-27 08:56 UTC) 是不是可以调用gguf的gemm接口的时候内部做这个shuffle变成kpack。然后调用我们的quactlize的gemm，下次同一个tensor会hit
+- (2026-10-27 08:56 UTC) 好像不行，显存double了
+- (2026-10-27 08:57 UTC) 怎么处理能够不去touch原始的llamacpp呢
+- (2026-10-27 09:09 UTC) 如果直接在gguf格式上进行量化gemm，速度能慢多少。原生的实现mmq相对于dequant+mma速度慢很多吗？
+- (2026-10-27 09:42 UTC) 为什么我侧视出来用别的脚本。结果prefill时间不变，甚至变长了。如何check我们的库被正确调用
+- (2026-10-27 09:43 UTC) 我上传了本地的侧视脚本，batched bench。sh
+- (2026-10-27 09:46 UTC) 输入5120的时候反而变慢了，感觉比较像是我们之前的没有添加5120等M支持的版本
+- (2026-10-27 09:48 UTC) 好像只有Qwen3-32B-Q4KM的5120变差了
+- (2026-10-27 09:52 UTC) 用build-ci目录下的batched bench执行你之前的侧视脚本。这样能够检查是不是quactlize的问题
+- (2026-10-27 09:53 UTC) 只侧视这个单个模型
+- (2026-10-27 09:54 UTC) 另外看一下是不是侧视参数和我上传的脚本不同
+- (2026-10-27 09:57 UTC) 我们之前的侧视参数和这个脚本的区别？
+- (2026-10-27 10:01 UTC) #!/bin/bash # ============================================================ # build.sh - ncp_flash_lib 一键构建 (submodule 拉取 + cmake 编译) # # 模仿 llama.cpp 的 .aoneci/scripts/build.sh 中构建 ncp_flash_lib 的部分: # gitlab 凭证的 URL rewrite、子模块 init --recursive、构建依赖探测、 # cmake 配置构建、产物校验 (.so 存在 + 不链 libtorch)。llama.cpp 侧的联合 # 构建与 .so 安装 (build-ci/bin) 不在这里 -- 那是 .aoneci/scripts/build.sh 的职责。 # # How to use (在 PPU box 上): # 1. 凭证 (可选, 仅当某个 submodule 仍指向需要鉴权的内网 git 时需要): # export USRNAME=user@alibaba-inc.com # export TOKEN=<your-gitlab-token> # # 2. 构建: # bash build.sh # FA + MoE（默认组合；GDN 和 Quactlize 默认关闭） # bash build.sh fa # 仅 FA -- 无 torch/triton 环境的最小构建 # bash build.sh gdn # 仅 actlizeLA GDN -- 无 torch/triton 依赖 # bash build.sh quactlize # K-pack producer + dense provider/runtime # bash build.sh fa moe gdn quactlize # 构建全部组件 # # 必需环境变量: # PPU_SDK PPU SDK 根目录；请先 source SDK 的 envsetup.sh。 # # 可选环境变量 (覆盖默认值): # PPU_NVCC CUDA_SDK nvcc 路径 (default: $PPU_SDK/CUDA_SDK/bin/nvcc)。 # 角色: (a) CMAKE_CUDA_COMPILER -- CMake 启用了 CUDA 语言且只识别 nvcc/Clang; # (b) find_package(CUDAToolkit) 的 cudart 解析锚点。FA kernel 不由它编译，而是由 # CMakeLists.txt 的 custom command 直接调用 $PPU_SDK/bin/hgcc。 # JOBS 并行编译数 (default: $(nproc)) # BUILD_DIR 构建目录 (default: ./build) # PPU_SDK PPU SDK 根目录 (default: /usr/local/PPU_SDK) # SUBMODULE_TIMEOUT submodule pull timeout, seconds (default: 1800) # ============================================================ set -euo pipefail SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" cd "${SC …
+- (2026-10-27 10:01 UTC) 这个脚本需要更新吗？
+- (2026-10-27 10:01 UTC) 这是我本地的内网branch的编译quactliz额的脚本
+- (2026-10-27 10:04 UTC) 你先给我command跑build-ci内部的quactlize的性能，对比用你的so的性能
+- (2026-10-27 11:44 UTC) DENSE_MODEL_AB_RESULT arm=reference phase=perf pp_ms=1353.491 tpot_ms=21.600 DENSE_MODEL_AB_RESULT arm=quactlize phase=perf pp_ms=1357.433 tpot_ms=21.610 没太大区别啊。跟测试方法有关吗？
+- (2026-10-27 11:44 UTC) 另外给我command直接turn off quactlize试试
+- (2026-10-27 11:52 UTC) DENSE_MODEL_AB_MODEL {"model": "explicit-model", "reference": {"pp_total_ms": 1336.595, "tpot_ms": 33.7883671875}, "quactlize": {"pp_total_ms": 1351.765, "tpot_ms": 21.594736328125}, "delta_pct": {"pp_total_ms": 1.1349735709021758, "tpot_ms": -36.08825129580702}, "no_regression_admitted": false}
+- (2026-10-27 11:52 UTC) 需要asys吗？
+- (2026-10-27 11:52 UTC) /workspace/dense-model-ab.0z7ttcsk.review.tgz有吗？
+- (2026-10-27 11:53 UTC) 这个包里有asys吗？
+- (2026-10-27 11:53 UTC) 我还没有给哦你
+- (2026-10-27 11:54 UTC) 给我command。
+- (2026-10-27 11:55 UTC) 静态的单算子侧视的结果呢？这里有mismatch
+- (2026-10-27 12:05 UTC) 所以我们没有测试过5120的单算子的regression吗？
+- (2026-10-27 12:06 UTC) 我们之前的单算子regression没有测到这个点吗？
+- (2026-10-27 12:08 UTC) 还有Qwen3.5-35B-A3B-量化版本的prefill的各种shape全有regression。我们先测试这个模型还有5120这个模型的单算子regression侧视。prefill
+- (2026-10-27 12:28 UTC) 去掉仓库的脏检查
+- (2026-10-27 12:56 UTC) 现在看起来很大程度上是原生的用了BF16的中间accum，所以有些shape快很多
+- (2026-10-27 13:02 UTC) 我从asys上看到的，我们的gemm时间更长
+- (2026-10-27 13:03 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 1 GEMM 442458941 34.376 126 3511578 3474685 2997181 3956828 284363 442458941 100 ACBLAS:GemmEx,t,n,25600,5120,5120,5120,5120,25600,1,0,1,DRPR,FP16,ACBLAS_GEMM_DEFAULT,32F,EPILOGUE_DEFAULT 85.775 3.24 2.009这是我们的。Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 1 GEMM 410831001 32.229 126 3260563 3285584 2920941 3478785 148353 410831001 100 ACBLAS:GemmEx,t,n,25600,5120,5120,5120,5120,25600,1,0,1,TF32_TENSOR,FP16,ACBLAS_GEMM_DEFAULT_TENSOR_OP,16F,EPILOGUE_DEFAULT 92.379 3.49 2.163这是原生的
+- (2026-10-27 13:07 UTC) 还要确认qwen3。5-35b-a3b的这个问题是不是一样也是因为这个
+- (2026-10-27 13:16 UTC) 关键回退不一定都是这个造成的。给我个同样的command，抓trace
+- (2026-10-27 13:23 UTC) DENSE_MODEL_AB_RESULT arm=quactlize phase=trace pp_ms=516.393 tpot_ms=7.695 DENSE_MODEL_AB_RESULT arm=reference phase=trace pp_ms=517.624 tpot_ms=8.052 这个没有复现
+- (2026-10-27 13:42 UTC) 我看到的也是类似的.纯kernel时间来说，差不多，有一些gemm算子时间更长，也是因为accumulator的格式问题。但是fp32的中间格式更稳定。这个改动是合理的
+- (2026-10-27 13:43 UTC) 当前的PR可能就这么准备进去了。我们准备一下后面的moe-gemm的扫描部分。和原生的对比部分。moe-gemm是否需要sweep不同的M，decoding部分的计算是否可以参考我们simt的gemv的一些优化。是否需要参考查表和分桶的逻辑。
+- (2026-10-27 13:51 UTC) 先1后2，1你需要注意流程，我们扫描的配置需要包含历史最优。但是用这个调节选择的逻辑，而不是直接naive加入历史最优。
+- (2026-10-27 13:52 UTC) 实际上还是要重新扫描的。用asys扫描+commitid的tag。这个不需要复用原始的数据，原始数据可以额用于参考。
+- (2026-10-27 14:13 UTC) 我们的设计中会融合的吧
+- (2026-10-27 14:13 UTC) 另外融合之后的shape是不是之前的dense gemm中不包含。
+- (2026-10-27 14:13 UTC) 如果要扫描config也要加入。
+- (2026-10-27 14:33 UTC) 列到backup的列表先继续优化simt的decoding部分
+- (2026-10-27 18:19 UTC) 给我commnad
+- (2026-10-27 22:37 UTC) 推送
+- (2026-10-27 22:48 UTC) 上传了，incomplete
+- (2026-10-27 22:57 UTC) 如何，如何路精度进度如何整体思路是要把所有的simt的dense的优化搬运到moe-gemv simt上（所有格式）。按照这个思路进度如何。
+- (2026-10-27 22:57 UTC) 推送，给我command
+- (2026-10-27 23:03 UTC) 整体思路是要把所有的simt的dense的优化搬运到moe-gemv simt上（所有格式）。按照这个思路进度如何。
+- (2026-10-27 23:07 UTC) 上传了
+- (2026-10-27 23:42 UTC) 继续下一步，Q5的收益要接入。另外几个网络都侧视了吗？
+- (2026-10-27 23:50 UTC) 集中路由下的34。6%为什么没有作为通用收益
+- (2026-10-27 23:51 UTC) 那起码单行要接入
+- (2026-10-27 23:52 UTC) M在2-8之间的侧视了吗
+- (2026-10-27 23:52 UTC) 补齐。另外还有什么优化方向吗？
+- (2026-10-27 23:53 UTC) 这些对比中你没有加入tc
+- (2026-10-27 23:53 UTC) 有可能tc在M大于1的时候就直接采用了
+- (2026-10-27 23:55 UTC) quactlize的branch中M2-8回怎么选择。
+- (2026-10-27 23:56 UTC) 当然我说的是simt优化结束之后，我们开始sweep的时候要加入tc。
+- (2026-10-28 01:08 UTC) 继续
+- (2026-10-28 01:16 UTC) 我们要包括deepseekv4-flash，qwen3。5-35b-a3b，以及qwen3。5-122b-a10b
+- (2026-10-28 01:57 UTC) 上传了之前的侧视
+- (2026-10-28 02:08 UTC) 还有别的优化吗》没有的话我们开始sweep
+- (2026-10-28 02:38 UTC) File "/workspace/kpack-smallm-asys.mTsF5QCg/source/dev/strategy/moe_model_plan.py", line 105, in expanded_points raise ValueError('M1..8 coverage missing for a model or weight family') ValueError: M1..8 coverage missing for a model or weight family
+- (2026-10-28 03:04 UTC) 上传了
+- (2026-10-28 03:06 UTC) deepseek这个先不管
+- (2026-10-28 03:17 UTC) deepgemm sail里面有支持mxfp4的weight吗？
+- (2026-10-28 03:19 UTC) ppu1。5的版本是怎么加速？
+- (2026-10-28 03:24 UTC) FP4的MMA做解包如何理解？是mma的完整的指令吗？
+- (2026-10-28 03:46 UTC) SMALLM_ASYS_WAIT {"alive": 1, "elapsed_minutes": 26.000191983549545, "logs": "/workspace/kpack-smallm-asys.DhQLlRhN/results/workers/c82b717252654aa2800a02b6b306bde1/gpu-*.log"} 怎么能看还有多久
+- (2026-10-28 03:49 UTC) GPU 4: 总计=144 通过=14 失败=0 screen完成=14 未完成=130 粗估剩余分钟=294.5
+- (2026-10-28 03:49 UTC) 为什么没有多卡
+- (2026-10-28 03:52 UTC) GPUS=3,4,5,6,7 JOBS=8 \ 这样配置？
+- (2026-10-28 04:57 UTC) 上传了
+- (2026-10-28 05:11 UTC) 收敛选录表
+- (2026-10-28 05:48 UTC) 不弱于llamacpp原生了吗
+- (2026-10-28 05:48 UTC) 另外还有大M没有测试
+- (2026-10-28 05:54 UTC) 继续
+- (2026-10-28 06:48 UTC) 推送给我command
+- (2026-10-28 07:02 UTC) llamacpp中几个问题。 chunk->max_size = MAX(chunk->max_size, MAX(alloc->alignment, addr.offset + size));的必要性是什么？
+- (2026-10-28 07:04 UTC) 原来为什么没有出现问题
+- (2026-10-28 07:06 UTC) 那我们为什么会创建大小位0的tensor
+- (2026-10-28 07:25 UTC) llama model里面的改动是为什么
+- (2026-10-28 07:29 UTC) 这里必须要改吗
+- (2026-10-28 07:45 UTC) File "/sim/eec/shared/junfu.qx/quactlize/dev/strategy/smallm_asys.py", line 161, in revision raise ValueError('commit the sweep sources before a Box measurement') ValueError: commit the sweep sources before a Box measurement 去掉这个check
+- (2026-10-28 07:54 UTC) 推送
+- (2026-10-28 07:55 UTC) 958b0eb7.txt 包含了tp的llamacpp的改动的diff，我想要单独创建这个MR，你看看对不对
+- (2026-10-28 08:00 UTC) 跟你的本地修改对比
+- (2026-10-28 08:04 UTC) 1. 建议恢复接口契约注释：返回 NULL 保留原路径；选中的存储格式必须支持全部推理 batch size。因为这个接口没有 M 参数，不能仅保证某个 M 可用。具体什么改动
+- (2026-10-28 08:16 UTC) 这些改动是是为什么目的
+- (2026-10-28 08:19 UTC) 这是因为我们的quactlize的库有一些特殊的格式需求？
+- (2026-10-28 08:32 UTC) 大M和小M的结果都上传了
+- (2026-10-28 08:45 UTC) 继续大M的处理
+- (2026-10-28 09:51 UTC) kpack-dense-vs-ppu_dev-75750795c-working.diff 是dense gemm接入之后的diff。查看一下合不合理，和你本地的差距。
+- (2026-10-28 09:59 UTC) 为什么你要在本地编译tc？在box上编译不就好了， 你本地的check时间有点长
+- (2026-10-28 10:00 UTC) 先给我box command，你再review
+- (2026-10-28 10:03 UTC) 推送了吗
+- (2026-10-28 10:04 UTC) 后续自动推送
+- (2026-10-28 10:06 UTC) 推送了吗？
+- (2026-10-28 10:06 UTC) 推送了吗？
+- (2026-10-28 11:34 UTC) 我们的develop要比较干净一些debug或者benchmark或者测试脚本放到单独的branch一些readme无效的也不要放到develop保持干净整洁
+- (2026-10-28 12:06 UTC) File "/sim/eec/shared/junfu.qx/quactlize/dev/strategy/asys_components.py", line 51, in parse_component_rows if len(block)!=count:raise ValueError('Asys kernel activity coverage incomplete') ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ValueError: Asys kernel activity coverage incomplete
+- (2026-10-28 12:16 UTC) 上传了这次的asys错误的结果
+- (2026-10-28 12:23 UTC) 等一下，问题是什么，从log看不出来吗？
+- (2026-10-28 12:28 UTC) 继续啊？需要我干什么
+- (2026-10-28 12:29 UTC) 上传了
+- (2026-10-28 12:43 UTC) 这种情况其实也可以按照实际跑了多少个算
+- (2026-10-28 12:57 UTC) 给我新的command，另外单次测试不需要搞的太复杂。
+- (2026-10-28 12:57 UTC) 代码逻辑不要太复杂，门控可以适当少点。
+- (2026-10-28 12:58 UTC) 补测的command给我
+- (2026-10-28 13:14 UTC) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/dev/native_components/build.py", line 195, in build_adapter raise ValueError('native adapter identity changed; use a new output directory') ValueError: native adapter identity changed; use a new output directory
+- (2026-10-28 13:14 UTC) 直接重新跑吧
+- (2026-10-28 13:16 UTC) actlize为什么需要update？
+- (2026-10-28 14:07 UTC) 2026-10-28 18:24:06,608 - INFO - 获取到任务执行结果: {"return_code": 1, "command_output": ["========== ctest Started ==========", "==========================================", "llama.cpp CI Test Runner", "==========================================", "Project path: /workspace/llama_cpp", "Test timeout: 5400s", "Parallel threads: 8", "Model file: (not set)", " WARNING: LLAMA_MODEL not set -- qwen3-integration and other model-related tests will be skipped!", "Output dir: /home/image/llama_cpp/.aoneci/scripts/output", "", "[Cleanup] Removing old output directory: /home/image/llama_cpp/.aoneci/scripts/output", "[1/5] Fetching and filtering test list...", "Found 61 test(s)", "Will run: 53", "Will run serially: 6", "Will skip: 2", "Skip list: test-arg-parser test-backend-ops", "", "[2/5] Generating test scripts...", "Generated 53 test script(s)", "", "[3/5] Running all tests in parallel (8 concurrent)...", "\u6b63\u5728\u5b89\u88c5\u6a21\u578b\u4e0b\u8f7d\u4ee3\u7406\u7684\u6839\u8bc1\u4e66...", "Updating certificates in /etc/ssl/certs...", "rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL", "1 added, 0 removed; done.", "Running hooks in /etc/ca-certificates/update.d...", "done.", "\u6a21\u578b\u4e0b\u8f7d\u4ee3\u7406\u7684\u6839\u8bc1\u4e66\u66f4\u65b0\u5b8c\u6210", "", "[3.2/5] Downloading stories15M model...", "[3.3/5] Running stories15M model tests...", "", " WARNING: LLAMA_MODEL not set -- skipping qwen3-integration test", "", "[4/5] Parsi …
+- (2026-10-28 14:10 UTC) 我们直接跑这个测试，给我command
+- (2026-10-28 14:10 UTC) build-ci目录下
+- (2026-10-28 14:16 UTC) 1/2 Test #48: test-kpack-gemv .................. Passed 55.42 sec
+- (2026-10-28 14:19 UTC) 之前的错误：KPACK_DENSE PASS suite=gemv cases=14 formats=1 storage=F32 grouped=DISABLED Traceback (most recent call last): File "/workspace/llama_cpp/tests/test-kpack-load.py", line 383, in <module> main() File "/workspace/llama_cpp/tests/test-kpack-load.py", line 56, in main run_compute_suite(args) File "/workspace/llama_cpp/tests/test-kpack-load.py", line 154, in run_compute_suite raise RuntimeError(f'{args.compute}: {len(failures)} failed checks; results={args.output}') RuntimeError: gemv: 2 failed checks; results=/home/image/llama_cpp/build-ci/tests/kpack-gemv-r4coxdpc
+- (2026-10-28 14:19 UTC) KPACK_COMPUTE_FAIL q=12 error=q12: unexpected rc=-6 or rejection marker; see /home/image/llama_cpp/build-ci/tests/kpack-gemv-r4coxdpc/q12.log remaining_continue=1
+- (2026-10-28 14:19 UTC) KPACK_COMPUTE_FAIL q=8 error=q8: unexpected rc=-6 or rejection marker; see /home/image/llama_cpp/build-ci/tests/kpack-gemv-r4coxdpc/q8.log remaining_continue=1
+- (2026-10-28 14:22 UTC) KPACK_COMPUTE_FAIL q=8 error=q8: unexpected rc=-6 or rejection marker; see /home/image/llama_cpp/build-ci/tests/kpack-gemm-zbef6m78/q8.log remaining_continue=1 是不是不让我jit？
+- (2026-10-28 14:23 UTC) test cuda archs报错：| llama| Meta| Dense|/workspace/llama_cpp/src/llama-model.cpp:469: GGML_ASSERT(tensor_axis_0 != nullptr) failed
+- (2026-10-28 14:27 UTC) 修复
+- (2026-10-28 14:27 UTC) 提交
+- (2026-10-28 14:36 UTC) 现在ci的log没有更详细的log，只有我发给你的这些， 如何让我们的错误打印更有说明力，而不是都需要看更细的log。
+- (2026-10-28 14:41 UTC) 还要多久推送
+- (2026-10-28 14:46 UTC) 还要多久
+- (2026-10-28 22:32 UTC) "minutes": 547.5041884986373, "logs": "/workspace/kpack-moe-prefill-fresh.wAVjENxB/results/workers/f4e9ef9d6ba44c44a4d452f96b509c37/gpu-*.log"} 怎么看还要多久
+- (2026-10-28 22:38 UTC) GPU 3: 已完成 37/50；线性粗估剩余 194 分钟 当前 screen: 正在测第 25 起的 4 个配置，本阶段共 34 个配置
+- (2026-10-28 22:38 UTC) GPU 5: 已完成 38/50；线性粗估剩余 175 分钟 当前 screen: 正在测第 37 起的 4 个配置，本阶段共 93 个配置
+- (2026-10-28 22:38 UTC) 为什么需要这么久，感觉不应该啊，之前的dense跑的挺快的，是因为moe我们的configsweep的candidate更多吗
+- (2026-10-28 23:00 UTC) Traceback (most recent call last): File "/workspace/llama_cpp/tests/test-kpack-load.py", line 418, in <module> main() File "/workspace/llama_cpp/tests/test-kpack-load.py", line 57, in main File "/workspace/llama_cpp/tests/test-kpack-load.py", line 189, in run_compute_suite raise RuntimeError(f'{args.compute}: {len(failures)} failed checks; results={args.output}') RuntimeError: gemv: 2 failed checks; results=/home/image/llama_cpp/build-ci/tests/kpack-gemv-ut09cw85
+- (2026-10-28 23:00 UTC) KPACK_COMPUTE_FAIL q=12 error=q12: rc=-6 termination=SIGABRT; expected rc=0; log=/home/image/llama_cpp/build-ci/tests/kpack-gemv-ut09cw85/q12.log remaining_continue=1 KPACK_COMPUTE_DIAGNOSTIC_BEGIN log=/home/image/llama_cpp/build-ci/tests/kpack-gemv-ut09cw85/q12.log last_context: KPACK_DENSE_START suite=gemv q=12 m=1 n=256 k=512 last_context: KPACK_JIT_RESOLVE parent=fqk_tc_q12_l1_a0_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0_dn0 cache=/root/.cache/quactlize/ppu 1: ggml_cuda_init: found 1 CUDA devices (Total VRAM: 49152 MiB): 2: Device 0: PPU-ZW610, compute capability 8.0, VMM: yes, VRAM: 49152 MiB 3: KPACK_DENSE_START suite=gemv q=12 m=1 n=256 k=512 4: KPACK_JIT_RESOLVE parent=fqk_tc_q12_l1_a0_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0_dn0 cache=/root/.cache/quactlize/ppu 5: KPACK_JIT parent=fqk_tc_q12_l1_a0_tm8_tn64_tk256_wm8_wn16_s2_bc0_ap0_dn0 cache_hit=0 seconds=47.764 key=cef3718bef42329b0d69e079c95bcacc275aea2d28983579c1a5279764f7b1eb 6: /workspace/llama_cpp/ggml/src/ggml-cuda/quactlize-buft.cu:675: quactlize: dense prepare dense-online: loaded module device differs from policy: probe_rc=0 name=PPU-ZW610 ordinal=0 compute_units=64 expected_name=PPU-ZW810 expected_compute_units=72 previous_ordinal=-1 previous_compute_units=0 7: [New LWP 3873]
+- (2026-10-28 23:02 UTC) 修复吧。610走跟810一样的选录规则。用810的表。你说的通用规则是什么意思。
+- (2026-10-28 23:03 UTC) 通用规则的桶还是810的啊，所以你还是会精确命中
+- (2026-10-28 23:03 UTC) 修复吧，610和810事一个架构，我们先让610的时间认为是810的时间的精确表。但是要明确注释
+- (2026-10-29 01:26 UTC) 上传了结果，有一个fail
+- (2026-10-29 01:37 UTC) 上传了
+- (2026-10-29 02:10 UTC) MOE_PREFILL_SWEEP_PLAN {"historical_references": 50, "modules": 53, "points": 200, "seed_arms": 5790, "protocol": {"confirm": [6, 5], "finalist_limit": 32, "finalist_window_pct": 5, "grid_blocks_per_cu": [1, 2, 4, 8], "include_occupancy_endpoint": true, "live_arms": 4, "metric": "MEAN_OF_SEPARATELY_PROFILED_COMPONENT_SUMS", "screen": [4, 3]}, "budget_hours": 8.0, "production_changed": false} 之后没有打印了
+- (2026-10-29 02:15 UTC) 2826366 2826220 0.0 Sl 16:56:24 - /root/.vscode-server/bin/94e8ae2b28cb5cc932b86e1070569c4463565c37/node /tmp/vscode-remote-containers-server-7c2ecc12-2501-44ad-9378-4e3ab7bd17d3.js 3195469 829359 99.3 Rl+ 09:04 - python3 -u /workspace/kpack-moe-prefill-fresh.wAVjENxB/source/tools/run_moe_prefill_sweep.py --output /workspace/kpack-moe-prefill-fresh.wAVjENxB/results --sdk /usr/local/PPU_SDK --llama-source /sim/eec/shared/junfu.qx/llama.cpp.ncp --llama-build /sim/eec/shared/junfu.qx/llama.cpp.ncp/build-ci-32F-cublas --moe-models qwen35-35b-a3b,qwen35-122b-a10b --devices 3,5,6,7 --jobs 8 --l2-bytes 67108864 --budget-hours 8 --confirm-idle --resume
+- (2026-10-29 02:17 UTC) ls -l /proc/3195469/fd ls: cannot access '/proc/3195469/fd': No such file or directory
+- (2026-10-29 02:17 UTC) File "/workspace/kpack-moe-prefill-fresh.wAVjENxB/source/dev/native_components/build.py", line 195, in build_adapter raise ValueError('native adapter identity changed; use a new output directory') ValueError: native adapter identity changed; use a new output directory
+- (2026-10-29 02:18 UTC) 为什么用到llama了？
+- (2026-10-29 02:26 UTC) mm id sids helper在quactliz中没有对应实现吗？
+- (2026-10-29 02:30 UTC) 算了，先用llamacpp中的函数
+- (2026-10-29 02:33 UTC) 算了，你优化一波
+- (2026-10-29 02:33 UTC) 写到我们自己的quactlize
+- (2026-10-29 02:33 UTC) 不能比原来的差
+- (2026-10-29 02:34 UTC) 应该是任意M的支持，注意
+- (2026-10-29 03:00 UTC) // find the first buffer type in the list that can use the tensor static ggml_backend_buffer_type_t select_weight_buft(const llama_hparams & hparams, ggml_tensor * tensor, ggml_op op, const buft_list_t * buft_list, bool allow_meta_preference) { GGML_ASSERT(!buft_list->empty()); for (const auto & cur : *buft_list) { ggml_backend_dev_t cur_dev = cur.first; ggml_backend_buffer_type_t cur_buft = cur.second; auto * reg = ggml_backend_dev_backend_reg(cur_dev); // Virtual tensors do not yet have the sibling metadata used by Meta splitting. if (cur_buft == ggml_backend_dev_buffer_type(cur_dev) && (allow_meta_preference || ggml_backend_dev_type(cur_dev) != GGML_BACKEND_DEVICE_TYPE_META)) { auto preferred = reg ? (ggml_backend_dev_get_weight_buft_t) ggml_backend_reg_get_proc_address( reg, "ggml_backend_dev_get_weight_buft") : nullptr; if (std::regex_search(tensor_name, pattern)) { if (overrides->buft == ggml_backend_cpu_buffer_type()) { // when overriding to a CPU buffer, consider the extra buffer types buft = select_weight_buft(hparams, t_meta, op, buft_list_cpu, !files.empty()); if (use_mmap) { static std::once_flag once; std::call_once(once, [] { } if (!buft) { buft = select_weight_buft(hparams, t_meta, op, buft_list, !files.empty()); if (!buft) { throw std::runtime_error(format("failed to find a compatible buffer type for tensor %s", tn.str().c_str())); } 这里修改的逻辑是什么
+- (2026-10-29 03:01 UTC) 可以不改动原始代码吗？或者有别的更小侵入的改动思路吗？
+- (2026-10-29 03:06 UTC) 我们的改动不应该影响meta后段啊
+- (2026-10-29 03:10 UTC) 修改大概是什么样？
+- (2026-10-29 03:11 UTC) 可以做到完全非侵入 —— 而且 ggml 里已经有现成的语义，不需要新发明。 关键发现 ggml-backend.h:386-388 已经定义了： // for internal bookkeeping only: GGML_BACKEND_SPLIT_AXIS_NONE = 98, GGML_BACKEND_SPLIT_AXIS_UNKNOWN = 99, 而 Meta 后端对这个值的处理恰好就是我们要的两种行为： 调用时机 代码 拿到 UNKNOWN 的结果 提前查询 get_weight_buft ggml-backend-meta.cpp:501 split.axis >= GGML_MAX_DIMS return nullptr → 无偏好，静默降级 真正放置/切分 :1368、:704、:1029 GGML_ASSERT(... != UNKNOWN) abort → fail-fast 保护不丢 所以这不是"把断言改松"，而是把容错挪到该在的层。 非侵入方案 改动全部落在我们自己引入的那条路径上： llama-model.cpp:469：兄弟元数据两路都查不到时，返回 axis = UNKNOWN 的 config，不断言 :583（output.bias 分支）：同样放宽 :779 之后：tc.axis == UNKNOWN 就直接返回 {UNKNOWN, {0}, {1}, 1} 然后： select_weight_buft 恢复原签名，删掉 allow_meta_preference 和 GGML_BACKEND_DEVICE_TYPE_META 特判 ggml-backend-meta.cpp 和 ggml-backend.h 零改动 行为等价性：虚拟模型下所有 Meta 权重都拿不到偏好，按原 buft 顺序走 —— 和 allow_meta_preference=false 完全一致。而且粒度更细：真实 GGUF 下某个可选兄弟张量偶发查不到时也能降级，而不是崩
+- (2026-10-29 03:11 UTC) 这个判断对吗
+- (2026-10-29 03:14 UTC) 继续
+- (2026-10-29 03:15 UTC) 最终改动给我展示一下侵入的范围
+- (2026-10-29 03:16 UTC) 不应该是我们把进入kpack的准入更严格吗？这样能解决吗？
+- (2026-10-29 03:18 UTC) 给我最后改动打印到terminal
+- (2026-10-29 03:21 UTC) select_weight_buft 为什么还要加一个allow_meta_preference的入口，太奇怪了
+- (2026-10-29 03:23 UTC) 改成这样
+- (2026-10-29 03:23 UTC) 提交
+- (2026-10-29 03:23 UTC) 推送
+- (2026-10-29 03:30 UTC) 推送了吗
+- (2026-10-29 03:42 UTC) 继续之前的大M的mm ids helper
+- (2026-10-29 03:51 UTC) 继续
+- (2026-10-29 04:50 UTC) 上穿了
+- (2026-10-29 05:42 UTC) 上传了
+- (2026-10-29 05:42 UTC) full的上传了
+- (2026-10-29 05:55 UTC) 额，小 M我们原来没有实现吗？原来的quactlize里面就是更慢的？
+- (2026-10-29 05:56 UTC) 啥意思，小M多小不用mm ids helper，分别说明接线的区别，小M，大M，整个pipe，所有的算子，列一下
+- (2026-10-29 06:19 UTC) 继续
+- (2026-10-29 06:19 UTC) 继续
+- (2026-10-29 06:25 UTC) 大M可以参考小M合并一些周边的helper算子吗
+- (2026-10-29 06:42 UTC) 小M，多小算小呢。你这里大M和小M的边界不清晰，我们要硬核的边界。
+- (2026-10-29 06:46 UTC) 但是为什么呢？没有太理解，8有什么特殊性。
+- (2026-10-29 06:58 UTC) preprare算法都需要，只是M不同的时候设计不同
+- (2026-10-29 07:01 UTC) gateup之后不一定有规约。gateup本身也可能和swiglu融合。
+- (2026-10-29 07:05 UTC) 继续
+- (2026-10-29 08:13 UTC) 还要多久
+- (2026-10-29 09:34 UTC) 上传了
+- (2026-10-29 09:59 UTC) 大M直接用我们优化之后的mm ids helper是不是最快？
+- (2026-10-29 10:00 UTC) 我们现在哪些更好，哪些更差，相对于mm idshelper
+- (2026-10-29 10:07 UTC) 上传了
+- (2026-10-29 10:16 UTC) 那就按照这个收敛，并开始接线
+- (2026-10-29 10:16 UTC) 所有的shape还没有测完吗？
+- (2026-10-29 10:17 UTC) 还剩下那些测试
+- (2026-10-29 10:23 UTC) 给我command上box测试
+- (2026-10-29 11:16 UTC) 大概跑多久
+- (2026-10-29 12:07 UTC) 上传了
+- (2026-10-29 12:19 UTC) 按照这些接线
+- (2026-10-29 12:21 UTC) 相对于我们优化之后的mmidshelper呢？你说的拆开的包括这个吗？
+- (2026-10-29 12:22 UTC) 回退是相对于谁，回退
+- (2026-10-29 12:23 UTC) 继续接线。继续接线
+- (2026-10-29 13:36 UTC) 这一轮之后还要跑别的吗？
+- (2026-10-29 13:48 UTC) 上一轮要多久
+- (2026-10-29 14:00 UTC) 上传了
+- (2026-10-29 14:10 UTC) 继续
+- (2026-10-29 14:39 UTC) 还要多久
+- (2026-10-29 14:54 UTC) 还要多久
+- (2026-10-29 14:54 UTC) 用ssh提交
+- (2026-10-29 23:40 UTC) 上传了
+- (2026-10-30 00:49 UTC) 这是跑什么？
+- (2026-10-30 00:50 UTC) 后续还需要那些测试
+- (2026-10-30 00:52 UTC) 上传了
+- (2026-10-30 01:15 UTC) 下一步
+- (2026-10-30 01:23 UTC) 还有几次扫描
+- (2026-10-30 01:24 UTC) 有时候不要为了很小的性能收益把选路做的复杂非常多
+- (2026-10-30 01:24 UTC) 按照这个标准再看看
+- (2026-10-30 01:32 UTC) 继续
+- (2026-10-30 02:11 UTC) File "/workspace/kpack-moe-confirm.MgJylDp6/source/tools/run_moe_confirmation.py", line 232, in main if a.worker is not None:return worker(a) ^^^^^^ UnboundLocalError: cannot access local variable 'worker' where it is not associated with a value
+- (2026-10-30 02:27 UTC) FileExistsError: [Errno 17] File exists: '/workspace/kpack-moe-confirm.MgJylDp6/results-worker-fix' 我跑了一半，要换机器
+- (2026-10-30 02:28 UTC) 换卡
+- (2026-10-30 02:28 UTC) 不是换机器
+- (2026-10-30 02:30 UTC) 0，1，2，3
+- (2026-10-30 02:37 UTC) FileNotFoundError: [Errno 2] No such file or directory: '/workspace/kpack-moe-confirm.MgJylDp6/results-worker-fix/run.json' 删掉了
+- (2026-10-30 03:41 UTC) 上传了
+- (2026-10-30 03:58 UTC) 继续下一步
+- (2026-10-30 05:26 UTC) 上传了
+- (2026-10-30 05:30 UTC) 对比一下quactlize的branch的接线呢？原来的接线是什么样子的。对于这几个回退的case，是不是我们扫描的时候config没有包含
+- (2026-10-30 05:36 UTC) 可能我们要思考扫描更多的config
+- (2026-10-30 05:36 UTC) 按照你说的来吧
+- (2026-10-30 05:55 UTC) 还要多久
+- (2026-10-30 06:27 UTC) MOE_REFINE_WAIT {"stage": "screen", "alive": 4, "minutes": 16.5, "points": {"0": {"done": 0, "expected": 2}, "1": {"done": 0, "expected": 3}, "2": {"done": 0, "expected": 3}, "3": {"done": 0, "expected": 2}}, "logs": "/workspace/kpack-moe-refine.yVVdzpig/results/gpu-*/screen-*.log"} 一致没有done
+- (2026-10-30 08:26 UTC) 上传了，有错误
+- (2026-10-30 08:32 UTC) 也就是我们优化了之后的scale first还是不如full dequant？
+- (2026-10-30 08:34 UTC) 继续吧。给我下一次的command
+- (2026-10-30 08:41 UTC) 还要多久给我command
+- (2026-10-30 09:04 UTC) 上传了
+- (2026-10-30 09:16 UTC) 上传了
+- (2026-10-30 09:22 UTC) 继续下一步
+- (2026-10-30 09:22 UTC) 默认我们都认为是分散吧
+- (2026-10-30 09:23 UTC) 还是说我们按照集中与否去选择，动态选择？
+- (2026-10-30 09:23 UTC) 实际场景是什么
+- (2026-10-30 09:27 UTC) 先不管这个，按照你的判断先把线接好，桶分好，不要瞎fallback。修改生产表。然后给我llama cpp的接线。
+- (2026-10-30 09:29 UTC) ppudev vs master的diff上传了，按照这个最新的版本来branch out，新建一个支持moe-gemm的接线的branch。然后现在的编译中的环境变量太多了，pack之类的不要在llama cpp中出现，最终只有一个so导出，也不要什么dense不dense，只有一个so，里面支持多个函数。
+- (2026-10-30 09:36 UTC) moe部分会拆分成几个pR？先重构lib名字，env名字，so统一？再接线？然后FFN融合？三个
+- (2026-10-30 09:37 UTC) quactlize的接线你做完了吗？
+- (2026-10-30 09:37 UTC) 还有合并so需要改quactlize吗？
+- (2026-10-30 09:38 UTC) OK
+- (2026-10-30 09:38 UTC) 继续
+- (2026-10-30 09:43 UTC) 库的名字直接参考其他的几个，GDN什么的
+- (2026-10-30 09:48 UTC) 还有多久给我第一波的llamacpp的代码改动
+- (2026-10-30 09:48 UTC) 这部分需要配套quactlize的repo改动吗？
+- (2026-10-30 10:00 UTC) fork一个subagent看看怎么直接接入gguf的权重，是不是直接加一个reader。然后fully quantized 的dequant要重新设计。simt的decoidng也要。
+- (2026-10-31 13:18 UTC) moe-gemm的mr的第一项目结束了，第二项目是什么
+- (2026-10-31 13:19 UTC) quactlize库应该已经有了吧？还需要推送？选录已经选了？
+- (2026-10-31 13:20 UTC) 继续
+- (2026-11-01 08:32 UTC) 下一个MR是什么
+- (2026-11-01 08:39 UTC) 这部分可以最小改动吗？
+- (2026-11-01 08:40 UTC) 大概多少航
+- (2026-11-01 08:41 UTC) 合并之后的shape要重新扫描吧？
+- (2026-11-01 08:42 UTC) 我们先计算合并之后的shape，然后我们扫描一下，包括gemm和moe-gemm两部分
+- (2026-11-01 08:43 UTC) 包括后续的扫描，gemm和moe-gemm能不能整合为脚本，这样我们直接就能扫描，然后进入我们的表。分桶怎么处理？我不可能每次一个新的网络都要重新让你添加
+- (2026-11-01 08:47 UTC) 开始写
+- (2026-11-01 09:16 UTC) 那我们现在都没有测试swiglu融合的结果？还是我们现在的swepe暂时没有支持
+- (2026-11-01 09:17 UTC) 我们先开始扫描gate up合并之后的gemm和moe-gemm吧。
+- (2026-11-01 09:33 UTC) fatal: not a git repository (or any of the parent directories): .git Traceback (most recent call last): File "/workspace/kpack-model-tune.h16hnXyN/source/tools/tune_model.py", line 159, in <module> try:raise SystemExit(main())
+- (2026-11-01 13:22 UTC) 原来的quactlize的branch拿到了154左右的tps，现在测出来是142左右。是不是因为我们还没有最后一个MR。
+- (2026-11-02 01:52 UTC) 我们开始下一个MR，quactlize需要更新吗？
+- (2026-11-02 02:12 UTC) 补充quactlize部分
+- (2026-11-02 02:35 UTC) 对应的扫描的脚本？
+- (2026-11-02 02:38 UTC) 我说的不是完整FFN，还有一些dense gemm被融合了。需要sweep，分别给我融合之后的gemm和moe-gemm的扫描命令
+- (2026-11-02 02:58 UTC) MODEL_TUNING_WORKER_FAIL {"rc": 1, "log": "/workspace/kpack-model-tune.18yWfjI9/results/runs/moe-prefill.log", "diagnostic": " fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);rc=main(a)\n ^^^^^^^\n File \"/workspace/kpack-model-tune.18yWfjI9/source/tools/run_moe_confirmation.py\", line 394, in main\n run=build(a,plan)\n ^^^^^^^^^^^^^\n File \"/workspace/kpack-model-tune.18yWfjI9/source/tools/run_moe_confirmation.py\", line 251, in build\n helpers=build_moe(a.sdk,a.output/'moe-helpers')\n ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n File \"/workspace/kpack-model-tune.18yWfjI9/source/dev/moe_confirm/build.py\", line 20, in build\n scaffold=build_scaffold(sdk,output/'scaffold')\n ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n File \"/workspace/kpack-model-tune.18yWfjI9/source/dev/moe_scaffold/build.py\", line 40, in build\n result = dict(quactlize=revision(ROOT), sources=sources, commands=commands, candidate=str(target),\n ^^^^^^^^^^^^^^\n File \"/workspace/kpack-model-tune.18yWfjI9/source/dev/moe_route/build.py\", line 15, in revision\n return dict(commit=subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),\n ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n File \"/usr/local/lib/python3.12/subprocess.py\", line 466, in check_output\n return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,\n ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n File \"/usr/local/lib/python3.12/subprocess.py\", line 571,  …
+- (2026-11-02 03:18 UTC) 其中一个上传了
+- (2026-11-02 03:27 UTC) 接入生产链路
+- (2026-11-02 03:42 UTC) MOE_REFINE_WAIT {"stage": "screen", "alive": 3, "minutes": 23.0, "points": {"5": {"done": 0, "expected": 13}, "6": {"done": 0, "expected": 14}, "7": {"done": 0, "expected": 13}}, "logs": "/workspace/kpack-model-tune.OJ6Bs112/results/runs/moe-prefill/gpu-*/screen-*.log"} 这个扫描的好慢啊
+- (2026-11-02 03:47 UTC) MOE_PREFILL_BATCH_START {"point": "2eb90ce9786e7967a131efa078799392eb0c23da65538d4fd909092394a228ce", "phase": "screen", "first": 82, "arms": 4, "total": 198} 预估整体时间
+- (2026-11-02 03:48 UTC) 假设我有1到7七个卡
+- (2026-11-02 03:48 UTC) 给我command
+- (2026-11-02 06:12 UTC) MOE_REFINE_WORKER_FAIL {"stage": "screen", "rc": 1, "log": "/workspace/kpack-moe-prefill-7gpu.N3LQJmLI/results/gpu-1/screen-1793592049195613498.log", "diagnostic": " File \"/workspace/kpack-model-tune.OJ6Bs112/source/tools/run_moe_prefill_sweep.py\", line 130, in invocation\n raise RuntimeError(str(exc)+'\\n'+detail) from exc\nRuntimeError: child rc=1; see /workspace/kpack-moe-prefill-7gpu.N3LQJmLI/results/gpu-1/attempts/af25ae315a7e4f4b94f69c5542c09377/profile.log\nTraceback", line 495, in <module>\n if a.worker is not None or a.probe or a.plan or a.helper_gate:rc=main(a)\n ^^^^^^^\n File \"/workspace/kpack-model-tune.OJ6Bs112/source/tools/run_moe_confirmation.py\", line 369, in main\n if a.job:return child(a)\n ^^^^^^^^\n File \"/workspace/kpack-model-tune.OJ6Bs112/source/tools/run_moe_confirmation.py\", line 64, in child\n point,queries=bind(point,images)\n ^^^^^^^^^^^^^^^^^^\n File \"/workspace/kpack-model-tune.OJ6Bs112/source/dev/strategy/moe_prefill_campaign.py\", line 235, in bind\n return resolve(point,receipts,images),receipts\n ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n File \"/workspace/kpack-model-tune.OJ6Bs112/source/dev/strategy/moe_prefill_campaign.py\", line 224, in resolve\n raise ValueError('empty/missing-control/unbounded resource-resolved prefill pool')\nValueError: empty/missing-control/unbounded resource-resolved prefill pool\nMOE_CONFIRM_FAIL {\"point\": \"367960d832b7c43240f08cdd1ed7d0e9c30fdbf1a65aba68aed453f7c164d127\", \"error\": \"child rc=1; see /workspace/ …
+- (2026-11-02 06:15 UTC) 继续给我下一步的command
+- (2026-11-02 09:16 UTC) 刚才看着都结束了，为什么又开始扫描了？MOE_RETRY_GRID_PLAN {"points": 40, "selected_arms": 7252, "maximum_point_arms": 224}
+- (2026-11-02 09:26 UTC) 如果每次都要这么扫描太慢了
+- (2026-11-02 10:17 UTC) › Qwen3-32B的2048的输入的prefill怎么没有什么性能提升？ 这个应该是不对的吧
+- (2026-11-02 10:18 UTC) 相对于原来的dequant怎么可能没有什么提升呢？你静态分析算子上能省多少时间
+- (2026-11-02 10:25 UTC) llama
+- (2026-11-02 10:25 UTC) llama.cpp.ncp下的build-ci目录下，对比build-ci-分配2
+- (2026-11-02 10:25 UTC) llama.cpp.ncp下的build-ci目录下，对比原始实现.
+- (2026-11-02 10:41 UTC) reference PP2048_ms= [566.1709999999999, 599.326, 594.366] median_ms= 594.366 quactlize PP2048_ms= [519.709, 560.329, 560.8109999999999] median_ms= 560.329
+- (2026-11-02 10:41 UTC) 抖动很大
+- (2026-11-02 10:43 UTC) 之前的moe的扫描结果和这次的ayss一起上传了
+- (2026-11-02 10:47 UTC) 先继续moe的接线。
+- (2026-11-02 11:01 UTC) 后续不用再扫描了吧
+- (2026-11-02 11:02 UTC) 继续，直到quactlize和llamacpp都已经ready
+- (2026-11-02 11:11 UTC) gate和up的合并是不是对于dense的模型也是有效的。那Qwen3。8-27B和Qwen3-32B的接线回fallback到那里
+- (2026-11-02 11:12 UTC) 不对啊，我们不是把gguf转换的时候合并了两个权重吗？不是这么做的吗？
+- (2026-11-02 11:12 UTC) 我明确一下，这个mr是合并的mr，包括gate和up的合并，dense/moe都有
+- (2026-11-02 11:14 UTC) 这样之后我们相对于旧quactlize分支应该就没有遗漏的优化了吧
+- (2026-11-02 11:15 UTC) gate up gemm内直接融合默认要打开
+- (2026-11-02 11:15 UTC) 不需要扫描吧。这个必然有好处
+- (2026-11-02 11:15 UTC) 原始的quactlize怎么处理的？
+- (2026-11-02 11:16 UTC) 默认打开了吗
+- (2026-11-02 11:23 UTC) 继续
+- (2026-11-02 12:08 UTC) 还要多久
+- (2026-11-02 12:23 UTC) 等一下，qwen3-32b和qwen3。8-27b需要sweep吧
+- (2026-11-02 12:24 UTC) pr/ffn-canonical 为什么不合并到develo
+- (2026-11-02 12:27 UTC) 先给我command验证融合精度，然后
+- (2026-11-02 12:31 UTC) 不需要sweep那两个dense的模型吗
+- (2026-11-02 12:33 UTC) 给我补扫的脚本
+- (2026-11-02 12:44 UTC) ERROR: THE BUILT EXTENSION IS OLDER THAN ITS SOURCES -- refusing to run, because every result below would be about code nobody is running. newer than _C.cpython-312-x86_64-linux-gnu.so: ppu_backend.cpp, ppu_backend.h, ppu_unit_pack.cpp fix: python3 setup.py build_ext --inplace This has produced two full runs of plausible-looking garbage already -- 'worst nan' on all five formats and a planted fault going uncaught, both ffrom a .so predating the commit under test.
+- (2026-11-02 12:59 UTC) package = PosixPath('/workspace/kpack-ffn-accuracy.vA3esJ91/package') sdk = <quactlize.runtime.native.SDK object at 0x7fb1ddf41e80>, kind = 0 merged = False, q = 10 @pytest.mark.parametrize('kind', [0, 1], ids=['dense', 'moe']) @pytest.mark.parametrize('merged', [False, True], ids=['separate', 'canonical-2n']) @pytest.mark.parametrize('q', QTYPES) def test_public_ffn(package, sdk, kind, merged, q): > run_ffn(package, sdk, kind, merged, q) tgot = array([[ 1.19209290e-07, 2.38418579e-07, 3.57627869e-07, ..., 2.98023224e-07, 4.76837158e-07, 1.78813934e... [-0.00000000e+00, 1.19209290e-07, -5.96046448e-08, ..., 5.96046448e-08, -5.96046448e-08, 0.00000000e+00]]) gold = array([[ 1.44791557e-07, 2.59547960e-07, 3.74886440e-07, ..., 3.11003532e-07, 4.88973456e-07, 1.61366188e... [-6.54836185e-09, 9.84291546e-08, -3.58413672e-08, ..., 5.18630259e-08, -7.49278115e-08, 2.43016984e-09]]) denom = array([[8.92294338e-07, 1.68295810e-06, 1.34110451e-06, ..., 1.78656774e-06, 1.33158755e-06, 4.62416210e-07], ... [7.24656275e-07, 1.48994150e-06, 1.09478424e-06, ..., 1.49075640e-06, 1.12042471e-06, 3.84097802e-07]]) tolerance = 0.005
+- (2026-11-02 13:04 UTC) 找到问题了吗
+- (2026-11-02 13:15 UTC) FAILED tests/ppu/test_ffn_library.py::test_public_ffn[10-separate-moe] - Asse... FAILED tests/ppu/test_ffn_library.py::test_public_ffn[10-separate-moe] - Asse... got = array([[-6.22123480e-07, -9.53674316e-07, -1.03563070e-06, ..., -1.00582838e-06, -1.03563070e-06, -3.59490514e... [ 5.82076609e-08, 5.84870577e-07, 2.92435288e-07, ..., 1.08964741e-07, 7.54371285e-08, 6.79865479e-08]]) gold = array([[-6.22123480e-07, -9.53674316e-07, -1.03563070e-06, ..., -1.00582838e-06, -1.03563070e-06, -3.59490514e... [ 5.82076609e-08, 5.84870577e-07, 2.92435288e-07, ..., 1.08964741e-07, 7.54371285e-08, 6.79865479e-08]]) denom = array([[2.02804474e-06, 3.92406722e-06, 3.05764973e-06, ..., 4.09102700e-06, 2.94410794e-06, 1.07331699e-06], ... [8.13670930e-07, 1.68841258e-06, 1.33884060e-06, ..., 1.66315520e-06, 1.34035024e-06, 4.25752003e-07]]) tolerance = 0.005
+- (2026-11-02 13:24 UTC) 所以可能精度没有问题？
+- (2026-11-02 13:27 UTC) 给我command
+- (2026-11-02 13:34 UTC) =================================== FAILURES =================================== ____________________ test_public_ffn[11-canonical-2n-dense] ____________________ package = PosixPath('/workspace/kpack-ffn-accuracy.vA3esJ91/package') sdk = <quactlize.runtime.native.SDK object at 0x7f776d23bc80>, kind = 0 merged = True, q = 11 tests/ppu/test_ffn_library.py:198: _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ got = array([[-1.19209290e-07, -1.78813934e-07, -2.38418579e-07, ..., 5.96046448e-08, 2.38418579e-07, 7.74860382e... [ 2.38418579e-07, 1.78813934e-07, 1.19209290e-07, ..., -1.78813934e-07, 5.96046448e-08, -1.13248825e-06]]) gold = array([[-1.19209290e-07, -1.78813934e-07, -2.38418579e-07, ..., 5.96046448e-08, 2.38418579e-07, 7.74860382e... [ 2.38418579e-07, 1.78813934e-07, 1.19209290e-07, ..., -1.78813934e-07, 5.96046448e-08, -1.13248825e-06]]) denom = array([[1.77955371e-06, 3.54764052e-06, 7.78259709e-06, ..., 3.56772216e-06, 7.52042979e-06, 5.50749246e-06], .... [1.75423338e-06, 3.51993367e-06, 7.19120726e-06, ..., 3.38099198e-06, 7.48492312e-06, 5.26191434e-06]]) tolerance = 0.005
+- (2026-11-02 13:35 UTC) 上传了
+- (2026-11-02 13:46 UTC) 所以到底有没有错误
+- (2026-11-02 13:50 UTC) 给我cmd复测
+- (2026-11-02 14:00 UTC) 应该都过了，给我sweep那两个dense模型的脚本
+- (2026-11-02 14:31 UTC) MODEL_TUNING_WAIT {"backend": "dense-prefill", "alive": 5, "minutes": 23.5, "logs": ["/workspace/kpack-model-tune.gacWDaYG/results/runs/dense-prefill/gpu-1/console.log", "/workspace/kpack-model-tune.gacWDaYG/results/runs/dense-prefill/gpu-2/console.log", "/workspace/kpack-model-tune.gacWDaYG/results/runs/dense-prefill/gpu-3/console.log", "/workspace/kpack-model-tune.gacWDaYG/results/runs/dense-prefill/gpu-4/console.log", "/workspace/kpack-model-tune.gacWDaYG/results/runs/dense-prefill/gpu-5/console.log"]} 怎么看remaining minutes
+- (2026-11-02 14:34 UTC) /workspace/kpack-model-tune.gacWDaYG/results/runs/dense-prefill/gpu-2/console.log:PREFILL_ASYS_PROGRESS {"completed": 24, "total": 474, "elapsed_minutes": 17.15800157704701, "shape": {"channels": 1, "compute": "f16", "experts": 1, "fusion": "none", "input_stride": 5120, "k": 5120, "m": 5120, "n": 34816, "operation": "dense", "output_stride": 34816, "qtype": 14, "router": "", "storage": "f32", "topk": 1}, "remaining_minutes": 321.7125299165491, "eta": "OBSERVED_CONFIG_AVERAGE_NOT_GUARANTEE"}
+- (2026-11-02 14:34 UTC) 这个比其他的长很多
+- (2026-11-02 22:36 UTC) sweep结果上传了
+- (2026-11-02 22:44 UTC) 上传了
+- (2026-11-02 22:48 UTC) 不需要收尾了吧，就按照这个结果来吧。继续接线
+- (2026-11-02 22:48 UTC) 更新quactlize，以及llamacpp
+- (2026-11-02 23:02 UTC) swiglu默认融合？
+- (2026-11-02 23:05 UTC) 啥意思。swiglu在什么情况会融合？那几个模型的什么M
+- (2026-11-02 23:08 UTC) Qwen3.5-122B-A10B，TP2 M》1的时候不融合的逻辑是？
+- (2026-11-02 23:10 UTC) 2-8查不到是什么意思？没有扫？
+- (2026-11-02 23:39 UTC) llamacpp的branch是那个？
+- (2026-11-02 23:51 UTC) 但是35B-A3B扫描了M1--8的swiglu的融合？
+- (2026-11-02 23:54 UTC) 35B
+- (2026-11-02 23:54 UTC) 是融合之后更好了?
+- (2026-11-02 23:55 UTC) 不是，我说的是swiglu融合
+- (2026-11-02 23:56 UTC) swiglu对于权重布局的影响考虑了吗？对于35B-A3B，llamacpp中的shuffle要变吧？而且prefill也要
+- (2026-11-02 23:56 UTC) 要融合，我理解，肯定是一起
+- (2026-11-02 23:58 UTC) w为什么没有用旧版？你这种不对吧。。。。
+- (2026-11-03 00:00 UTC) 我确认一下只影响swiglu吧吧
+- (2026-11-03 00:02 UTC) 如果swiglu的改动拆出来是不是起码起码是对的
+- (2026-11-03 00:02 UTC) swiglu的融合我们之后再看
+- (2026-11-03 00:06 UTC) 我确认一下只有swiglu融合去掉了吧gate和up的融合还在
+- (2026-11-03 00:07 UTC) swiglu融合进去需要weight的shuffle的吧lairedn4是不是就是针对这个
+- (2026-11-03 00:10 UTC) 你的新版swiglu融合是只开了simt的或者说没有那么优化
+- (2026-11-03 00:12 UTC) gateup融合之后预计的35ba3b的性能对于2048prefill和m1decode
+- (2026-11-03 01:07 UTC) prepare gather的减少应该是要计算的吧
+- (2026-11-03 01:12 UTC) M1没有其他的优化了吗？这一次
+- (2026-11-03 01:16 UTC) 从asys上还有别的可以优化的点吗？m=1
+- (2026-11-03 01:19 UTC) swiglu能够省多少
+- (2026-11-03 01:25 UTC) 用build-ci目录跑一个最新的trace试试
+- (2026-11-03 01:30 UTC) 2048的prepare gather太慢了，prefill。
+- (2026-11-03 01:31 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 1 MoE 34224025 21.317 120 285200 362403 129121 364563 110164 34224025 100 void quactlize::moe::prepare_gather<8, 512, true>(qzm_prepare_v1, int, int const*, int const*) - - -
+- (2026-11-03 01:32 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 Native 8801515 5.482 120 73345 38080 36321 145681 50411 8801515 100 quactlize::prefill::finish_bf16(__ppu_bfloat16 const*, float*, int const*, int, long, int, int*) - - -
+- (2026-11-03 01:32 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 Native 8801515 5.482 120 73345 38080 36321 145681 50411 8801515 100 quactlize::prefill::finish_bf16(__ppu_bfloat16 const*, float*, int const*, int, long, int, int*) - - -
+- (2026-11-03 01:32 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 Native 8801515 5.482 120 73345 38080 36321 145681 50411 8801515 100 quactlize::prefill::finish_bf16(__ppu_bfloat16 const*, float*, int const*, int, long, int, int*) - - -
+- (2026-11-03 01:32 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 Native 8801515 5.482 120 73345 38080 36321 145681 50411 8801515 100 quactlize::prefill::finish_bf16(__ppu_bfloat16 const*, float*, int const*, int, long, int, int*) - - -
+- (2026-11-03 01:32 UTC) 这几个太夸张了
+- (2026-11-03 01:33 UTC) 这个我还没有合并
+- (2026-11-03 01:34 UTC) 预计合并之后的收益
+- (2026-11-03 01:35 UTC) 节省之后可以只跑40次吗？
+- (2026-11-03 02:22 UTC) In file included from /sim/eec/shared/junfu.qx/llama.cpp.ncp/tests/test-kpack-load.cpp:11: /sim/eec/shared/junfu.qx/llama.cpp.ncp/tests/../ggml/src/ggml-cuda/quactlize-ffn.cuh:2:10: fatal error: ggml-impl.h: No such file or directory 2 | #include "ggml-impl.h" \
+- (2026-11-03 02:58 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 2 MoE 19536633 13.526 79 247299 360963 129121 363443 116405 19536633 100 void quactlize::moe::prepare_gather<8, 512, true>(qzm_prepare_v1, int, int const*, int const*) - - - 还是80个啊
+- (2026-11-03 02:58 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 Native 8633506 5.977 78 110685 110520 76040 146201 34139 8633506 100 quactlize::prefill::finish_bf16(__ppu_bfloat16 const*, float*, int const*, int, long, int, int*) - - -
+- (2026-11-03 02:58 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 Native 8633506 5.977 78 110685 110520 76040 146201 34139 8633506 100 quactlize::prefill::finish_bf16(__ppu_bfloat16 const*, float*, int const*, int, long, int, int*) - - -
+- (2026-11-03 02:58 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 Native 8633506 5.977 78 110685 110520 76040 146201 34139 8633506 100 quactlize::prefill::finish_bf16(__ppu_bfloat16 const*, float*, int const*, int, long, int, int*) - - - 这个也有点点奇怪
+- (2026-11-03 03:01 UTC) 而且为什么始终能够抓到devide 到host的拷贝？
+- (2026-11-03 03:08 UTC) 总共25次devicetohost，大部分是8M
+- (2026-11-03 03:09 UTC) 每次decode中间有一个8M的写出，是不是gate和up合并这个权重
+- (2026-11-03 03:12 UTC) .14.431.452 I [quactlize-ffn] tensor=blk.39.ffn_gate_up_shexp.weight device=0 kind=0 m=1 merged=1 nodes=3 prepare=-1/0 finish=0 workspace=6144 0.15.306.387 I [kpack-cache] write progress: tensors=245/291 MiB=17376.6 seconds=10.27 content_checks=disabled {"n_kv_max": 2304, "n_batch": 2048, "n_ubatch": 2048, "flash_attn": 1, "is_pp_shared": 0, "n_gpu_layers": -2, "n_threads": 16, "n_threads_batch": 32, "pp": 2048, "tg": 128, "pl": 1, "n_kv": 2176, "t_pp": 3.205521, "speed_pp": 638.897705, "t_tg": 0.996243, "speed_tg": 128.482712, "t": 4.201764, "speed": 517.877747} {"n_kv_max": 2304, "n_batch": 2048, "n_ubatch": 2048, "flash_attn": 1, "is_pp_shared": 0, "n_gpu_layers": -2, "n_threads": 16, "n_threads_batch": 32, "pp": 2048, "tg": 128, "pl": 1, "n_kv": 2176, "t_pp": 0.161211, "speed_pp": 12703.847656, "t_tg": 0.936750, "speed_tg": 136.642654, "t": 1.097961, "speed": 1981.855591}
+- (2026-11-03 03:15 UTC) 重新跑一次，还是有device 2 host。
+- (2026-11-03 03:15 UTC) 0.14.768.886 I [quactlize-ffn-projection] tensor=blk.39.ffn_gate_up_exps.weight stage=2 device=0 kind=1 m=1 merged=1 q=13 n=2048 k=512 experts=256 topk=8 route=2 policy=18 split=1 compute=1 config=simt:v3:c4:w2:x8:s1
+- (2026-11-03 03:15 UTC) 3 0.13.139.186 I [quactlize-ffn-projection] tensor=blk.35.ffn_gate_up_shexp.weight stage=2 device=0 kind=0 m=2048 merged=1 q=8 n=2048 k=512 experts=1 topk=1 route=3 policy=20 split=1 compute=0 config=full-f16:cublas:typed-dq38:io1
+- (2026-11-03 03:18 UTC) 继续
+- (2026-11-03 03:20 UTC) 不传输行不行，你给我command，我去看一下
+- (2026-11-03 03:27 UTC) Bytes MiB Stream HostThread Count Total_us API 993280 0.947266 10 1836051 387 27050.268 cudaMemcpyAsync
+- (2026-11-03 03:28 UTC) 236:0.00.729.866 I [kpack-cache] ready: tensors=291 content_checks=disabled path=/tmp/llama-kpack-0/v1-1048697-1705087-22016023168-1784721088-199018000-1789980188-654311864-gate-up-32b0c5906317db65 244:0.06.240.259 I [kpack-cache] cache_uploads=291 resident_misses=0 0.14.120.787 I [quactlize-ffn] tensor=blk.39.ffn_gate_up_exps.weight device=0 kind=1 m=2048 merged=1 nodes=21 prepare=0/1 finish=16 workspace=285576704
+- (2026-11-03 03:29 UTC) 是只有blk39
+- (2026-11-03 03:36 UTC) 一定要新增拷贝吗？新增的拷贝对于性能的影响是？
+- (2026-11-03 03:40 UTC) 为什么需要这个，quactlize的brnach用这个了吗
+- (2026-11-03 03:42 UTC) 推广。另外我们相对于旧实现，decoding部分的时间还是长了挺多的。理解一下这部分的差距，现在我们是7ms，原来6。5ms
+- (2026-11-03 03:50 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 1 Native 876927 14.051 70 12527 13340 9280 16040 2227 876927 100 quactlize::execution::simt::q8_refresh::kernel_1_8_4(qkg_call_v1) - - -
+- (2026-11-03 03:50 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 6 Native 281322 4.508 80 3516 3600 2600 4440 540 281322 100 void mul_mat_vec_f<float, float, 1, 256, false, false>(float const*, float const*, int const*, ggml_cuda_mm_fusion_args_device, float*, int, uint3, int, int, int, uint3, int, int, int, uint3, int, int, int, int) - - -
+- (2026-11-03 03:50 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 7 MoE 272122 4.36 80 3401 3060 2480 5600 850 272122 100 quactlize::moe::transition_kernel(qzm_transition_v1, int) - - -
+- (2026-11-03 03:50 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 9 Native 232760 3.73 81 2873 2840 2520 3840 187 232760 100 void rms_norm_f32<1024, true, false>(float const*, float*, int, long, long, long, float, float const*, long, long, long, uint3, uint3, uint3, uint3, float const*, long, long, long, uint3, uint3, uint3, uint3) - - -
+- (2026-11-03 03:51 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 9 Native 232760 3.73 81 2873 2840 2520 3840 187 232760 100 void rms_norm_f32<1024, true, false>(float const*, float*, int, long, long, long, float, float const*, long, long, long, uint3, uint3, uint3, uint3, float const*, long, long, long, uint3, uint3, uint3, uint3) - - -
+- (2026-11-03 03:51 UTC) 这个是decoding部分时间比较长的一些kernel
+- (2026-11-03 03:54 UTC) 继续
+- (2026-11-03 03:56 UTC) 那有可能就是kernel的性能差距
+- (2026-11-03 04:09 UTC) 之前trace还有吗？
+- (2026-11-03 04:22 UTC) 分析差距
+- (2026-11-03 04:24 UTC) trace上传了
+- (2026-11-03 04:32 UTC) 原来的融合是需要重新排序的吗？
+- (2026-11-03 04:33 UTC) 先把纯kernel层面的差距解决
+- (2026-11-03 04:39 UTC) 还有别的吗？我们先分析出来全部差距
+- (2026-11-03 04:41 UTC) 你先把旧trace 的decodee拆分出来
+- (2026-11-03 04:46 UTC) 找不到了能本地分析吗
+- (2026-11-03 05:00 UTC) 开始优化
+- (2026-11-03 05:19 UTC) 上传了上传了
+- (2026-11-03 05:27 UTC) 接入
+- (2026-11-03 05:36 UTC) 继续优化prefill，目标是要额外减少13ms以上
+- (2026-11-03 05:36 UTC) 等你目前的接线完成
+- (2026-11-03 05:37 UTC) 之前的融合没有发生的要继续解决
+- (2026-11-03 06:21 UTC) 给我command跑这个asys
+- (2026-11-03 06:25 UTC) QZ_REPO 制定有什么作用，直接用build-ci目录下的bin运行不就好了
+- (2026-11-03 06:46 UTC) concat non cont 是什么kernel
+- (2026-11-03 06:52 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 2 MoE 14495562 11.141 40 362389 362362 361402 363402 443 14495562 100 void quactlize::moe::prepare_gather<8, 512, true>(qzm_prepare_v1, int, int const*, int const*) - - - 时间还是偏长，尤其是单kernel时间。
+- (2026-11-03 06:52 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 MoE 6996440 5.377 40 174911 175181 170961 177201 1500 6996440 100 quactlize::moe::finish_kernel(qzm_finish_v1) - - -同理。
+- (2026-11-03 06:52 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 7 MoE 5655950 4.347 39 145024 144321 143161 161441 2995 5655950 100 void quactlize::moe::transition_kernel<true>(qzm_transition_v1, int, float const*, long, float*) - - -
+- (2026-11-03 06:52 UTC) 这些单kernel时间都偏长
+- (2026-11-03 06:57 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 6 Native 281681 4.514 80 3521 3640 2680 4560 559 281681 100 void mul_mat_vec_f<float, float, 1, 256, false, false>(float const*, float const*, int const*, ggml_cuda_mm_fusion_args_device, float*, int, uint3, int, int, int, uint3, int, int, int, uint3, int, int, int, int) - - - decoding的这些80个kernel是合理的吗
+- (2026-11-03 06:59 UTC) 继续优化prefill
+- (2026-11-03 07:16 UTC) 上传饿了
+- (2026-11-03 07:28 UTC) quactlize更新了吗
+- (2026-11-03 07:28 UTC) dense有没有类似的需要优化的helper函数
+- (2026-11-03 07:30 UTC) 没有trace的话，直接我们抓一下Qwen3-32B这个
+- (2026-11-03 07:30 UTC) 逻辑上这个的gate和up也合并了吧
+- (2026-11-03 07:51 UTC) 这个dense的模型怎么会有Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 4 MoE 38712781 7.23 128 302443 5080 4360 631605 302570 38712781 100 void quactlize::moe::transition_kernel<false>(qzm_transition_v1, int, float const*, long, float*) - - -
+- (2026-11-03 07:53 UTC) 需要优化一下
+- (2026-11-03 07:53 UTC) 这个kernel名字的moe域不应该加进去吧
+- (2026-11-03 07:54 UTC) 类似的优化能用的都用上
+- (2026-11-03 07:54 UTC) 除了这个kernel之外
+- (2026-11-03 08:00 UTC) 先优化这个kernel啊
+- (2026-11-03 08:00 UTC) 不要复杂化
+- (2026-11-03 08:01 UTC) 先把这个kernel优化之后，接入就行了
+- (2026-11-03 08:11 UTC) 大概要多久
+- (2026-11-03 08:12 UTC) 122b-a10b的双卡也抓一下
+- (2026-11-03 08:18 UTC) ../sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/ggml-backend-meta.cpp:1635: GGML_ASSERT(size % row_stride == 0) failed
+- (2026-11-03 08:23 UTC) 啥意思，这个原来好像没有这个问题，是什么时候引入的
+- (2026-11-03 08:26 UTC) 添加修复
+- (2026-11-03 08:26 UTC) quactlize的branch没有这个问题？
+- (2026-11-03 08:28 UTC) 还有什么在quactlize的branch的改动我们没有take的，等你这个做完分析一下
+- (2026-11-03 08:30 UTC) 修一下大概要多久哦
+- (2026-11-03 08:40 UTC) moe full dequant不需要，我觉得。另外router的融合这部分要看看，记录一下到todo。
+- (2026-11-03 08:41 UTC) 预计有多少性能影响？
+- (2026-11-03 08:44 UTC) swiglu的融合呢？
+- (2026-11-03 08:50 UTC) /sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/ggml-backend-meta.cpp:772: unsupported mul_mat split states: node=ffn_shexp-0 src0=blk.0.ffn_down_shexp.weight axis=10 src1=ffn_swiglu-0 axis=0
+- (2026-11-03 08:55 UTC) 原来的为什么没有这个问题，quactlize的branch，evaluate一下哪个改动更好
+- (2026-11-03 09:11 UTC) 2的性能预期更好？
+- (2026-11-03 09:12 UTC) 计算量怎么会减半呢？现在的down没有切分吗？
+- (2026-11-03 09:13 UTC) 只是shared，对吗？
+- (2026-11-03 09:14 UTC) 本身llamacpp切不切
+- (2026-11-03 09:17 UTC) 等一下，prefill会用cuda graph吗？抓出来看到了
+- (2026-11-03 09:20 UTC) 为什么有时候能抓到，有时候抓不到，什么case会enable，
+- (2026-11-03 09:25 UTC) 但是大部分的prefill我没有看到cudagraph，但是qwen122b这个看到了
+- (2026-11-03 10:00 UTC) https://github.com/Niko1221/Strata.git 中是如何跑gguf的kernel的？他也有shuffle操作
+- (2026-11-03 10:18 UTC) Qwen3-32B测试出来还更再给我command抓一下asys
+- (2026-11-03 11:48 UTC) 纯kernel时间只有513ms，但是用batchedbench脚本抓出来是560ms。
+- (2026-11-03 12:05 UTC) #ifdef GGML_NCP_QUACTLIZE if (int skipped = ggml_quactlize_try_ffn(*cuda_ctx, cgraph, i)) { return skipped; } #endif这个改动是啥
+- (2026-11-03 12:07 UTC) 等一下， layer.attn_q_norm = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM, "weight", i), {n_embd_head_k}, 0); layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0); layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd, n_ff}, 0); create_tensor_gate_up(layer, i, n_embd, n_ff, 0); layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), { n_ff, n_embd}, 0); layer.ffn_up = create_tensor(tn(LLM_TENSOR_FFN_UP, "weight", i), {n_embd, n_ff}, 0); }这里的修改太猛了。不能修改网络啊，有别的方法吗？
+- (2026-11-03 12:11 UTC) 这部分我不想修改原始的llamacpp的代码。另外： if (tensor_buft_overrides) { std::string tensor_name = tn.str(); std::string tensor_name = t_meta->name; for (const auto & it : weights_map) { size_data += ggml_nbytes(it.second.tensor); if (it.second.paired_sources.empty()) { size_data += ggml_nbytes(it.second.tensor); } } if (!weight->paired_sources.empty()) { for (const auto & name : weight->paired_sources) { const auto & source = require_weight(name.c_str()); *first = std::min(*first, source.offs); *last = std::max(*last, source.offs + ggml_nbytes(source.tensor)); } continue; }
+- (2026-11-03 12:11 UTC) if (!w.paired_sources.empty()) { GGML_ASSERT(cur->data && w.paired_sources.size() == 2); const size_t width = cur->nb[2] / 2; for (size_t side = 0; side < 2; ++side) { const auto & source = require_weight(w.paired_sources[side].c_str()); for (int64_t e = 0; e < cur->ne[2] * cur->ne[3]; ++e) { auto * dst = static_cast<uint8_t *>(cur->data) + e * 2 * width + side * width; if (use_mmap) { memcpy(dst, static_cast<const uint8_t *>(mappings.at(source.idx)->addr()) + source.offs + e * width, width); } else { files.at(source.idx)->seek(source.offs + e * width, SEEK_SET); files.at(source.idx)->read_raw(dst, width); } if (check_tensors && !ggml_validate_row_data(cur->type, dst, width)) { throw std::runtime_error(format("tensor '%s' has invalid data", source.tensor->name)); } } } return; }
+- (2026-11-03 12:12 UTC) 这几个部分都没有用define隔开，或者有没有其他的方法touch更少
+- (2026-11-03 12:12 UTC) 整体来说就是llama-mdoel和llama-model-loader的文件，能不能不touch原始实现，即使要改，也要ifdefine隔开
+- (2026-11-03 12:13 UTC) 当然是保证性能的前提下
+- (2026-11-03 12:14 UTC) 开始修改。
+- (2026-11-03 12:33 UTC) 我们复测一下
+- (2026-11-03 12:35 UTC) 我不想修改models目录下的文件，你之前说可以不修改。
+- (2026-11-03 13:56 UTC) run('tp-cache-cold', command + ['cold', 'tp'], env, 0, f'KPACK_TP_CACHE PASS ranks={count}') File "/workspace/llama_cpp/tests/test-kpack-load.py", line 406, in run raise RuntimeError(f'{name}: rc={result.returncode}; see {log}') RuntimeError: tp-cache-cold: rc=-6; see /home/image/llama_cpp/build-ci/tests/kpack-load-psdbqqe8/tp-cache-cold.log
+- (2026-11-03 14:23 UTC) decoding部分有regression。相对于之前，我们为了pr的一些改动影响了性能》？
+- (2026-11-03 14:24 UTC) 单卡双卡都有，回退91-》89之类的，小幅度
+- (2026-11-03 14:24 UTC) 之前是指本次refactor之前。也就是两三个commit
+- (2026-11-03 14:32 UTC) 一个在build-ci-latest，一个在build-ci，给我command，我对比一下
+- (2026-11-03 14:33 UTC) 我们以Qwen3-32b微粒子
+- (2026-11-03 14:42 UTC) 复现了。最后传输的包的作用是？
+- (2026-11-03 14:43 UTC) old median_TPOT_ms= 20.3989 median_TPS= 49.022 new median_TPOT_ms= 21.2899 median_TPS= 46.971
+- (2026-11-03 14:44 UTC) 结果上传了
+- (2026-11-03 14:47 UTC) 但是prefill挺快的啊
+- (2026-11-03 14:47 UTC) 没有融合对于prefill没有影响吗
+- (2026-11-03 14:49 UTC) 还有多久推送
+- (2026-11-04 00:51 UTC) 我们还需要适配ZW810E，也用跟610类似的方法复用810的
+- (2026-11-04 00:59 UTC) 如何测试一下
+- (2026-11-04 01:15 UTC) 如果我们要接入deepgemm的mxfp4的接口，我说的是deepseekv4flash的模型。需要怎么修改，应该也是需要offline shuffle的
+- (2026-11-04 01:23 UTC) 什么意思？gguf的格式的mxfp4可以直接喂给deepgemm吗？不行吧
+- (2026-11-04 01:23 UTC) 开始实现。
+- (2026-11-04 01:49 UTC) decoding部分也要的吧，替换成deepgemm
+- (2026-11-04 01:50 UTC) 任意M应该都是deepgemm吧
+- (2026-11-04 01:50 UTC) Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 2 GEMM 81953713 8.894 516 158825 156201 116281 220961 23042 81953713 100 batched_gemvt_kernel - - - 为什么prefill这么多的batchedgemvt，这个是啥？dequant之后变成了Q4了？
+- (2026-11-04 01:54 UTC) 继续
+- (2026-11-04 01:55 UTC) 不用查了，继续之前的mxfp4的deepgemm的部分
+- (2026-11-04 02:56 UTC) 你是实现到了quactlize里面？
+- (2026-11-04 02:59 UTC) 额，不要这样，我想的是直接deepgemm接入llamacpp，其实已经有这个接口了。
+- (2026-11-04 02:59 UTC) 额，不要这样，我想的是直接deepgemm接入llamacpp，其实已经有这个接口了。
+- (2026-11-04 02:59 UTC) 回退相关改动
+- (2026-11-04 03:07 UTC) 继续改走deepgemm接口
+- (2026-11-04 03:18 UTC) 模型是https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/tree/main/UD-Q4_K_XL，可以看一下strata用的是什么模型和mtp，他在96GB的单卡可以放下
+- (2026-11-04 03:18 UTC) 为什么可以
+- (2026-11-04 03:19 UTC) // Logical weights use PyTorch [E,N,K] (N=output, K=input); computes A @ W_e^T. // A/out: contiguous BF16 [total_rows,K]/[total_rows,N], unpadded rows grouped by ascending expert ID. // B: DeepGEMM-packed int32 [E,K/16,2N], not GGML block_mxfp4. // scales: DeepGEMM-permuted uint8/BF16 [E,K/32,N], selected by scale_type. // m_rows: device int32 [E], nonnegative counts summing to total_rows. // Requires N%64==0, K%64==0, 1<=E<=1024; zero rows do not access buffers. // Minimum alignment (bytes): A/B/out=16, m_rows=4, E8M0/BF16 scales=8/16. // N*K, E*N*K/8, total_rows*K, total_rows*N and scheduler counts must fit int32. // Buffers must belong to the current device and remain valid until stream completion. // PPU1.0/1.5, HGCC JIT only (DG_JIT_USE_HGRTC=0); capture unsupported except for zero rows. // Workspaces are device/stream-local; a null stream selects the default stream. // First configuration use synchronizes the stream; workspace allocation/growth may synchronize the device. // Prepared calls with sufficient workspace are asynchronous; return 0 reports submission, not completion. // Synchronize to detect device errors; call release_workspace before stream destruction. int ncp_m_grouped_gemm_w4fa16_bf16_nt_nopad_v1( const void * A, const void * B, const void * scales, void * out, const int * m_rows, int total_rows, int N, int K, int n_experts, int scale_type, void * stream);
+- (2026-11-04 03:20 UTC) 忽略之前的strata部分的消息。
+- (2026-11-04 03:22 UTC) extern "C" { #endif // FP4 weights, BF16 activations/output, group size 32; no Torch/Python runtime dependency. enum ncp_moe_w4fa16_scale_type { NCP_MOE_W4FA16_SCALE_E8M0 = 0, // DeepGEMM E8M0 layout, uint8 exponents. NCP_MOE_W4FA16_SCALE_BF16 = 1 // DeepGEMM BF16 scale layout. };
+- (2026-11-04 03:27 UTC) int ncp_moe_w4fa16_release_workspace_v1(void * stream);
+- (2026-11-04 03:31 UTC) deocidng需要m=1的特殊的借口吗
+- (2026-11-04 03:35 UTC) 你看一下现在llamacpp内部的bf16的deepgemm的decoidng的入口， 这个应该没有影响cudagraph的capture
+- (2026-11-04 03:54 UTC) 改完了嘛
+- (2026-11-04 03:56 UTC) 实现完成给我
+- (2026-11-04 05:49 UTC) 给我command测试quactlize的810E的支持
+- (2026-11-04 06:09 UTC) /sim/eec/shared/junfu.qx/llama.cpp.ncp/ggml/src/ggml-cuda/ggml-cuda.cu:4495: NCP MXFP4: unsupported packed operation MUL_MAT_ID (ffn_moe_gate-3 reads blk.3.ffn_gate_exps.weight)
+- (2026-11-04 07:08 UTC) ggml_quactlize_prepare_graph 这个函数是干啥的
+- (2026-11-04 09:55 UTC) • 可以，下面这份可直接交给负责 QUactlize 的开发者： 任务：补齐 QUactlize 对 Qwen3.8-Flash-Next GGUF 的 PPU 推理支持。 一、背景与范围 框架基于 Flare，复用它的模型编排、MTP 单轮 CUDA Graph、调度和导出机制。 PPU 兼容 NVIDIA API，模型包在 PPU 平台本地构图、捕获和导出。 本任务只负责 QUactlize 的量化矩阵乘、专家路由及相关融合接口。 RMSNorm、Attention、GDN、MTP 接受/回滚和图编排由框架或其他算子库负责。 目标是正确运行 GGUF 主模型和 MTP，保持有界显存和图执行能力。 记录性能，但不以超过 Flare 为验收门槛。 二、代码与参考 QUactlize： https://github.com/DrXuQian/QUactlize 本地原仓库： /root/marlin_ppu/quactlize 其中有其他未提交工作，请使用独立 worktree，并先检查最新 develop。 已有 NVIDIA 兼容实现： 分支 feat/nvidia-dequant-gemm 提交 270867c1cda5f72c47e0df430af25b90858bf3b3 本地 /workspace/quactlize-nvidia-compat 重点参考： - quactlize/backends/cuda/api.h - quactlize/backends/cuda/compat.cu - quactlize/cuda_compat.py - tests/test_cuda_compat.py - quactlize/runtime/abi.h - quactlize/execution/api.h - quactlize/packing/ - quactlize/dequant/ NVIDIA 版本采用完整解量化到 FP16/BF16，再调用 cuBLAS GEMM。 71 项新增 GPU 测试已在 RTX PRO 6000 Blackwell 上通过，包含 格式、打包、动态路由、torch.compile 和 CUDA Graph 重放。 它是格式和数值参考，不代表 PPU 已验证，也不要求 PPU 改成相同计算实现。 PPU 优先复用现有高性能量化 kernel，以及现有 FP16/BF16 compute ABI。 三、目标模型与真实形状 主模型： https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/tree/main/UD-Q4_K_XL MTP： mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf 主模型 48 层，MTP 额外一层。 hidden_size=2560，experts=512，topk=10，expert_ffn_size=640。 以下权重形状采用逻辑 [E,N,K] 顺序； GGUF 文件维度记录的顺序是 [K,N,E]，不要混淆。 Gate/Up： - W[512,640,2560] - 主模型每个投影有 47 层 Q4_K、1 层 Q5_K - MTP 为 Q8_0 Down： - W[512,2560,640] - 主模型有 43 层 Q5_1、5 层 Q8_0 - MTP 为 Q8_0 注意 Q5_1 与 Q5_K 是不同格式，必须分别处理。 另外需要覆盖 Q8_0 稠密投影的： - N=320，K=1024 …
+- (2026-11-04 09:55 UTC) 3. 稳定的图执行接口 沿用 query → prepare → run： - query 返回明确的容量、布局和 workspace 大小； - prepare 完成编译、选择、句柄创建及预热； - run 只使用调用方提供的 device buffers 和 stream。 run 内不能分配设备内存、JIT、同步或读取路由 ID 到 CPU。 图重放时允许输入和路由 ID 的值变化，指针与容量保持稳定。 索引语义参考 NVIDIA 接口： - IDs[M,topk]； - 输入 [M,K] 可广播到各专家； - Down 输入可为 [M,topk,K]； - 输出 [M,topk,N]； - 重复 ID 正确处理； - -1 为 inactive，输出置零； - 越界 ID 不得访问越界地址，使用设备端错误状态报告。 保持旧 ABI 和现有 PPU 路径可用。 4. 有界 workspace 量化权重常驻显存，临时展开或重排只针对当前计算所需的数据。
+- (2026-11-04 09:55 UTC) 不同层顺序执行时共享 workspace。 特别注意： NVIDIA 当前验证路径按选中的 slot 展开权重，包含重复专家。
+- (2026-11-04 09:55 UTC) 不要将小 M 方案直接扩展为 prefill 的巨大 [M,10,N,K] 临时张量。 为大 M 使用现有 grouped 路径、专家复用或有界分块方案， 并给出真实 workspace 上界。 不能通过把整模型常驻成 FP16/BF16 来实现兼容。 五、验证要求 先证明格式正确，再验证矩阵乘与融合结果： - 使用独立 GGUF 解量化参考； - 检查量化 code、scale、minimum、signedness 和元素顺序； - canonical packing 做字节级比对； - 完整解量化路径检查目标 FP16/BF16 舍入； - GEMM 数值误差按实际算术建立边界，不要求不同累加顺序逐 bit 相同。 覆盖： - M=1 的 decode； - M=2/4/8 等 MTP 验证宽度； - 较大 prefill M； - 真实 N/K； - 512/top-10； - 同一图多次重放并改变输入和路由； - inactive、重复及非法 ID； - Gate/Up → SwiGLU → Down → weighted merge； - 多个调用共享 scratch 时的生命周期。 NVIDIA 测试、PPU 编译、PPU 真机正确性、PPU 性能分别报告， 不能把其中一种当成另一种的证据。
+- (2026-11-04 09:55 UTC) 六、交付 交付 QUactlize 源码、明确的调用接口、构建安装命令和测试结果。
+- (2026-11-04 09:55 UTC) 给出框架侧需要传入的张量形状、dtype、stride、workspace 与生命周期。 说明剩余不支持的格式和形状。 首批优先级： Q5_1 / Q8_0 特殊形状 → 512/top-10 → 图重放 → 融合链及大 M 内存。 后续如由 QUactlize 承担 PLE 量化行解码，再单独补 IQ4_NL： 每行 160 元素，按需解码所取行；整个 ngram 表继续放在主机。
+- (2026-11-04 14:08 UTC) k640 q5-1还是拒绝了啊
+- (2026-11-04 14:10 UTC) 推送
+- (2026-11-05 02:16 UTC) • 已写好：/root/quactlize-flashnext-prompt.txt (quactlize-flashnext-prompt.txt) 读一下这个prompt并实现
+- (2026-11-05 06:28 UTC) 这几次的改动我如何在box验收
+- (2026-11-05 06:34 UTC) 每次为什么都刷不出来更上面的command，autodl这个界面好像有问题 https://a543314-badf-b9ce1782.westc.seetacloud.com:8443/jupyter/lab
+- (2026-11-05 06:43 UTC) 或者你的测试脚本直接上传，然后给我简短command测试
+- (2026-11-05 07:06 UTC) FLASHNEXT_FAIL stage=compat: compat rc=1; see /workspace/qz-flashnext-jrejvo2l/results/compat.log E E Mismatched elements: 1 / 16384 (0.0061%) E Max absolute difference among violations: 1.792796e-08 E Max relative difference among violations: 8.742116e-06 E ACTUAL: array([[ 0.054102, 0.166504, -0.153076, ..., 0.141602, -0.058667, E -0.029877], E [ 0.05625 , 0.032617, -0.071899, ..., 0.034053, 0.012616,... E DESIRED: array([[ 0.054102, 0.166504, -0.153076, ..., 0.141602, -0.058667, E -0.029877], E [ 0.05625 , 0.032617, -0.071899, ..., 0.034053, 0.012616,...
+- (2026-11-05 07:08 UTC) _____________________ test_ffn_chain_shared_scratch[64-1] ______________________ tests/ppu/test_compat_library.py:255: in test_ffn_chain_shared_scratch np.testing.assert_allclose(np.frombuffer(out.bytes(),'f4').reshape(m,k),want,rtol=2e-6,atol=1e-8)
+- (2026-11-05 07:34 UTC) https://arxiv.org/pdf/2508.19087 读一下这个文章，看看对我们的库的参考价值，fyi，刚才通过了
+- (2026-11-05 07:42 UTC) 也就是如果有1-bit tensorcore还是有价值的
+- (2026-11-05 07:55 UTC) 从软硬件协同设计的角度，如何加速GGUF格式
+- (2026-11-05 09:44 UTC) 优先级 需要补的能力 当前缺口与具体要求 ━━━━━━━━ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ P0 Q5_1 的 packed 布局及消费路径 当前只有 raw 支持，没有 canonical descriptor/repack。重点形状：专家 down 权重 [E=512, N=2560, K=640]。必须保留 Q5_1 的 codes、 scale、min，不能转换成 Q5_K 或重新量化。 ──────── ─────────────────────────────────────── ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── P0 Q8_0 canonical 支持 K=640 Q8_0 已有 K-pack2，但目前 shape_supported() 要求 N、K 都整除 256，导致 [512,2560,640] 的 MTP down 权重被拒绝。需要生产者、尺寸查询和 消费者一起支持。 ──────── ─────────────────────────────────────── ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── P0 高性能路径的原生 BF16 输入／输出接口 已有高性能 dense/MoE 公共接口使用 F32 A/C；现有 native16 兼容接口虽然接受 BF16，但大 M 路径会展开权重再做 16-bit GEMM。需要把 BF16 A/C、FP32 累加接到已有高性能 packed SIMT/TC 路径，并提供实际路径、精度和 workspace 查询。 ──────── ─────────────────────────────────────── ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── P0 上述高性能接口保留 Flare 的图回放语义 兼容接口已经有这些能力，需要在高性能接口中同样保证：ID=-1 输出零且不读无效输入；重复 ID 按独立 slot 计算；非法 ID 累积 sticky error；重放时 IDs 可变化；run 不分配、不编译、不同步、不读取设备路由到 CPU。 ──────── ─────────────────────────────────────── ──────────────────────────────────────────────────────────────────────── …
+- (2026-11-05 10:01 UTC) 为什么有高性能版本？啥意思。原来又吗？
+- (2026-11-05 10:02 UTC) 我需要优化路径的Q5-1
+- (2026-11-05 10:03 UTC) Q5-1其他的接入准备好了吗？
+- (2026-11-05 10:44 UTC) 继续优化simt和tc
+- (2026-11-05 12:09 UTC) 读取autodl-tmp/quactlize-wheel-packaging-prompt.txt 并完成
+- (2026-11-05 12:12 UTC) 你用本地的ppu sdk应该可以发布吧
+- (2026-11-05 12:13 UTC) https://pkg.flytiger-eco.com/artifactory/generic-local/CUDA_SDK/v2.2.1/PPU_SDK_cuda-13.0.0-ubuntu2404-2.2.1-184ee6.tar.gz 这个sdk呢
+- (2026-11-05 12:14 UTC) 你是不是之前删掉了，逻辑上应该有才对
+- (2026-11-05 12:57 UTC) 给我安装的command上box
+- (2026-11-05 12:59 UTC) 需要上传吗？
+- (2026-11-05 12:59 UTC) 给我完整的box command
+- (2026-11-05 13:04 UTC) --bash: $1: unbound variable
+- (2026-11-06 01:16 UTC) 每次跑某一个shape的第一次时间都很长，但是已经打印了cache hit
+- (2026-11-06 01:17 UTC) 同一进程遇到新shape慢一次
+- (2026-11-06 01:19 UTC) KPACK_JIT_RESOLVE parent=sf_q8_a0_tm128_tn64_tk64_wm32_wn32_s3_bc0_ap0_dn64 cache=/root/.cache/quactlize/ppu KPACK_JIT parent=sf_q8_a0_tm128_tn64_tk64_wm32_wn32_s3_bc0_ap0_dn64 cache_hit=1 seconds=0.137 key=ca36f8dacdb221a7591357cb4f45601ff23a948bfba1368f84029a004d8ad29b KPACK_JIT_RESOLVE parent=rule_sf_q13_tm16_tn64_tk256_wm16_wn16_stages2_ap0_dn64_persistentm1 cache=/root/.cache/quactlize/ppu KPACK_JIT parent=rule_sf_q13_tm16_tn64_tk256_wm16_wn16_stages2_ap0_dn64_persistentm1 cache_hit=1 seconds=0.137 key=b6fd9e0bc1b4da927bc0782278bc01e87566e3d2f4a6f28299232af1ea554548 KPACK_JIT_RESOLVE parent=sf_q8_a0_tm64_tn64_tk64_wm32_wn32_s3_bc0_ap0_dn64_rc8 cache=/root/.cache/quactlize/ppu KPACK_JIT parent=sf_q8_a0_tm64_tn64_tk64_wm32_wn32_s3_bc0_ap0_dn64_rc8 cache_hit=1 seconds=0.137 key=3dca4e84a461ad4c96a5a9fbb48996ada889ac11333f016165390454a48837d1 | 512 | 2048 | 1 | 2560 | 1.406 | 364.26 | 13.665 | 149.88 | 15.070 | 169.87 | | 512 | 1024 | 1 | 1536 | 0.050 | 10241.23 | 6.948 | 147.38 | 6.998 | 219.49 | | 512 | 512 | 1 | 1024 | 0.050 | 10220.17 | 3.396 | 150.77 | 3.446 | 297.15 |
+- (2026-11-06 01:22 UTC) 为什么还有这么重的校验，deepgemm没有这么慢啊，我们应该完全参考deepgemm的类似的逻辑
+- (2026-11-06 01:46 UTC) actlizeLA你帮我分析有没有类似的问题
+- (2026-11-06 11:13 UTC) 读取quactlizeq的新的需求并完成
+- (2026-11-06 11:13 UTC) q2
+- (2026-11-06 12:51 UTC) FAILED tests/ppu/test_q2_0_library.py::test_q2_0_model_routes[f16-640-2560-1]
+- (2026-11-06 12:56 UTC) ____________________ test_q2_0_model_routes[f16-640-2560-1] ____________________ tests/ppu/test_q2_0_library.py:25: in test_q2_0_model_routes canonical = pack(arena,Public(package),raw,42) tests/ppu/test_packed_native.py:19: in pack checked(public.canonical(q,C.byref(arr)),'canonical identity') E ctypes.ArgumentError: argument 2: TypeError: expected LP_Arrangement instance instead of pointer to Arrangement
+- (2026-11-06 13:14 UTC) ERROR: THE BUILT EXTENSION IS OLDER THAN ITS SOURCES -- refusing to run, because every result below would be about code nobody is running. newer than _C.cpython-312-x86_64-linux-gnu.so: ppu_backend.cpp, ppu_backend.h, ppu_unit_pack.cpp fix: python3 setup.py build_ext --inplace This has produced two full runs of plausible-looking garbage already -- 'worst nan' on all five formats and a planted fault going uncaught, both
+- (2026-11-06 13:17 UTC) ERROR tests/ppu/test_q2_0_library.py::test_q2_0_model_routes[f16-640-2560-1] - FileNotFoundError: [Errno 2] No such file or directory: '../package'
+- (2026-11-06 13:19 UTC) ============================================================= ERROR tests/ppu/test_q2_0_library.py::test_q2_0_model_routes[f16-640-2560-1] - Failed: installed public package SDK differs; rebuild with the selected PPU_SDK
+- (2026-11-06 13:28 UTC) o ============================================================= ERROR tests/ppu/test_q2_0_library.py::test_q2_0_model_routes[f16-640-2560-1] - Failed: public package SDK release differs: built='2.0.2-63a123060612' selected='2.2.1-184ee6' PPU_SDK=/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-...
+- (2026-11-06 13:29 UTC) root@aiswu52:/sim/eec/shared/junfu.qx/quactlize# source /sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/envsetup.sh
+- (2026-11-06 13:38 UTC) FLASHNEXT_DONE status=PASS runner_rc=0 results=/workspace/qz-flashnext-fmsza6or.review.tgz
+- (2026-11-07 09:22 UTC) 调研一下hummingkernels被vllm开发
+- (2026-11-07 09:23 UTC) 我想知道她是怎么做的我们能借鉴吗
+- (2026-11-07 09:28 UTC) 如果如果我们是scalefirst后面的后面的kernel影还能直接替换吗
+- (2026-11-07 09:31 UTC) 他能比我们强吗
+- (2026-11-07 09:34 UTC) 他的优势
+- (2026-11-07 09:36 UTC) 他用了ppu专用的指令了嘛
+- (2026-11-08 07:00 UTC) 给我一个prompt，我们让本地的kda agent，优化我们的quactlize的decoding部分的kernel，给我prompt，我们追求在目标的几个模型上平均提升20%的gemv的延迟。
+- (2026-11-08 07:52 UTC) 提交了吗
+- (2026-11-08 07:52 UTC) 本地先提交
+- (2026-11-09 05:17 UTC) layout op tok rows vm ve K N us TFLOPS GB/s MFU% MBU% ------------------------------------------------------------------------------------------- masked gate_up_proj 1 8 8 8 2048 1024 70.45 0.48 45.3 0.09 1.64 masked down_proj 1 8 8 8 512 2048 36.61 0.46 44.1 0.09 1.59 masked gate_up_proj 2 16 16 16 2048 1024 38.50 1.74 166.0 0.35 6.00 masked down_proj 2 16 16 16 512 2048 35.07 0.96 92.0 0.19 3.33 masked gate_up_proj 4 32 32 32 2048 1024 49.55 2.71 257.9 0.54 9.33 masked down_proj 4 32 32 32 512 2048 37.60 1.78 171.7 0.36 6.21 masked gate_up_proj 8 64 64 64 2048 1024 65.37 4.11 391.0 0.82 14.14 masked down_proj 8 64 64 64 512 2048 37.70 3.56 342.5 0.71 12.39 masked gate_up_proj 16 128 128 128 2048 1024 108.57 4.94 470.8 0.99 17.03 masked down_proj 16 128 128 128 512 2048 78.21 3.43 330.2 0.68 11.94 masked gate_up_proj 32 256 256 256 2048 1024 172.36 6.23 593.1 1.24 21.45 masked down_proj 32 256 256 256 512 2048 156.17 3.44 330.7 0.69 11.96 masked gate_up_proj 64 512 512 256 2048 1024 173.71 12.36 597.6 2.47 21.61 masked down_proj 64 512 512 256 512 2048 156.82 6.85 337.7 1.37 12.21 nopad gate_up_proj 2048 16384 16384 256 2048 1024 399.53 172.00 503.9 34.30 18.22 nopad down_proj 2048 16384 16384 256 512 2048 265.17 129.58 506.2 25.84 18.31 nopad gate_up_proj 4096 32768 32768 256 2048 1024 572.69 239.99 527.3 47.86 19.07 nopad down_proj 4096 32768 32768 256 512 2048 385.06 178.46 566.4 35.59 20.49 nopad gate_up_proj 8192 65536 65536 256 2048 1024 974.52 282.06 516.5 56.26 18.68 …
+- (2026-11-09 05:25 UTC) 存为png或者svg
+- (2026-11-09 05:29 UTC) 只看小M
+- (2026-11-09 05:35 UTC) gate up 我们没有结果吗？我看quactlize是空的
+- (2026-11-09 05:37 UTC) 添加图上，然后用类似于[Image #1] 的方法画出来
+- (2026-11-09 05:44 UTC) scalefirst之后，我们和marlin的区别是？
+- (2026-11-09 05:48 UTC) 我的意思是我们需要把scalefirst部分的时间去掉，就可以跟moe-gemm对比时间了吧
+- (2026-11-09 06:15 UTC) 我们有直接从寄存器送进tensorcore的reader吗？
+- (2026-11-09 06:16 UTC) 现有 mixed-input mainloop mma_reader 数值契约 transform_B_kblock 先把权重码转成 F16/BF16，再在 F16 里逐元素乘 scale、加 zero，然后进 MMA。scale 和 min 会被舍入进 F16 操作数 操作数里放精确的整数码，不乘 scale；MMA 用 FP32 累加；scale 和 min 在 FP32 里按组施加到累加结果上。这和现有 SIMT decode 的契约一致 操作数角色 激活作 A（M 行补零到 8 或 16），权重作 B。M=1 时只有 1/8 的结果行有用 用"组轮换"：让 MMA 的不同行装不同量化组的激活，M=1 时所有 lane 的结果都有用，每组的 affine 只算一次 分块 按 GEMM 分块（TileN 64–128，TileK 256，多级流水） 小 shape 主要被固定延迟限制，需要 CTA 内多个 warp 分 K 段再归约，以及 Split-K
+- (2026-11-09 06:17 UTC) 这是本地ai新加入的mma re a这是本地ai新加入的mma readerreader
+- (2026-11-09 06:20 UTC) 参考untitiled txt文件，是mma re a参考untitiled txt文档文件是mma readerreader
+- (2026-11-09 06:25 UTC) 所以这个事怎么减少计算的？ 我们代码中没有这个吗
+- (2026-11-09 06:43 UTC) 第一步做完了：大 shape 上原型确实卡在访存模式，不是在途数据量不够。所有对比都在 dev1 上测，测的时候卡上没有别的进程。我这边的后台任务已经全部停掉，两张卡上没有我的进程。同一 shape 的对比（Q4_K 51200×5120，M=1，ACU 强制冷缓存）三个探针 kernel 只读数据、不做计算，各自用一种访存顺序读同样大小的平面。 顺序整块读（探针） 每条 warp 指令读一行 512 B（探针） 原型的 MMA 读取顺序（探针） 原型 kernel 生产 TC DRAM 读带宽 1177 GB/s 1154 GB/s 952–987 GB/s 866 GB/s 728 GB/s 占 DRAM 峰值 85% 84% 69–71% 63% 53% DRAM 忙碌周期 98% 97% 98% 95% 89% 确认是访存模式的问题：每种读法都没有多读（DRAM 读量等于数据量），LLC 请求都是 64 B，所以不是 L2 sector 效率的问题。DRAM 一直在忙，但原型那种"一条指令读 4 行、每行 32–128 B"的顺序，每个忙碌周期交付的字节少了约 15%。ACU 没有 DRAM 行命中计数器，所以"行/bank 局部性变差"是推断，不是直接测到的。 预取深度和占用率改变不了这个上限：预取深度从 1 加到 8、占用率从 19% 到 92%，这种读法都停在 0.95–0.99 TB/s。 原型已经接近这种读法的上限：866 GB/s 约为上限的 91%，剩下的差距在计算侧（发射忙碌 45%，IPC 2.0）和 400 个 CTA 摊到 64 个 CU 上不整齐。 生产 TC 是另一个问题：它已经经 shared 搬运，但 DRAM 只忙 89%，主要停顿在 barrier 上，瓶颈在计算侧，不在访存模式。 每行连续多少字节才够（Asys，n=51200）： 每条 warp 指令读的一行连续字节数 直接 load cp.async 到 shared 512 B 1139 GB/s 1124 GB/s 256 B 1121 GB/s 1119 GB/s 128 B 1071 GB/s 1008 GB/s 64 B 985 GB/s 935 GB/s 结论是每条 warp 指令至少要读到一行的 256 B，也就是一个 CTA 至少横跨 128 列，带宽才能回到顺序读的约 95%。这个长度下 cp.async 和直接 load 一样好。小调用是另一类问题：
+- (2026-11-09 06:43 UTC) Q8 4096×2048 上，原型 13.4 µs、生产 14.2 µs，DRAM 都只到峰值的 45–48%，忙碌周期也只有 65–72%。卡住它们的是 CTA 数、启动爬坡、尾部，以及单独的 Split-K reducer（每次调用 0.9–3.8 µs）。 顺序读的耗时下限：2 MB 2.9 µs，4 MB 4.7 µs，8 MB 8.4 µs，16 MB 15.1 µs。 如果每个调用都能跑到这个下限，M=1 各模型能降 31–38%（等权平均 34.6%）。要达到 20%，需要在每个模型上拿到约 60% 的可提升空间，小的 Q8 和 MoE 调用也要算进去。 完整数据、表格和复现命令在 docs/step1-access-pattern.md。探针和汇总工具在 tools/ 下：pattern_probe.cu、pattern_sweep.sh、pattern_asys.py、pattern_acu.sh、acu_summary.py，可以直接拿来验证第二步。在你接手前，我已经写了一个用 cp.async 按行搬运的原型 source/quactlize/execution/mma_staged.cuh，29 个有效用例对 gguf-py 都通过了，但没有计时；对应的全量筛选已中止，runs/proto/screen-staged-v1 里只有部分数据，不能用。用不用由你决定，这些文件都没有提交。
+- (2026-11-09 06:51 UTC) 拉一下
+- (2026-11-09 06:52 UTC) 推送的记录：已推到 GitHub，作为新分支 perf/ppu-decode-gemv-20261108。远端这个分支现在指向 b23397ed，跟本地一致；develop 还是 5b5b9a45，没动过。 分支：基于 origin/develop 5b5b9a45，在上面加了 1 个 commit b23397ed，作者 DrXuQian <<REDACTED_KNOWN_SECRET>cc@gmail.com>。作者是只在这次提交时用命令行参数传入的，没改 git config；也没设 upstream，没 force。 PR：没建。要建可以用 https://github.com/DrXuQian/QUactlize/pull/new/perf/ppu-decode-gemv-20261108 推上去的内容（42 个文件，约 600 KB，只有小文件）： quactlize/execution/mma_reader.cuh：直接从显存读到寄存器的原型，就是第一步分析的对象。46 个用例对 gguf-py 都通过。 quactlize/execution/mma_staged.cuh：cp.async 按行搬运的原型。推上去的版本和做正确性检查时编译的那份一致：我之前放宽过一处 Split-K 检查，没在卡上验证，推之前改回去了。29 个有效用例通过，没计时。 这两个头文件都没被任何产品代码、构建或选路引用。
+- (2026-11-09 06:52 UTC) tools/decode_gemv/：测量、Asys 抓取、原型构建、访存探针和 ACU 汇总的脚本，附 README。 脚本里写死了本机的目录结构，用之前要先改 env.sh 里的 SDK 路径和 QGEMV_ROOT。 docs/decode_gemv/： 文档：plan.md、workload_manifest.json、draft.md、step1-access-pattern.md。 数据（data/）：baseline M=1 逐 shape 结果、原型逐 shape 最优配置对比、两份正确性记录、访存探针两轮扫描结果、ACU 对比表。 没推的：trace（.asysrep）、ACU 报告（.acurep）、runs/ 原始数据，仓库 .gitignore 本来也排除了这些，它们留在 /workspace/quactlize-decode-gemv-20261108 下。 推之前在 worktree 里跑了 tests/test_product_tree.py（检查实验代码不进产品树的那组测试），5 个全部通过。
+- (2026-11-09 06:55 UTC) 你需要把这个方法接入actrlize作为extension，类似于我们其他的tc的部分
+- (2026-11-09 08:15 UTC) 给我复测的代码
+- (2026-11-09 08:31 UTC) 什么branch
+- (2026-11-09 08:32 UTC) 给我完整的命令，PPUSDK不需要加载
+- (2026-11-09 08:32 UTC) 提交啊
+- (2026-11-09 08:34 UTC) 为什么要下载，直接上传，或者我在box编译不可以吗
+- (2026-11-09 12:00 UTC) 上传了
+- (2026-11-09 12:02 UTC) 来吧
+- (2026-11-09 12:58 UTC) 上传了
+- (2026-11-09 13:14 UTC) 所以性能没有提升？
+- (2026-11-10 01:41 UTC) 我们现在完成了890的适配了吗
+- (2026-11-10 01:45 UTC) 开始适配zw890，默认还是参考810的规则，。
+- (2026-11-10 01:45 UTC) 890是1。5，需要看一下kernel有哪些适配点要做，尤其是tensorcore部分
+- (2026-11-10 02:19 UTC) 给我command上890实测
+- (2026-11-10 02:31 UTC) 清理一下磁盘，有很多应该可以删掉吧
+- (2026-11-10 08:02 UTC) File "/tmp/qz890.Cfy2DgmV/source/tools/ppu15/check.py", line 47, in setup raise ValueError('this bring-up requires one visible ZW890 with warp size32; got '+repr(identity)) ValueError: this bring-up requires one visible ZW890 with warp size32; got {'ordinal': 0, 'major': 8, 'minor': 9, 'compute_units': 39, 'warp_size':ZW890_DONE {"status": "FAIL", "results": "/tmp/qz-zw890-j0vjt4u4.review.tgz", "production_changed": false, "performance_admitted": false} r
+- (2026-11-10 09:00 UTC) name=ZW-M890P warp_size=32 major=8 minor=9 compute_units=39 pci=0000:01:00.0
+- (2026-11-11 01:32 UTC) 没有目录了，现在环境变了，重新测试
+- (2026-11-11 02:18 UTC) /sim/eec/shared/junfu.qx/quactlize 直接在这个地址基础上做实验
+- (2026-11-11 02:23 UTC) 不要用git@，https
+- (2026-11-11 02:42 UTC) Mismatched elements: 768 / 1536 (50%) Max absolute difference: 9176 Max relative difference: 31. x: array([[[ 0, 37, 74, ..., 10249, 10286, 10323], [ 1184, 1221, 1258, ..., 11433, 11470, 11507], [ 2368, 2405, 2442, ..., 12617, 12654, 12691],... y: array([[[ 0, 37, 74, ..., 1073, 1110, 1147], [ 1184, 1221, 1258, ..., 2257, 2294, 2331], [ 2368, 2405, 2442, ..., 3441, 3478, 3515],... ZW890_SUITE_START suite=pack expected=12 log=/sim/eec/shared/junfu.qx/qz890.4oTtz7ZD/results/pack.log
+- (2026-11-11 03:05 UTC) 用ssh推送
+- (2026-11-11 03:06 UTC) 给我command复测
+- (2026-11-11 03:16 UTC) ZW890_DONE {"status": "PASS", "results": "/sim/eec/shared/junfu.qx/qz890.aD7NhpN3/results.review.tgz", "production_changed": false, "performance_admitted": false}
+- (2026-11-11 03:18 UTC) 上传了
+- (2026-11-11 03:29 UTC) 下一步的command
+- (2026-11-11 03:56 UTC) ZW890_TC_DONE {"status": "PASS", "results": "/sim/eec/shared/junfu.qx/qz890-tc.y3cFpu9Y/results.review.tgz", "production_enabled": false, "performance_admitted": false}
+- (2026-11-11 04:00 UTC) 上传了
+- (2026-11-11 05:55 UTC) ^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/quactlize/tools/ppu15/tc_check.py", line 111, in run_grouped_case checked(prepare(C.byref(wrapped), C.byref(recipe), C.byref(handle)), 'grouped BF16 prepare') File "/sim/eec/shared/junfu.qx/quactlize/quactlize/runtime/native.py", line 105, in checked raise RuntimeError(f"{operation} failed: status={status}") RuntimeError: grouped BF16 prepare failed: status=1 ZW890_TC_SUITE_START parent=zw890_q13_sf_grouped_bf16_m64n
+- (2026-11-11 06:24 UTC) ZW890_TC_DONE {"status": "PASS", "results": "/tmp/qz-zw890-tc-s_gb0vo2.review.tgz", "production_enabled": false, "performance_admitted": false}
+- (2026-11-11 06:24 UTC) pass了应该不需要传tar包吧
+- (2026-11-11 06:28 UTC) 继续，还需要精度验证码
+- (2026-11-11 06:28 UTC) ？
+- (2026-11-11 07:09 UTC) ERROR: THE BUILT EXTENSION IS OLDER THAN ITS SOURCES -- refusing to run, because every result below would be about code nobody is running. newer than _C.cpython-312-x86_64-linux-gnu.so: ppu_backend.cpp, ppu_backend.h, ppu_unit_pack.cpp fix: python3 setup.py build_ext --inplace
+- (2026-11-11 07:13 UTC) ZW890_LIBRARY_START stage=accuracy log=/tmp/qz-zw890-library-m7bi2gti/accuracy.log ERROR: THE BUILT EXTENSION IS OLDER THAN ITS SOURCES -- refusing to run, because every result below would be about code nobody is running. newer than _C.cpython-312-x86_64-linux-gnu.so: ppu_backend.cpp, ppu_backend.h, ppu_unit_pack.cpp fix: python3 setup.py build_ext --inplace
+- (2026-11-11 07:36 UTC) raise ValueError("typed oracle mismatch: " + str(result)) E ValueError: typed oracle mismatch: {'cells': 32768, 'bad': 31283, 'nonfinite': 0, 'relative_l1_error': 0.4309920891986819, 'tolerance': 0.005, 'output_sha256': '118ec8f9e911aa14a592edbbfa457b0f2b9a90e05efffb3b9b95096af832c0ad', 'golden_sha256': '73c6e50756b8401c58d53656181781a3efbcc4827b9cd4654f36c036c8ddee11', 'first': {'index': 0, 'got': 0.004382157698273659, 'want': -0.0010666907764971256}} _____
+- (2026-11-11 07:40 UTC) _________________________ test_dense_auto[bf16-128-10] _________________________
+- (2026-11-11 07:40 UTC) FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-9-8] - ValueErro... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-9-10] - ValueErr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-9-11] - ValueErr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-9-12] - ValueErr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-9-13] - ValueErr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-9-14] - ValueErr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-16-8] - ValueErr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-16-10] - ValueEr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-16-11] - ValueEr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-16-12] - ValueEr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-16-13] - ValueEr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-16-14] - ValueEr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-128-8] - ValueEr... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-128-10] - ValueE... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-128-11] - ValueE... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-128-12] - ValueE... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-128-13] - ValueE... FAILED tests/ppu/test_zw890_library.py::test_dense_auto[bf16-128-14] - ValueE... 18 failed, 156 passed, 707 warnings in 773 …
+- (2026-11-11 08:08 UTC) 1.5和1。0有什么布局的区别？
+- (2026-11-11 08:13 UTC) 居然不一样，但是我记得两个硬件应该是一致的
+- (2026-11-11 08:13 UTC) 指令布局不同其实对我来说就够了，因为我只管软件编程
+- (2026-11-11 08:15 UTC) ( set -euo pipefail cd /sim/eec/shared/junfu.qx/quactlize git fetch https://github.com/DrXuQian/QUactlize.git work/zw890-ppu15-20261110 git switch --detach 20a8bb29 python3 -u tools/run_zw890_library.py \ --sdk "${PPU_SDK:-/usr/local/PPU_SDK}" --device 0 --jobs 4 \ --cohort typed-bf16 )
+- (2026-11-11 08:15 UTC) ZW890_LIBRARY_DONE {"status": "PASS", "expected": 18, "cohort": "typed-bf16", "arch": "ppu_15", "requested_device": 0, "sdk": "/usr/local/PPU_SDK", "package": "/tmp/qz-zw890-library-ow6fhuss/package", "package_reused": false, "performance_admitted": false, "production_default_changed": false, "scope": "PUBLIC_PACKAGE_NUMERICS_NOT_MODEL_OR_PERFORMANCE", "typed_input_gate": "PASS_24_RAW_BIT_CASES_WITH_LEGACY_NEGATIVE", "passed": 18, "seconds": 748.0008151200018, "results": "/tmp/qz-zw890-library-ow6fhuss.review.tgz"}
+- (2026-11-11 08:18 UTC) 也就是正确性现在已经可以close了
+- (2026-11-11 08:19 UTC) 集成到main了吗？
+- (2026-11-11 08:19 UTC) 集成到develop了吗？
+- (2026-11-11 08:22 UTC) 有一些工作要集成到develop的要集成
+- (2026-11-11 08:23 UTC) 有一些strata和spare相关的工作需要集成到develo吗
+- (2026-11-11 08:27 UTC) 集成到develo
+- (2026-11-11 10:08 UTC) KPACK_EXECUTION_BUILD phase=simt_q14这个是在干嘛？可以怎么关掉
+
+## `01a003ff-13d2-7b62-9de4-61342ea4f88e` — 新任务,和 #37 / MoE 那条线无关。**代码一律不要进 quactlize 仓库** —— 用 `/root/ref5090/` 之类的独立目录,quactlize 的工作树必须保持干净。
+
+**目标:在本机的 RTX 5090 上,测一批业界 weight-only 量化 kernel 的利用率,作为我们在 PPU 上优化的牵引目标。只要 MBU 和 MFU 两个数。**
+
+设备已确认:`nvidia-smi` → index 0, `NVIDIA GeForce RTX 5090`, 32607 MiB, compute_cap **12.0**(SM120)。
+
+### 要测的 kernel
+
+1. **Marlin**(dense W4A16)
+2. **Marlin-MoE**
+3. **TRT-LLM 的 weight-only GEMM**(fpA_intB)
+4. **TRT-LLM 的 weight-only MoE GEMM**
+5. **llama.cpp 各种 weight-only 量化格式的 kernel**(Q4_0 / Q4_1 / Q4_K / Q5_K / Q6_K / IQ4_NL / IQ4_XS 等)
+
+### 硬约束:**activation 不许到 int8**
+
+这条是用户点名的。要 weight-only:**权重低比特,激活保持 fp16/bf16**。
+
+llama.cpp 这里有个陷阱,别踩:它的 **MMQ 和 MMVQ 都会把激活量化成 q8_1**,那是 W4A8 不是 weight-only。fp16 激活的路是 **dequantize → cuBLAS**,以及 `mul_mat_vec` 的 f16 路径。**如果某条路只能以 int8 激活存在,就明确标注"不符合约束,未计入",不要偷偷把它当 weight-only 报上来。**
+
+### shape 用我们自己的,不要抄
+
+从 `benchmarks/workloads.py` / `benchmarks/fixtures.py` 导出 —— 那里有 Qwen3-32B(dense)、Qwen3.5-35B-A3B、Qwen3.5-122B-A10B 的真实投影形状,是从模型 config.json 推出来的。**用脚本导出成一个 shape 清单再喂给各个 benchmark,不要手抄一遍**;这个仓库已经为"同一个形状有第二种拼写"付过两次代价。
+
+另外必须包含 BACKTEST 的两个锚点形状:
+- **C1**(prefill MoE):L=256、4096 token、N=512、K=2048、gs=32、top-8
+- **A0**(dense):M=2048、N=K=4096、gs=32
+
+### MFU/MBU 的定义必须和我们一致,否则数字不可比
+
+我们这边刚统一过(`benchmarks/bench_select.hpp`):
+
+    MFU = useful_flops / t / peak_flops      useful_flops = 2 * REAL_rows * N * K
+                                             MoE 的 REAL_rows 是 Σ_e me[e],不含 padding
+    MBU = distinct_bytes / t / peak_bw       distinct = A(每真实行一次)
+                                                      + 每个 ACTIVE expert 的权重+scale 各一次
+                                                      + C(每真实行一次)
+
+**分母必须是 5090 的,而且要写明你是怎么拿到的** —— 从设备查、从官方规格,不要凭印象。我们 PPU 用的是 500 TF/s / 2766 GB/s,那是另一台机器的数,别混用。fp16 tensor 峰值要说清是不是带 FP16 累加、有没有算 sparsity(**不要用 sparsity 的数**)。
+
+### 计时口径:这条最容易毁掉整个对比
+
+**每个数都要标明是 kernel-only 还是含 launcher/setup。** 我们今天刚吃过这个亏:DeepGemm 的 452 µs 是 asys kernel-only,同一 wrapper 的墙钟是 1440 µs(3.2×);而我们自己的 423.96 µs 含每次 `initialize` + blocking H2D。**两个口径混着比,结论全是假的。**
+
+优先给 **kernel-only**(CUDA event 围住 kernel,或 profiler 按 kernel name 取 `cuda_time_total`);拿不到就说拿不到,并明确标 wall。
+
+### 交付
+
+一份表:`kernel × shape × (MFU%, MBU%, 时间, 口径, 峰值分母)`,外加每个 kernel 的版本/commit。写进 quactlize 的 `docs/` 一个新文件(**只有这个文件进仓库,代码不进**),或者你觉得更合适的地方 —— 但要能被 `docs/BACKTEST.md` 引用。
+
+### 两个别做的
+
+- **别拿 5090 的绝对性能去预测 PPU** —— memory 里 `ppu-gemv-gs32-occupancy` 明确记着"5090 不能代理 PPU 性能"。这次要的是**利用率作为牵引目标**(好 kernel 能打到峰值的百分之多少),不是性能预测,两回事。
+- **跑不起来的直说跑不起来。** 5090 是 SM120,Marlin/TRT-LLM 的 SM80/SM90 kernel 未必有 SM120 路径;编不过就报"这个 kernel 在 SM120 上不可用",给出编译错误,**不要换一个能跑的 kernel 冒充它**。
+
+先给我一个**可行性清单**:哪几个能在 SM120 上跑起来、哪几个不能、以及各自的 shape 覆盖。**清单确认后再跑全量。**
+
+- (2026-08-15 06:07 UTC) 我们先不管reduction，只看前面的kernel时间
+
+## `01a00dcf-dc48-7852-ad4a-2b8b87b38fd5` — 切换Int8 kernel至PPU
+
+- (2026-08-17 03:47 UTC) https://github.com/inclusionAI/cuLA 参考cuLA的linear attention的实现，接入actlize实现一个ppu版本的chunked gdn。我不想要triton或者cutedsl，希望是纯C++/cida
+- (2026-08-17 03:51 UTC) 我说的就是要实现一个pur额
+- (2026-08-17 03:51 UTC) 我说的就是要实现一个pure cuda + cutlass
+- (2026-08-17 03:58 UTC) cuLA 的KDA不是大部分可以复用吗？
+- (2026-08-17 04:00 UTC) OK，你来吧。
+- (2026-08-17 05:42 UTC) /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/float8.h:91:10: fatal error: hggc_fp8.h: No such file or directory 91 | #include <hggc_fp8.h> | ^~~~~~~~~~~~ compilation terminated. ppu_clang++: error: device preprocessor command failed with exit code 1 (use -v to see invocation)
+- (2026-08-17 06:55 UTC) built: /workspace/quactlize-l205-ppu-chunked-gdn-343e951-20260817T060448Z/build/ppu_targets/libquactlize_ppu.so load: QUACTLIZE_PPU_LIB=/workspace/quactlize-l205-ppu-chunked-gdn-343e951-20260817T060448Z/build/ppu_targets/libquactlize_ppu.so python -c 'import quactlize; print(quactlize.gguf_backend())' f0f9261e307f4be93ca51182404d73d834f65a8966663ea3d2811caf371e541b /workspace/quactlize-l205-ppu-chunked-gdn-343e951-20260817T060448Z/build/ppu_targets/libquactlize_ppu.so d8e2073f060353cfe6e2a3d214a89428c9528da1fc291cb6e33cdbf3189f01cb /workspace/quactlize-l205-ppu-chunked-gdn-343e951-20260817T060448Z/test_ppu_chunked_gdn_abi [GDN admission] plant=schema got=2 expected=2 EXPECTED_RED/PASS [GDN admission] plant=chunk got=4 expected=4 EXPECTED_RED/PASS [GDN admission] plant=head got=3 expected=3 EXPECTED_RED/PASS [GDN admission] plant=head-map got=5 expected=5 EXPECTED_RED/PASS [GDN admission] plant=grid-overflow got=2 expected=2 EXPECTED_RED/PASS [GDN admission] plant=extent-overflow got=2 expected=2 EXPECTED_RED/PASS [GDN admission] plant=misaligned-q got=7 expected=7 EXPECTED_RED/PASS [GDN fixture exactness plant] non-bf16-H EXPECTED_RED/PASS [GDN fixture exactness] pattern=distinct state=zero A=16384 W=32768 U=32768 P=16384 vnew+scaled=65536 H-casts=2129920 strict_lower_nonzero=0 inverse_offdiag_nonzero=0 causal_offdiag_nonzero=0 boundary_bad=A:0/W:0/U:0/P:0/vnew:0/H:0 BF16-BOUNDARIES-EXACT/PASS [GDN WY coverage] pattern=distinct strict_lower_nonzero=0 inverse_offdiag_nonzero=0 …
+- (2026-08-17 07:00 UTC) 都是正确的，下一步吧。先性能吧。
+- (2026-08-17 08:13 UTC) 假设我安装了fla在box上，如何evaluation同样的输入下的fla的tritonkernel的性能。作为我们对比的baseline
+- (2026-08-17 08:15 UTC) root@aiswu96:/sim/eec/shared/junfu.qx/quactlize# cat /workspace/quactlize-ppu-chunked-gdn-perf-7678l5d-20260817T072530Z/performance-summary.log [GDN perf runner] label=short-grid32 B=1 T=256 H=32 HV=32 [GDN perf config] implementation=qk+kk-aiu/generated-simt shape=B1,T256,H32,HV32,K128,V128,C64 GVA=32:32 tokens=256 token_heads=8192 chunks_per_sequence=4 work_units=128 grid=(32,1,1) threads=128 shared_bytes=139776 device=0 cu=72 l ogical_flops_per_full_chunk=11276288 occupancy_api=UNAVAILABLE(reason=shipping-kernel-symbol-not-public) initial_state=1 final_state=1 [GDN perf] protocol=device-event-launch-span-upper includes_launch_idle=1 untimed_preflight_launches=1 warmup=5 samples=7 launches_per_sample=20 median_us=7935.320282 mean_us=7935.116577 min_us=7934.423828 max_us=7935.794067 us_per_ token=30.997344851 us_per_token_head=0.968667027 tokens_per_second=32261.028 logical_flops=1443364864 effective_tflops=0.181891 flops_scope=full-chunks output_fnv=32a5d32067aa2c8a state_fnv=981e02327eb01cbf replay_fingerprint=STABLE numerical_authority=L205-exact-ABI PASS [GDN perf runner] label=gva-grid64 B=2 T=256 H=16 HV=32 [GDN perf config] implementation=qk+kk-aiu/generated-simt shape=B2,T256,H16,HV32,K128,V128,C64 GVA=16:32 tokens=512 token_heads=16384 chunks_per_sequence=4 work_units=256 grid=(64,1,1) threads=128 shared_bytes=139776 device=0 cu=72 logical_flops_per_full_chunk=11276288 occupancy_api=UNAVAILABLE(reason=shipping-kernel-symbol-not-public) initial_state=1 final_state=1  …
+- (2026-08-17 08:20 UTC) 我们已经用上chunked方法了吗
+- (2026-08-17 08:20 UTC) 但是没有用tensorcore？
+- (2026-08-17 08:21 UTC) 先优化到都是tensorcore再说吧。
+- (2026-08-17 08:27 UTC) cuLA内部如何实现的，这些都是tensrocore运算吗？
+- (2026-08-17 08:32 UTC) OK，我们先要认清楚和cuLA的差距，然后先一步步弥补
+- (2026-08-17 08:36 UTC) 我们只关心forward，这一点边界可以确认好
+- (2026-08-17 08:37 UTC) 现在有backward的代码吗？如果有的话，去掉
+- (2026-08-17 08:45 UTC) 把linear attention部分从当前的repo中整理出来，到上级目录，然后上传到https://github.com/DrXuQian/actlizeLA
+- (2026-08-17 08:48 UTC) 为什么要login，直接ssh里面缓存的key就行了啊，现在不就是吗？
+- (2026-08-17 09:13 UTC) 继续之前的性能的提升的修改
+- (2026-08-17 11:29 UTC) /usr/bin/ld: cannot find ppu_obj/ppu_chunked_gdn_backend_8825b7df.o: No such file or directory collect2: error: ld returned 1 exit status gmake[3]: *** [CMakeFiles/actlize_la_ppu.dir/build.make:90: libactlize_la_ppu.so] Error 1 g
+- (2026-08-17 11:50 UTC) 继续
+- (2026-08-17 12:14 UTC) [GDN perf runner] label=short-grid32 B=1 T=256 H=32 HV=32 [GDN perf config] implementation=all-dense-products-aiu+blocked-tf32-inverse shape=B1,T256,H32,HV32,K128,V128,C64 GVA=32:32 tokens=256 token_heads=8192 chunks_per_sequence=4 work_units=128 grid=(32,1,1) threads=128 shared_bytes=139776 device=0 cu=72 logical_flops_per_full_chunk=11276288 bf16_mma_per_full_chunk=1408 tf32_mma_per_full_chunk=40 inverse_block_products=6 inverse_cta_barriers=8 occupancy_api=UNAVAILABLE(reason=shipping-kernel-symbol-not-public) initial_state=1 final_state=1 [GDN perf preflight] launches=1 output_nonfinite=0 state_nonfinite=0 output_fnv=6faf23fcba67af18 state_fnv=1fb8b989d70679d6 numerical_authority=L205-exact-ABI stability_anchor=RECORDED/PASS [GDN perf] protocol=device-event-launch-span-upper includes_launch_idle=1 untimed_preflight_launches=1 warmup=5 samples=7 launches_per_sample=20 median_us=1780.439949 mean_us=1780.440548 min_us=1779.556084 max_us=1781.889915 us_per_token=6.954843551 us_per_token_head=0.217338861 tokens_per_second=143784.687 logical_flops=1443364864 effective_tflops=0.810679 flops_scope=full-chunks output_fnv=6faf23fcba67af18 state_fnv=1fb8b989d70679d6 replay_fingerprint=STABLE numerical_authority=L205-exact-ABI PASS [GDN perf runner] label=gva-grid64 B=2 T=256 H=16 HV=32 [GDN perf config] implementation=all-dense-products-aiu+blocked-tf32-inverse shape=B2,T256,H16,HV32,K128,V128,C64 GVA=16:32 tokens=512 token_heads=16384 chunks_per_sequence=4 work_units=256 grid=(64,1, …
+- (2026-08-20 04:42 UTC) 感觉上利用率是不是太低了？逻辑上不应该这么低。
+- (2026-08-20 04:44 UTC) 可以看看flashqla以及flashinfer的做法
+- (2026-08-20 05:09 UTC) 你现在没有chunk-parallel吗？
+- (2026-08-20 05:10 UTC) quactlize extensions的名字要换掉，变成actlize extensions。制定一个计划。
+- (2026-08-20 05:30 UTC) 改吧。然后给我一个性能优化的计划。
+- (2026-08-20 06:20 UTC) 你现在是怎么做的？没有用cutlass吗？
+- (2026-08-20 06:22 UTC) 抓一下acu吧
+- (2026-08-20 06:29 UTC) 首先block size太小了。shm占用又很猛
+- (2026-08-20 06:32 UTC) 这是一个严重 under-utilized 的 latency-bound kernel，compute 和 memory 两头都没吃满，瓶颈在 stall 而非吞吐。 --- 核心结论：既不是 compute-bound 也不是 memory-bound | 指标 | 值 | 判读 | |------|-----|------| | Compute (CU) SOL | 6.94% | 计算单元基本闲置 | | Memory SOL | 2.30% | 带宽几乎没用 | | DRAM SOL | 0.34% | DRAM 几乎没碰 | | Memory Throughput | 9.28 GB/s | 相对峰值可忽略 | | Duration | 1.79 ms / 3.04M cycles | 时间全耗在等待上 | 两个 SOL 都 <7%，意味着 GPU 绝大部分时间在 空转等待。这是典型的 stall-bound / latency-bound，不是算力或带宽不够，是流水线喂不饱。 --- 瓶颈定位：Warp State 说明一切 Memory Dependency 2.76 ████████████ ← 主因 Stall AMC 1.66 ███████ ← 次因 Compute Dependency 0.74 ███ Stall Sync 0.67 ███ Instruction Fetch 0.26 Memory Dependency = 2.76 cycles/inst 是绝对主导：warp 发出 load 后，一直卡在"等数据回来"才能继续，后续指令有强数据依赖，无法用其他 warp 掩盖延迟。 配合 SOL 里的信号： PU Pipe SALU 6.04 / WE Pipe IALU 2.43 — 大量标量/整数地址计算，Tensor 只有 0.52% Tensor pipe 几乎没动 → 这个 kernel 根本没在做有效的矩阵乘，时间全花在 address generation + 依赖等待上 Stall AMC = 1.66（Address/Memory Coalescing 相关）进一步印证：访存地址计算或 coalescing 效率低。 --- 访存模式的问题 从 Memory Chart 看： KVD Hit Rate 77.92% — 偏低，约 22% miss 打到 L2 L2 Hit Rate 65.45% — 明显偏低，1/3 请求穿透到 LLC LLC 91.34% / KSD 99.74% — 这两级还行 Global: 2.52M Req 走 KVD，请求数巨大但 transfer size 相对小 请求数极多（2.52M + 1.15M）但单次数据量小 + hit rate 不理想 → 典型的碎片化、非合并访存，每个 warp 频繁发小请求然后卡在 Memory Dependency 上。 对照 Warp State：Stall Shared Memory Pipe Busy 几乎为 0，说明数据没有走 shared memory 复用，而是反复从 global/KVD 拉。 --- 结合你的 GDN/chunked 场景 如果这就是前面聊的 linear attention / GDN kernel，这个 profile 完全吻合我之前的判断： 1. Tensor pipe 0.52% = matmul 没打满 — 说明要么走了 recurrent 的 tiny mat-vec（shape 太小喂 …
+- (2026-08-20 06:36 UTC) 继续
+- (2026-08-20 06:51 UTC) 现在是1ms左右
+- (2026-08-20 06:52 UTC) 我们测似的shape是什么
+- (2026-08-20 06:54 UTC) 不能看一下其他的几个库怎么处理的吗
+- (2026-08-20 07:01 UTC) 按照你的计划来。我们期望的shape是Sequence 2048。然后shape参考 Qwen3.5-35B-A3B的linear attn
+- (2026-08-20 07:16 UTC) triton的实现的时间：# Name Start (ns) Duration (ns) PPU Context Stream 1651 "chunk_local_cumsum_scalar_kernel" 17186610474 3400 PPU 7 Context 1 Stream 8 1652 "chunk_gated_delta_rule_fwd_kkt_solve_kernel" 17186614074 37360 PPU 7 Context 1 Stream 8 1653 "recompute_w_u_fwd_kernel" 17186651634 25360 PPU 7 Context 1 Stream 8 1654 "chunk_gated_delta_rule_fwd_kernel_h_blockdim64" 17186677234 84280 PPU 7 Context 1 Stream 8 1655 "chunk_fwd_kernel_o" 17186761754 83040 PPU 7 Context 1 Stream 8
+- (2026-08-20 07:28 UTC) [GDN perf] protocol=device-event-launch-span-upper includes_launch_idle=1 untimed_preflight_launches=1 warmup=5 samples=7 launches_per_sample=20 median_us=7612.090302 mean_us=7611.458588 min_us=7608.412170 max_us=7613.880157 us_per_token=3.716840968 us_per_token_head=0.116151280 tokens_per_second=269045.679 logical_flops=11546918912 effective_tflops=1.516918 flops_scope=full-chunks output_fnv=03a 以及[GDN perf] protocol=device-event-launch-span-upper includes_launch_idle=1 untimed_preflight_launches=1 warmup=5 samples=7 launches_per_sample=20 median_us=5254.388046 mean_us=5255.880846 min_us=5241.640091 max_us=5277.714157 us_per_token=2.565619163 us_per_token_head=0.080175599 tokens_per_second=389769.462 logical_flops=11546918912 effective_tflops=2.197576 flops_scope=full-chunks output_fnv=03
+- (2026-08-20 07:30 UTC) 现在很明显已经不是优化的问题了，算法层面就不对，要不然差这么多？
+- (2026-08-20 07:32 UTC) 为什么有两个devide kernel，第一个是1024个grid，第二个是64的grid。第一个是433us。第二个是4。多ms
+- (2026-08-20 07:33 UTC) 但是cuLA里面是怎么把穿行和并行放到一个kernel？
+- (2026-08-20 07:36 UTC) OK，那就先分解。
+- (2026-08-20 08:00 UTC) [GDN perf] protocol=device-event-launch-span-upper includes_launch_idle=1 untimed_preflight_launches=1 warmup=5 samples=7 launches_per_sample=20 median_us=6636.763763 mean_us=6640.628161 min_us=6636.202240 max_us=6648.165894 us_per_token=3.240607306 us_per_token_head=0.101268978 tokens_per_second=308584.134 logical_flops=11546918912 effective_tflops=1.739842 flops_scope=full-chunks output_fnv=03
+- (2026-08-20 08:04 UTC) median_us=5273.461914 mean_us=5272.873415 min_us=5258.705902 max_us=5287.427902 us_per_token=2.574932575 us_per_token_head=0.080466643 tokens_per_second=388359.684 logical_flops=11546918912 effective_tflops=2.189628 flops_scope=full-chunks output_fnv=03ab14b5fb0ef9e4 state_fnv=893416c2548bea05 replay_fingerprint=STABLE numerical_authority=L205-exact-ABI PASS
+- (2026-08-21 02:11 UTC) [GDN perf] protocol=device-event-launch-span-upper includes_launch_idle=1 untimed_preflight_launches=1 warmup=5 samples=7 launches_per_sample=20 median_us=5883.464050 mean_us=5885.252598 min_us=5880. 871964 max_us=5895.220184 us_per_token=2.872785181 us_per_token_head=0.089774537 tokens_per_second=348094.249 logical_flops=11546918912 effective_tflops=1.962606 flops_scope=full-chunks output_fnv=03
+- (2026-08-21 02:20 UTC) 有四个kernel，第一个283us，第二个160us
+- (2026-08-21 02:20 UTC) 第三个4ms，第四个1ms
+- (2026-08-21 02:21 UTC) 不对吧，你现在同样的kernel对比差这么多，显然已经不是实现的问题了，就是算法的问题，先对齐吧
+- (2026-08-21 02:23 UTC) 直接看triton代码，看到底哪些地方不同。现在你是对齐triton的四个kernel的，对吗？
+- (2026-08-21 02:30 UTC) 我们还是先align到triton的性能，再考虑优化
+- (2026-08-21 02:48 UTC) 最后交付的时候给我fla和我们自己的cuda c的实现的两种方法的acu的抓取的command，直接能对比
+- (2026-08-21 03:06 UTC) [FLA GDN ACU] FAIL: FLA source tree not found at /workspace/gdn-reference/flash-linear-attention
+- (2026-08-21 03:07 UTC) AttributeError: module 'typing' has no attribute '_ClassVar'. Did you mean: 'ClassVar'?
+- (2026-08-21 03:14 UTC) AttributeError: module 'typing' has no attribute '_ClassVar'. Did you mean: 'ClassVar'? python: /usr/local/bin/python 3.12.3 (main, Jan 30 2026, 17:51:06) [GCC 13.3.0] dataclasses: /usr/local/lib/python3.12/dataclasses.py fla: /usr/local/lib/python3.12/site-packages/fla/__init__.py root@aiswu96:/sim/eec/shared/junfu.qx/actlizeLA#
+- (2026-08-22 00:34 UTC) clone一份https://github.com/t-head/flash-attention-for-sail.git 到marlin_ppu目录下，我想理解，为什么我们的手写版本比这个attention更强。手写版本在fattn_ppu.cu。可以看一下区别，以及如何移植我们的fattn ppu到flash attention的lib
+- (2026-08-28 08:32 UTC) 到SageAttention下面，把这个kernel的int8的实现，切换到支持ppu。cutlass切换到actlize。
+- (2026-08-28 08:42 UTC) 如果是大量使nvidia的ptx，反而没有用到cutlass的好处。我们应该可以去优化
+- (2026-08-28 08:51 UTC) 可能最好的方法是读取一下sageattention的代码逻辑，然后我们适配到ppu
+- (2026-08-28 09:47 UTC) 你要push我才能pull
+- (2026-08-28 09:48 UTC) actlize自模块修改啥了？
+- (2026-09-03 09:47 UTC) 继续优化实现，注意要用ppu sdk编译
+- (2026-09-03 09:47 UTC) 本地游ppu sdk
+- (2026-09-03 12:01 UTC) push了吗？
+- (2026-09-03 12:03 UTC) 应该你这里把binary编译完成，我去box直接执行就可以
+- (2026-09-03 12:42 UTC) push
+- (2026-09-03 12:42 UTC) binary直接push
+- (2026-09-03 12:43 UTC) [PPU Sage device] case=h64-full shape=B1,H1,N64,D64 layout=HND causal=0 max_o=66.20309448 max_lse=0.00000048 replay=RAW-BIT/STABLE Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/SageAttention/dev/ppu_int8/device_smoke.py", line 110, in <module> raise SystemExit(main()) ^^^^^^ File "/sim/eec/shared/junfu.qx/SageAttention/dev/ppu_int8/device_smoke.py", line 101, in main run_case("h64-full", 64, 64, 1, "HND", False) File "/sim/eec/shared/junfu.qx/SageAttention/dev/ppu_int8/device_smoke.py", line 94, in run_case raise AssertionError(f"{name}: quantized-oracle mismatch") AssertionError: h64-full: quantized-oracle mismatch r
+- (2026-09-03 13:00 UTC) [PPU Sage device] case=h64-full shape=B1,H1,N64,D64 layout=HND causal=0 max_o=0.00000571 max_lse=0.00000048 replay=RAW-BIT/STABLE [PPU Sage device] case=h64-causal shape=B1,H1,N64,D64 layout=HND causal=1 max_o=0.00009221 max_lse=0.00000048 replay=RAW-BIT/STABLE [PPU Sage device] case=h64-tail-gqa-nhd shape=B1,H2,N33,D64 layout=NHD causal=0 max_o=0.00001036 max_lse=0.00000048 replay=RAW-BIT/STABLE [PPU Sage device] case=h128-multislice shape=B1,H1,N128,D128 layout=HND causal=0 max_o=0.00000182 max_lse=0.00000048 replay=RAW-BIT/STABLE [PPU Sage device] PASS: QK/PV/LSE + causal + tail + GQA + NHD + D128
+- (2026-09-03 13:01 UTC) 下一步看性能，需要达到较高的MFU
+- (2026-09-03 13:06 UTC) create mode 100755 tools/run_ppu_int8_perf_box.sh 059cc9948f439abc1663103a3279a02ed7c40d598606b42895b307fb13fbe4168 /sim/eec/shared/junfu.qx/SageAttention/prebuilt/ppu_10/cpython312-torch2.8-cxx11abi1/_qattn_ppu.cpython-312-x86_64-linux-gnu.so [PPU Sage perf runner] sha=3794335de606ca2927aeb7d2ce7c84a06f05ae03 out=/workspace/sageattention-ppu-perf-3794335d-20260903T130507Z runtime=/usr/local/PPU_SDK/lib [PPU Sage perf config] B=1 H=16 Hkv=16 N=4096 D=128 causal=0 grid=(32,16,1) logical_flops=137438953472 warmup=5 samples=7 launches_per_sample=20 [PPU Sage perf] role=prequantized-core median_us=405.972 range=[402.478,435.532] logical_tflops=338.543 logical_mfu=67.71% peak_denominator=500.000_TFLOPS output_sha256=5837302b21552a97 [PPU Sage perf] role=quant-kernels+core median_us=529.114 range=[524.942,535.882] logical_tflops=259.753 logical_mfu=51.95% peak_denominator=500.000_TFLOPS output_sha256=5837302b21552a97 [PPU Sage perf] current=338.543_TFLOPS device_proven_fp16_fattn=294.000_TFLOPS verdict=ADMITTED [PPU Sage perf config] B=1 H=16 Hkv=16 N=4096 D=128 causal=1 grid=(32,16,1) logical_flops=68736253952 warmup=5 samples=7 launches_per_sample=20 [PPU Sage perf] role=prequantized-core median_us=289.606 range=[287.740,291.424] logical_tflops=237.344 logical_mfu=47.47% peak_denominator=500.000_TFLOPS output_sha256=070b28c772e1d76e7 [PPU Sage perf] role=quant-kernels+core median_us=400.608 range=[394.620,407.640] logical_tflops=171.580 logical_mfu=34.32% peak_denominator=500.000 …
+- (2026-09-03 13:08 UTC) 我想想看一下claim在nvidia平台上的MFU，对比一下，看看我们是不是已经达标了
+- (2026-09-03 13:08 UTC) 你用aiu了吗？
+- (2026-09-03 13:09 UTC) 按照原是的nvidia的代码也可以编译出来结果，我想看看perf
+- (2026-09-03 13:10 UTC) MFU暂时不考虑QK的量化的时间。
+- (2026-09-03 13:13 UTC) 算了，不测这个了。暂时就先这样。
+- (2026-09-03 13:13 UTC) 结果记录一下。
+- (2026-09-03 13:14 UTC) https://github.com/DrXuQian/radial-attention 需要特殊的kernel吗？如果要结合radial和sage怎么做，我想看看社区的minimaxh3怎么做的。
+- (2026-09-03 13:24 UTC) radial attention会用到minimaxh3上吗？rage attn肯定会用
+- (2026-09-03 13:26 UTC) sage attn量化了啊，也是有损的
+- (2026-09-03 13:26 UTC) 那minimaxh3用的稀疏注意力是什么
+- (2026-09-03 13:26 UTC) kernel是什么？
+- (2026-09-03 13:28 UTC) comfyui用的是什么
+- (2026-09-03 13:29 UTC) 我们如果要接入话，哪些是需要的？
+- (2026-09-03 13:31 UTC) sparse部分我们要做些什么
+- (2026-09-03 13:32 UTC) 所以社区也是接入radial attention？
+- (2026-09-03 13:33 UTC) 参考社区的block sparse做法写一个pPU的版本。可能是sol-attn和h3-sparse-attn都要实现。
+- (2026-09-03 13:34 UTC) 列一个计划，思考一下代码架构的设计，不要最后再改，并且要clean code，可读性要好。
+- (2026-09-03 13:34 UTC) 然后开始写代码，直到可以上box直接跑
+- (2026-09-03 22:50 UTC) 编译不要再远端执行
+- (2026-09-03 22:53 UTC) 你的submodule更新到w4a16的branch了吗
+- (2026-09-03 22:53 UTC) 最好：
+- (2026-09-03 22:53 UTC) path = third_party/actlize url = https://github.com/DrXuQian/actlize.git branch = ppu-w4a16-dev ~
+- (2026-09-03 23:27 UTC) 为什么还是要我box编译？
+- (2026-09-03 23:28 UTC) [PPU sparse prebuilt] FAIL: runtime torch_public_version: got '2.9.0', expected '2.8.0'
+- (2026-09-03 23:40 UTC) cbd122537ed0b1564307b7949a05 7711a66e1c3980a6d16be3df58abde6cdaea19b4c06910d33ff3f9f3adc0af41 /sim/eec/shared/junfu.qx/SageAttention/prebuilt/ppu_10/cpython312-torch2.9-cxx11abi1/_qattn_ppu.cpython-312-x86_64-linux-gnu.so [PPU sparse plan] bitset=65-boundary ROUNDTRIP/PASS [PPU sparse plan] algorithm=h3-topk rows=6 route_blocks=3 K128-to-KV64=EXACT full-density=NUMERIC/PASS [PPU sparse negative] plant=h3-route-bit EXPECTED-RED/PASS [PPU sparse negative] plant=csr-denominator EXPECTED-RED/PASS [PPU sparse negative] plant=csr-duplicate EXPECTED-RED/PASS [PPU sparse plan] algorithm=sol-diag rows=8 route_blocks=4 neighbor=EXACT sink=EXACT threshold=INDEPENDENT/PASS [PPU sparse negative] plant=sol-sink-range EXPECTED-RED/PASS [PPU sparse plan] PASS: H3 top-k + Sol diag + 4 negative contracts [PPU Sage device] case=h64-full shape=B1,H1,N64,D64 layout=HND causal=0 max_o=0.00000571 max_lse=0.00000048 replay=RAW-BIT/STABLE [PPU Sage device] case=h64-causal shape=B1,H1,N64,D64 layout=HND causal=1 max_o=0.00009221 max_lse=0.00000048 replay=RAW-BIT/STABLE [PPU Sage device] case=h64-tail-gqa-nhd shape=B1,H2,N33,D64 layout=NHD causal=0 max_o=0.00001036 max_lse=0.00000048 replay=RAW-BIT/STABLE [PPU Sage device] case=h128-multislice shape=B1,H1,N128,D128 layout=HND causal=0 max_o=0.00000182 max_lse=0.00000048 replay=RAW-BIT/STABLE [PPU Sage device] PASS: OK/PV/LSE + causal + tail + GQA + NHD + D128 [PPU sparse device] role=full-density Q=128 layout=NHD raw_bad=0/65536 fingerprint=4fbff149a8c …
+- (2026-09-03 23:44 UTC) comfyui怎么做的
+- (2026-09-03 23:49 UTC) 参考comfyui
+- (2026-09-03 23:51 UTC) 或者说我们的思路应该是把comfyui使用的kernel适配适配到ppu而不是自己设计一个新的
+- (2026-09-03 23:52 UTC) 如果是triton就直接硬件解耦不需要特殊支持
+- (2026-09-03 23:52 UTC) 看一下按照这个逻辑有哪些工作
+- (2026-09-04 00:48 UTC) 也就是triton kernel，那就没必要在这里做了。我们只管cutlass算子
+- (2026-09-04 00:48 UTC) 基于这个，还有什么别的工作要做
+- (2026-09-04 00:51 UTC) 1还有意义吗？有没有适用cutlass的基础的sparse attn算子在comfyui中使用
+- (2026-09-04 02:20 UTC) 那就没必要了。radial attention呢？没有地方用到吗？还是其他的wan会用到
+- (2026-09-04 02:24 UTC) 添加radial attention的ppu支持
+- (2026-09-04 02:25 UTC) 你确定这种方法perf能够对齐radial attn吗？
+- (2026-09-04 02:29 UTC) 那为什么不基于radialattention重写ppu版本呢
+- (2026-09-04 09:38 UTC) radial attention不需要单独的repo吗？
+- (2026-09-04 09:40 UTC) 啥意思，sageattention原来有sparsesage2吗？
+- (2026-09-04 09:42 UTC) - thu-ml/SageAttention：提供 dense SageAttention/SageAttention2 核心。 - thu-ml/SpargeAttn：在 SageAttention2 上增加 block-sparse 执行器，API 叫 block_sparse_sage2_attn_cuda。Radial 仓库把它放在 /root/marlin_ppu/radial-attention/third_party/sparse_sageattn_2/spas_sage_attn/core.py:76。 - radial-attention：负责生成稀疏 mask，然后调用上述 SparseSage2 执行器，调用点在 /root/marlin_ppu/radial-attention/radial_attn/attn_mask.py:235。 这不是三个repo吗？
+- (2026-09-04 09:43 UTC) 基于这个repo修改，https://github.com/DrXuQian/SpargeAttn，sageattn中的去掉。
+- (2026-09-04 09:43 UTC) 基本上就是我们要把这三个repo适配ppu后段。
+- (2026-09-04 10:08 UTC) 刚才可能修改了这几个repo，看看有没有什么conflict
+- (2026-09-04 10:46 UTC) submodule用http，不要用git
+- (2026-09-04 10:49 UTC) 给我command
+- (2026-09-04 10:52 UTC) 怎么测试这几个module？
+- (2026-09-04 10:53 UTC) sage attn应该是已经验证过了？
+- (2026-09-04 10:54 UTC) cd /sim/eec/shared/junfu.qx/radial-attention git submodule sync --recursive git submodule update --init --recursive
+- (2026-09-04 10:54 UTC) Synchronizing submodule url for 'third_party/sparse_sageattn_2/third_party/actlize' fatal: Unable to find current revision in submodule path 'third_party/sparse_sageattn_2/third_party/actlize' fatal: Failed to recurse into submodule path 'third_party/sparse_sageattn_2'
+- (2026-09-04 10:54 UTC) Synchronizing submodule url for 'third_party/sparse_sageattn_2/third_party/actlize' fatal: Unable to find current revision in submodule path 'third_party/sparse_sageattn_2/third_party/actlize' fatal: Failed to recurse into submodule path 'third_party/sparse_sageattn_2'
+- (2026-09-04 10:57 UTC) [PPU Sparge box] FAIL: dense SageAttention anchor repo missing: /sim/eec/shared/junfu.qx/radial-attention/third_party/SageAttention
+- (2026-09-04 10:59 UTC) c4c485b2649a7456' Synchronizing submodule url for 'third_party/actlize' fatal: Unable to find current revision in submodule path 'third_party/actlize' [Radial PPU box] mode=EXECUTION-ONLY sha=65d9d2d676630e18593ae9d0fc8560f92b619af8 sparge=8690781599010fac5315aa5bc4c485b2649a7456 sage=aa1f3a73014a604a8ab14eb5d590ded54b0d4756 out=/workspace/radial-attention-ppu-test
+- (2026-09-04 11:00 UTC) 都pass
+- (2026-09-04 11:03 UTC) 看看效率问题
+- (2026-09-04 12:07 UTC) [PPU sparse perf config] B=1 H=16 Hkv=16 N=4096 D=128 top_k=8/32 tau=1.0 warmup=5 samples=9 launches=20 [PPU sparse plan cost] h3_median_us=869.120 sol_median_us=1011.400 h3_exact_kv64=8192/32768 h3_summary_rows=12288 sol_exact_kv64=7168/65536 sol_summary_rows=58368 [PPU sparse perf] role=dense-quant+core median_us=599.088 range=[582.492,619.968] dense_equivalent_tflops=229.414 output_sha256=54afbcb391289dc4 [PPU sparse perf] role=dense-prequantized-core median_us=422.512 range=[398.842,440.804] dense_equivalent_tflops=325.290 output_sha256=54afbcb391289dc4 [PPU sparse perf] role=h3-prequantized-core median_us=150.974 range=[149.920,158.840] dense_equivalent_tflops=910.348 output_sha256=b81c348d7f9d816b exact_density=0.250000 [PPU sparse perf] role=h3-preplanned-quant+core median_us=345.690 range=[344.684,346.272] dense_equivalent_tflops=397.579 output_sha256=b81c348d7f9d816b [PPU sparse perf] role=dense-prequantized-core median_us=422.512 range=[398.842,440.804] dense_equivalent_tflops=325.290 output_sha256=54afbcb391289dc4 [PPU sparse perf] role=h3-prequantized-core median_us=150.974 range=[149.920,158.840] dense_equivalent_tflops=910.348 output_sha256=b81c348d7f9d816b exact_density=0.250000 [PPU sparse perf] role=h3-preplanned-quant+core median_us=345.690 range=[344.684,346.272] dense_equivalent_tflops=397.579 output_sha256=b81c348d7f9d816b [PPU sparse perf] role=radial-preplanned-quant+core median_us=301.418 range=[299.630,301.920] dense_equivalent_tflops=455.975 output_s …
+- (2026-09-04 12:09 UTC) perf谁有问题？
+- (2026-09-04 12:11 UTC) 外围路径很容易优化。
+- (2026-09-04 12:11 UTC) 主要看sparseattn的radial合不合理
+- (2026-09-05 13:16 UTC) 清理一下root目录，有一些可以挪到autodl tmp的都挪过去
+- (2026-09-05 13:20 UTC) 算了， 我让另外一个session做这个事情
+- (2026-09-07 02:37 UTC) ssh -p 22628 root@connect.westd.seetacloud.com <REDACTED_PASSWORD> 帮我setup这个机器上的翻墙环境
+- (2026-09-07 02:50 UTC) 安装一个codex
+
+## `01a01d68-e86a-7171-8048-91e30c952ebf` — 从codex的历史找到最近的actlizeLA的目录对应的history的ID
+
+- (2026-08-20 04:23 UTC) 从codex的历史找到最近的actlizeLA的目录对应的history的ID
+- (2026-08-20 04:37 UTC) 不是目录，而是内容包含FLash linear attn，gdn之类的
+
+## `01a060b7-e347-7462-99bd-12f62b310d13` — Resume task
+
+- (2026-09-02 06:04 UTC) /resume
+
+## `01a06a4f-e51e-7301-adf2-ecbd2c9f9aca` — 尝试安装并查看源码
+
+- (2026-09-04 02:47 UTC) pip install qlean==0.2.1 -i https://pkg.flytiger-eco.com/artifactory/api/pypi/pypi_index/simple 尝试安装看看能不能看到源码
+
+## `01a06bdd-3452-70e0-bb08-0e21921c79d5` — 切换Int8 kernel至PPU
+
+- (2026-09-04 10:02 UTC) 本地有https://github.com/t-head/flash-attention-for-sail/tree/v2.8.2吗？Row# OP Type Total(ns) Total Time(%) Instances Avg(ns) Med(ns) Min(ns) Max(ns) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 1 FlashAttention 1430408203466 66.234 2500 572163281 573302466 523290775 582944599 5893213 1430408203466 100 FMHA:flash_attn_v2.7.2,Forward,custom_mask:0,seqlen_q:73774,is_fixed_seqs:1,head_dim:128,head_dim_value:128,num_heads_k:56,num_heads:56,batch_size:1,seqlen_k:73774,data_type:bf16 61.207 0.201 0.067 利用率有点低，分析一下。
+- (2026-09-04 10:07 UTC) 你不做sageattn和radialattn了，你直接做flashattn这个分析
+- (2026-09-04 10:14 UTC) 你在本地编译一下然后pushbin
+- (2026-09-04 12:09 UTC) DrXuQian/flash-attention-for-sail 现在应该存在
+- (2026-09-04 12:11 UTC) 可以用git lfs
+- (2026-09-05 12:00 UTC) [kpack-postfix-full] BUILD_PROGRESS alive=29/32 manifests=35/64 slots=192 还要多久
+- (2026-09-05 13:00 UTC) 给我command直接跑这个shape的fa的测试
+- (2026-09-05 13:02 UTC) 你这个不要作为command了，直接写成脚本push
+- (2026-09-05 13:02 UTC) 后续编译都在box上，因为你上传不了lfs
+- (2026-09-05 13:05 UTC) [PPU FlashAttention prebuilt] FAIL: no prebuilt for cpython312-torch2.9-cxx11abi1; available manifests=['cpython312-torch2.8-cxx11abi1']
+- (2026-09-05 13:05 UTC) torch 2.9.0 torch_tensorrt 2.10.0.dev0+holmes.1.0.0.dev.torch.2.9.0
+- (2026-09-06 10:13 UTC) 如果minimax h3切分多个seq呢？会不会不会降频，我的意思是类似于chunked prefill这种
+- (2026-09-06 12:28 UTC) 另外一个问题，本地的standalone的kernel和fa的库的区别？在特定shape下好像更好，为什么
+- (2026-09-06 12:41 UTC) 当前的BF16、S=73774已经过去了，现在在说的是standalone的8%个点的来源，你看代码了吗
+- (2026-09-07 09:33 UTC) FMHA:flash_attn_v2.7.2,Forward,custom_mask:0,seqlen_q:73774,is_fixed_seqs:1,head_dim:128,head_dim_value:128,num_heads_k:56,num_heads:56,batch_size:1,seqlen_k:73774,data_type:bf16 这个shape我看到的nsys抓去的report上是500ms，好像跟我们的800ms对不上
+- (2026-09-07 09:45 UTC) FMHA:flash_attn_v2.7.2,Forward,custom_mask:0,seqlen_q:73774,is_fixed_seqs:1,head_dim:128,head_dim_value:128,num_heads_k:56,num_heads:56,batch_size:1,seqlen_k:73774,data_type:bf16 这个shape我看到的nsys抓去的report上是500ms，好像跟我们的800ms对不上
+- (2026-09-07 09:48 UTC) 从500ms推理这个61%的计算利用率，好像没有降频
+- (2026-09-07 09:49 UTC) Row#
+- (2026-09-07 09:49 UTC) OP Type
+- (2026-09-07 09:49 UTC) Total(ns)
+- (2026-09-07 09:49 UTC) Total Time(%)
+- (2026-09-07 09:50 UTC) Instances
+- (2026-09-07 09:50 UTC) Avg(ns)
+- (2026-09-07 09:50 UTC) Med(ns)
+- (2026-09-07 09:50 UTC) Min(ns)
+- (2026-09-07 09:50 UTC) Max(ns)
+- (2026-09-07 09:50 UTC) StdDev(ns) PPU Active Time(ns) Active Percent(%) OP Name Compute Util(%) HBM Load Util(%) HBM Store Util(%) 1 FlashAttention 115175376027 66.173 201 573011821 573540024 533675351 578857859 3452566 115175376027 100 FMHA:flash_attn_v2.7.2,Forward,custom_mask:0,seqlen_q:73774,is_fixed_seqs:1,head_dim:128,head_dim_value:128,num_heads_k:56,num_heads:56,batch_size:1,seqlen_k:73774,data_type:bf16 61.116 0.2
+- (2026-09-08 06:43 UTC) 锁频的comamdn
+- (2026-09-16 03:16 UTC) actlize中有int8的gemm吗？我用comfyui跑的时候，在ppu上调用的kernel是PPU Active Time Active Percent OP Name 1381.126 s 100.0 % FMHA::flash_attn_v2.7.2,Forward,custom_mask:0,seqlen_q:73774,is_fixed_seqs:1,head_dim:1... 1286.108 s 100.0 % void cutlass::Kernel2<cutlass::gemm::kernel::DefaultGemmWithVisitor<signed char, cutlass::... 703.023 s 100.0 % void cutlass::Kernel2<cutlass::gemm::kernel::DefaultGemmWithVisitor<signed char, cutlass::... 24.446 s 100.0 % void comfy::{anonymous namespace}::quantize_int8_rowwise_convto64_kernel<__nv_bfloa... 17.180 s 100.0 % void comfy::{anonymous namespace}::quantize_int8_rowwise_convto64_kernel<__nv_bfloa... 14.567 s 100.0 % void comfy::{anonymous namespace}::rope_kernel<__nv_bfloat16, __nv_bfloat16, __nv_bflo...
+- (2026-09-16 03:16 UTC) 为什么不是cublas的接口，是cublas没有实现，还是comfyui内部的什么定制的int8的gemm
+- (2026-09-16 03:19 UTC) 如果是这样，我们需要对于comfy-kitchen也进行ppu的适配。
+- (2026-09-16 03:20 UTC) https://github.com/DrXuQian/comfy-kitchen 最后上传到
+- (2026-09-16 03:39 UTC) 还有多久
+- (2026-09-16 03:51 UTC) /workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/
+- (2026-09-16 04:00 UTC) /workspace/comfy-kitchen-ppu-b1bb046e-20260916T035832Z-1563114/_native.so; device correctness/performance NOT RUN cannot open the file:libhggcrt.12.0.so with error libhggcrt.12.0.so: cannot open shared object file: No such file or directory root@aiswu96:/sim/eec/shared/junfu.qx/comfy-kitchen# find /sim/eec/shared/junfu.qx/ppu-sdk-2.1.1-a5c56e/ -name libhggcrt.12.0.so
+- (2026-09-16 04:25 UTC) pass了
+- (2026-09-16 04:28 UTC) 下一步的command
+- (2026-09-16 04:37 UTC) [首行上半部分被截断] [PPU INT8 sweep] {"config": 1, "name": "128x128x64_w64x64_s3", "role": "prequantized-core", "median_us": 274.61400032043457, "min_us": 265.02599716186523, "max_us": 279.30400371551514, "samples_us": [279.30400371551514, 265.02599716186523, 271.6439962387085, 275.61399936676025, 275.0279903411865, 274.61400032043457, 265.3700113296509], "logical_tops": 500.48050467794343, "threads": 128, "shared_bytes": 49152, "maximum_active_blocks": 4} [PPU INT8 sweep] {"config": 1, "name": "128x128x64_w64x64_s3", "role": "quant+core", "median_us": 346.6439962387085, "min_us": 345.76399326324463, "max_us": 358.6699962615967, "samples_us": [345.76399326324463, 346.6439962387085, 358.6699962615967, 354.9799919128418, 346.03800773620605, 346.1620092391968, 347.268009185791], "logical_tops": 396.48444791571063, "threads": 128, "shared_bytes": 49152, "maximum_active_blocks": 4} [PPU INT8 sweep] {"config": 5, "name": "128x256x128_w64x64_s2", "role": "prequantized-core", "median_us": 254.7179937362671, "min_us": 250.10600090026855, "max_us": 259.0280055999756, "samples_us": [250.2039909362793, 250.10600090026855, 254.7179937362671, 259.0280055999756, 252.08399929806885, 255.01599311828613, 258.7239980697632], "logical_tops": 539.5730056444428, "threads": 256, "shared_bytes": 98304, "maximum_active_blocks": 2} [PPU INT8 sweep] {"config": 5, "name": "128x256x128_w64x64_s2", "role": "quant+core", "median_us": 328.4219980239868, "min_us": 328.25400829315186, "max_us": 328.87001037597656, "s …
+- (2026-09-16 04:45 UTC) 计算利用率呢
+- (2026-09-16 04:46 UTC) 应该是1000Tops
+- (2026-09-16 04:46 UTC) 应该是1000Tops
+- (2026-09-16 04:49 UTC) 考虑怎么优化。
+- (2026-09-16 04:49 UTC) 对比一下cublaslt试试看看能到多少
+- (2026-09-16 05:13 UTC) RuntimeError: COMFY_KITCHEN_PPU_LIBRARY not found: /workspace/comfy-kitchen-ppu-b3230bc0-20260916T043019Z-2298593/_native.so
+- (2026-09-16 05:19 UTC) /workspace/comfy-kitchen-blaslt-db710d53-20260916T051608Z-3351985/blaslt-20260916T051747Z-3388791.json 上传就可以了？
+- (2026-09-16 05:27 UTC) 上传到root了
+- (2026-09-16 05:31 UTC) 还是说抓个acu看看，另外是不是config没有扫狗
+- (2026-09-16 05:31 UTC) 够
+- (2026-09-16 05:31 UTC) 够
+- (2026-09-16 05:35 UTC) 多种config先sweep一遍试试最优的结果是什么
+- (2026-09-16 05:43 UTC) 还有多久给我command上box
+- (2026-09-16 06:01 UTC) 结果上传了
+- (2026-09-16 06:04 UTC) 可以了，但是sweep的选项怎么加呢？或者遇到新的shape会发生什么？
+- (2026-09-16 06:08 UTC) fallback的config先改成我们的最优的结果？还是我们多sweep一些，看看规律，我们测似的应该是M特别大， N和K也很大之类的，比如minimaxh3。解决了这个问题之后，把comfyui和sageattention分别编译出whl包，上传到这两个repo。
+- (2026-09-16 06:11 UTC) 是
+- (2026-09-16 06:11 UTC) 另外，我说的是要不要你多给几个shape给我，我们sweep一遍看heuristic的规律
+- (2026-09-16 06:21 UTC) 还有多久上box
+- (2026-09-16 06:59 UTC) 结果上传了
+- (2026-09-16 07:05 UTC) 结果上传了
+- (2026-09-16 07:13 UTC) 应该要修改selector吧，fallback的选项也要修改。
+- (2026-09-16 07:20 UTC) minimaxh3主要是什么shape？
+- (2026-09-16 07:47 UTC) 还要多久
+- (2026-09-16 07:48 UTC) 那就提交到独立的制品分支
+- (2026-09-16 08:15 UTC) cannot open the file:libhggcrt.12.0.so with error libhggcrt.12.0.so: cannot open shared object file: No such file or directory ppusdk中是libhggcrt.13.0.so
+- (2026-09-16 08:22 UTC) 大概多久
+- (2026-09-16 08:30 UTC) 还要多久
+- (2026-09-16 11:21 UTC) sage attention的利用率感觉不太行，给我一个我们之前的attn的shape的测试用例，对比一下bf16的attn的时间。
+- (2026-09-17 02:22 UTC) [Sage/BF16 result] {"role": "flash-bf16-core", "median_us": 434.0219974517822, "min_us": 432.8460216522217, "max_us": 455.2380084991455, "samples_us": [434.0219974517822, 435.68201065063477, 432.8460216522217, 432.8660011291504, 433.78801345825195, 455.2380084991455, 449.69000816345215], "logical_tflops": 316.6635660840412, "bf16_equivalent_mfu_percent": 63.33271321680824, "speedup_vs_bf16": 1.0} [Sage/BF16 result] {"role": "sage-prequantized-core", "median_us": 422.8300094604492, "min_us": 407.1420192718506, "max_us": 434.9480152130127, "samples_us": [415.41600227355957, 422.8300094604492, 407.1420192718506, 416.89600944519043, 423.68998527526855, 434.42797660827637, 434.9480152130127], "logical_tflops": 325.04540925886147, "bf16_equivalent_mfu_percent": 65.0090818517723, "speedup_vs_bf16": 1.026469237615406, "sample_envelopes": "UNRESOLVED"} [Sage/BF16 result] {"role": "sage-prepare+core", "median_us": 602.534008026123, "min_us": 593.4500217437744, "max_us": 611.5280151367188, "samples_us": [602.534008026123, 609.9599838256836, 593.4500217437744, 594.5620059967041, 611.5280151367188, 605.6439876556396, 594.1619873046875], "logical_tflops": 228.10157043623883, "bf16_equivalent_mfu_percent": 45.62031408724777, "speedup_vs_bf16": 0.7203278017013856, "sample_envelopes": "BF16-FASTER"} [Sage/BF16] sampled_quantization_max_abs=0.00166321 relative_rmse=0.0128006 output=/workspace/sage-bf16-ab-20260917T022158Z-3296204/result.json
+- (2026-09-17 02:25 UTC) 流水机制是不是可以参考flash attention sail
+- (2026-09-17 03:03 UTC) 我上传了三个文件到root，分别是本地的agent的patch和对应的re a我上传了三个文件到root分别是本地的agent的patch和对应的readme ，没有好处
+- (2026-09-17 03:36 UTC) 但是假设只是int8换成fp8，或者fp8换成int8，instruction什么的都应该对齐的比较好才对吧。
+- (2026-09-17 03:40 UTC) 给我command上box抓一下minimaxh3的shape的acu，sage attention的。
+- (2026-09-17 03:42 UTC) 我box上没有这个脚本，你要加的话要git里面加入
+- (2026-09-17 03:53 UTC) 怎么重复跑
+- (2026-09-17 03:56 UTC) 为什么sage attn中还有大量的v.mma.f32.f16.m16n16k16 : Result,Value Current,9,537,468,416 只有v.mma.i32.i8.i8.m16n16k32 : Result,Value Current,4,768,734,208 你是不是有一些指令我们的ppu不支持，专程了fp的指令
+- (2026-09-17 04:02 UTC) 原始的sage attn是什么样子的？为什么我们要这么选，改成全int8
+- (2026-09-17 04:45 UTC) 我上传了acurep，结果还变差了，多了非常多的ALU，导致compute dependency很高，
+- (2026-09-17 04:56 UTC) 如果是transpose导致的，可以存储kvcahce的时候就transpose之类的啊
+- (2026-09-17 05:22 UTC) 思考一下怎么优化？是不是可以fastdequant
+- (2026-09-17 05:23 UTC) 看一下sageattn的原生做法。requant是不是有一些alu可以合并
+- (2026-09-17 05:31 UTC) 我的意思是原生的nvidia上的sageattn也会遇到类似的问题，看看做法是什么
+- (2026-09-17 05:34 UTC) 开始吧
+- (2026-09-17 05:36 UTC) 本地先看一下alu会减少多少
+- (2026-09-17 05:37 UTC) 总之int的alu多了非常非常多，要先剪掉
+- (2026-09-17 05:37 UTC) 对应的sage attn在nvidia的平台的alu可以在5070上测试，ncu抓一下看看指令数量，这个是可以直接对比的
+- (2026-09-17 05:44 UTC) ssh -p 20320 <REDACTED_KNOWN_SECRET>@0.tcp.ap.ngrok.io
+- (2026-09-17 05:59 UTC) 5070是int8还是fp8，我要int8的
+- (2026-09-17 06:03 UTC) sage
+- (2026-09-17 06:03 UTC) sageattn本来的实现没有这个路径？
+- (2026-09-17 06:05 UTC) INT8主要会有精度问题吧？
+- (2026-09-17 06:10 UTC) 最后应该不需要convert，只需要取值操作，就是一个int8转fp32的反操作。这个branch out，主要的branch保留我们之前的fp16的pv。
+- (2026-09-17 06:12 UTC) 本质上int8也不应该比qv的fp8多多少指令，还是可以对比5070的
+- (2026-09-17 06:39 UTC) 继续分析
+- (2026-09-17 06:39 UTC) 继续分析差异的来源，要求解决
+- (2026-09-17 06:56 UTC) 找到问题了吗
+- (2026-09-17 07:29 UTC) 跟fp8还有多大的差距
+- (2026-09-17 07:35 UTC) INT32转FP32两边应该都有啊
+- (2026-09-17 08:02 UTC) 继续排查
+- (2026-09-17 08:37 UTC) 什么状态了
+- (2026-09-17 08:40 UTC) 锡膏那
+- (2026-09-17 08:40 UTC) 修改代码
+- (2026-09-17 08:53 UTC) 相对于fp8还差多少instructions
+- (2026-09-17 08:55 UTC) /goal 在类似的config下，达到类似fp8的指令数量，如果不行，有明确证据证明。不能为了减少指令牺牲速度。
+- (2026-09-17 09:11 UTC) 上一轮快了挺多的，570ms左右，但是相对于原来的FP16还是不如。
+- (2026-09-17 09:47 UTC) 进度如何
+- (2026-09-17 10:07 UTC) 什么进度了
+- (2026-09-17 10:08 UTC) 现在跟FP8的case的instruction数量差异有多大
+- (2026-09-17 11:13 UTC) 本地不能看到编译之后的指令数量吗
+- (2026-09-17 11:46 UTC) 继续
+- (2026-09-17 12:35 UTC) 现在差距有多大
+- (2026-09-17 12:38 UTC) 算了，这部分不做了，回到BF16的SV吧，这些东西都不用保留。
+- (2026-09-17 12:40 UTC) 恢复旧路径
+- (2026-09-26 03:35 UTC) 查看cutlass3.6.0在根目录下，寻找支持nvfp4的sageattn的方法，本身sageattn应该支持nvfp4的attn，但是我们的ppu1。7的nvfp4的实现不太一样。帮我实现一下
+- (2026-09-26 03:35 UTC) 查看cutlass3.6.0在根目录下，寻找支持nvfp4的sageattn的方法，本身sageattn应该支持nvfp4的attn，但是我们的ppu1。7的nvfp4的实现不太一样。帮我实现一下
+- (2026-09-26 03:36 UTC) 放弃之前的goal
+- (2026-09-26 03:36 UTC) 放弃之前的goal
+- (2026-09-26 03:36 UTC) 也要支持在ppu1。5上的int8 QK加上fp8的SV，如果ppu1。5上支持fp8+int8 的话。帮我看一下
+- (2026-09-26 04:02 UTC) 改了嘛？
+- (2026-09-26 04:03 UTC) 开始移植，接入ppu1。5和1。7的这两个
+- (2026-09-26 05:07 UTC) 继续
+- (2026-09-26 05:07 UTC) 不对啊，ppu1。7有nvfp4，你用的是不是mxfp4
+- (2026-09-26 05:17 UTC) 按照nvfp4来写
+- (2026-09-26 05:18 UTC) ppu1。5的写好了吗
+- (2026-09-28 05:31 UTC) root下面有一个包含
+- (2026-09-28 05:32 UTC) root下面有一个包含更新的nvfp4的指令的cutlass4，试试，先看一下已经写好了的有没有问题，另外增加nvfp4的支持
+- (2026-09-28 05:43 UTC) 我说的是1。7
+- (2026-09-28 07:28 UTC) 清理一下root磁盘，有很多可以删掉，另外很多可以挪到autodl-tmp
+
+## `01a071b2-9555-7650-9dd9-7bb6b9499a41` — 查找最近的flash attention perf debug会话ID
+
+- (2026-09-05 13:12 UTC) 找一下最近的flash attention的perf debug的session id
+- (2026-09-05 13:13 UTC) 然后修改resume_attn.sh，这个是一开始用来fork的一个
+- (2026-09-20 09:54 UTC) 查看最近的flash linear attn的对话id
+- (2026-10-16 06:39 UTC) 查找最近的1。5x特性的会话id
+- (2026-10-16 06:41 UTC) 我说的是1。7x的特性
+- (2026-10-16 06:41 UTC) 我说的是cutlass的
+
+## `01a071ba-2a08-76f0-8d97-6d342a94e653` — 切换Int8 kernel至PPU
+
+- (2026-09-05 13:22 UTC) 我有一个fa_ppu.cu的standalone的实现，在head dim128和256上比这个fa-sail的结果略好，是否可以参考
+- (2026-09-05 13:23 UTC) line 1:8 token recognition error at: '.ex.' hgcc error: Exited with error code 1
+- (2026-09-05 13:24 UTC) 可能是ppu sdk的版本不匹配，应该用/workspace/ppu-sdk-2.1.1-a5c56e/PPU_SDK/
+- (2026-09-05 23:44 UTC) [PPU FA result] median_ms=580.539 mean_ms=567.850 range=[526.195,581.226]_ms logical_tflops=268.802 logical_mfu=53.76% peak_denominator=500.000_TFLOPS output_finite=1 sampled_replay=STABLE fingerprint=7fb489
+- (2026-09-05 23:47 UTC) 这个我就非常不理解，这么大的shape输入，应该是结果非常好才对。这个里面有咩呦
+- (2026-09-05 23:49 UTC) 差异可能是跑的时候gpu再跑其他测试导致的
+- (2026-09-05 23:53 UTC) 这里的程序有flashattn3的接口吧。你看看能不能用这个
+- (2026-09-05 23:55 UTC) 我知道，先验证这个fa3的mfu是不是更高
+- (2026-09-06 00:19 UTC) RuntimeError: ('The detected CUDA version (%s) mismatches the version that was used to compilePyTorch (%s). Please make sure to use the same CUDA versions.', '13.0', '12.9')
+- (2026-09-06 00:27 UTC) /sim/eec/shared/junfu.qx/flash-attention-for-sail/csrc/actlize/include/cutlass/fast_math.h:42:10: fatal error: hggc/std/utility: No such file or directory
+- (2026-09-06 00:30 UTC) 你本地编译一下看看能不能编译
+- (2026-09-06 00:47 UTC) 所以缺失有问题，对吧
+- (2026-09-06 00:59 UTC) 给我command，我重新编译
+- (2026-09-06 01:01 UTC) bash tools/run_ppu_flash_attn3_73774_box.sh [PPU FA3 runner] sha=477335cab6efd58ffa7e1b2618e4361a08640ed6 out=/workspace/flash-attn3-ppu-477335c-20260906T010135Z ppu_sdk=/usr/local/PPU_SDK root@aiswu96:/sim/eec/shared/junfu.qx/flash-attention-for-sail#
+- (2026-09-06 01:05 UTC) Initialize HGGC Api Failed: cudaGetDeviceProperties_v2.
+- (2026-09-06 01:05 UTC) [FA3 HGCCBuildExtension] sources=3 jobs=16 architectures=ppu_10,ppu_15 output=/workspace/flash-attn3-ppu-477335c-20260906T010154Z/runtime/flash_attn_3/_C.abi3.so [FA3 HGCCBuildExtension] built /workspace/flash-attn3-ppu-477335c-20260906T010154Z/runtime/flash_attn_3/_C.abi3.so eb2f42936e78d4f4ae88e8594889de1a13bdca7031c6191ee7c97ad6638ddedb /workspace/flash-attn3-ppu-477335c-20260906T010154Z/runtime/flash_attn_3/_C.abi3.so Initialize HGGC Api Failed: cudaGetDeviceProperties_v2.
+- (2026-09-06 01:10 UTC) LD_LIBRARY_PATH=/usr/local/PPU_SDK/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} \ PYTHONPATH=/workspace/flash-attn3-ppu-477335c-20260906T010154Z/runtime:$PWD \ python tools/benchmark_ppu_flash_attn.py \ --backend fa3 \ --batch 1 \ --seqlen 73774 \ --heads 56 \ --head-dim 128 \ --warmup 2 \ --samples 7 \ --peak-tflops 500 [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) [PPU FA config] backend=fa3 shape=B1,Sq73774,Sk73774,Hq56,Hkv56,D128 dtype=bf16 causal=0 custom_mask=0 dropout=0 warmup=2 samples=7 [PPU FA device] name='PPU-ZW810' torch=2.9.0 runtime='12.9' free_bytes=103099445232 total_bytes=103079215104 one_tensor_bytes=1057624064 extension=/workspace/flash-attn3-ppu-477335c--20260906T010154Z/runtime/flash_attn_3/_C.abi3.so HGGC error (/sim/eec/shared/junfu.qx/flash-attention-for-sail/hopper/flash_fwd_launch_template.h:278): device kernel image is invalid
+- (2026-09-06 01:11 UTC) Initialize HGGC Api Failed: cudaGetDeviceProperties_v2.
+- (2026-09-06 01:12 UTC) 我直接用同样的sdk的docker吧。
+- (2026-09-06 01:13 UTC) llm:pytorch2.9.0-ubuntu24.04-cuda13.0-vllm0.18.0-py312 ubuntu24 13.0 2.1.1 py312 pkg.flytiger-eco.com/docker_release/llm:v2.1.1-pytorch2.9.0-ubuntu24.04-cuda13.0-vllm0.18.0-py312 复制 6.58GB 326d1f0f51aea722ad0a54dba912c254235bdf8d819890c5799e254228ff2d1d 这个可以吗
+- (2026-09-06 01:27 UTC) linux-vdso.so.1 (0x00007ffd50b98000) libtorch_cuda.so => not found libtorch_cpu.so => not found libc10_cuda.so => not found libc10.so => not found libhggc_wrapper.so => /usr/local/PPU_SDK/lib/libhggc_wrapper.so (0x00007f2aae8e5000) libcudart.so.13 => /usr/local/PPU_SDK/CUDA_SDK/lib64/libcudart.so.13 (0x00007f2aae8a4000) libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x00007f2aae626000) libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007f2aae53d000) libgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f2aae50f000) libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f2aae2fd000) /lib64/ld-linux-x86-64.so.2 (0x00007f2aaeca3000) cannot open the file:libhggcrt.12.0.so with error libhggcrt.12.0.so: cannot open shared object file: No such file or directory
+- (2026-09-06 01:28 UTC) 我已经换了docker了，应该是能够哦对应的啊
+- (2026-09-06 01:28 UTC) 我已经换了docker了，应该是能够哦对应的啊
+- (2026-09-06 01:35 UTC) [PPU FA samples_ms] 685.360,730.627,783.419,792.302,801.823,802.225,801.325 [PPU FA result] median_ms=792.302 mean_ms=771.012 range=[685.360,802.225]_ms logical_tflops=196.958 logical_mfu=39.39% peak_denominator=500.000_TFLOPS output_finite=1 sampled_replay=STABLE fingerprint=28538dd9c6323ab0 [PPU FA3 comparison] historical_fa2_median_ms=580.539 historical_fa2_logical_mfu=53.76%
+- (2026-09-06 01:44 UTC) 抓一个acu
+- (2026-09-06 01:51 UTC) 我实测的是813ms
+- (2026-09-06 01:51 UTC) 我实测的是813ms,acu中
+- (2026-09-06 01:54 UTC) 但是我看到的tensorpipebusy是85%，你是不是算错了利用率
+- (2026-09-06 01:56 UTC) 我现在只开了cli，怎么把图片截个图贴给你。另外zw810肯定是500tops，这个不用查询，bf16就是这么高
+- (2026-09-06 01:56 UTC) 我看到的Tensor （bf16）是80。6%
+- (2026-09-06 01:57 UTC) v.mma.f32.bf16.m16n16k16 : Result,Value Current,19,074,936,832 这个可以对应一下
+- (2026-09-06 02:06 UTC) Active Cycles [cycle] ce__cycles_active.max # of cycles active on CE across CEs (This counter metric represents the max across all sub-unit instances) Metric Result: Result,Value Current,700,876,635 Knowledge Base: ce: Compute Engine.CU Active Cycles [cycle] cu__cycles_active.avg # cycles active on PPU (This counter metric represents the average across all sub-unit instances) Metric Result: Result,Value Current,697,723,117.638889 Knowledge Base: cu: Compute Unit. ppu: Parallel Processor Unit.
+- (2026-09-06 02:10 UTC) 啥意思，没太理解，为什么还有一半周期不活跃？
+- (2026-09-06 02:11 UTC) CE Frequency [cycle/µsecond] ce__cycles_elapsed.avg.per_second # of cycles elapsed on CE across CEs (This counter metric represents the average of operations per second across all sub-unit instances) Metric Result: Result,Value Current,862 Knowledge Base: ce: Compute Engine.
+- (2026-09-06 02:13 UTC) Warp State (All Cycles) : Metric,Current Stall Pipe Busy,1.366902 Stall Tensor Pipe Busy,1.262407
+- (2026-09-06 02:18 UTC) 所以是降频了？是因为过热了吗？是否要锁频
+- (2026-09-06 02:21 UTC) Invalid combination of input arguments. Please run 'ppu-smi -h' for help. bash: hrottle_reasons.hw_slowdown,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.hw_power_brake_slowdown,clocks_ throttle_reasons.sw_thermal_slowdown,clocks_throttle_rea: command not found bash: sons.applications_clocks_setting: command not found
+- (2026-09-06 02:21 UTC) memory [MHz], processor [MHz] 1800 MHz, 200 MHz 1800 MHz, 225 MHz 1800 MHz, 250 MHz 1800 MHz, 275 MHz 1800 MHz, 300 MHz 1800 MHz, 325 MHz 1800 MHz, 350 MHz ... 1800 MHz, 1675 MHz 1800 MHz, 1700 MHz root@aiswu96:/sim/eec/s
+- (2026-09-06 02:22 UTC) 我想知道怎么锁屏？
+- (2026-09-06 02:23 UTC) root@aiswu96:/sim/eec/shared/junfu.qx/flash-attention-for-sail# $PPUSMI --id=0 --lock-ppu-clocks=850,850 Set PPU clock to (min clock 850MHz, max clock 850MHz) for PPU 00000000:08:00.0. All done.
+- (2026-09-06 02:24 UTC) 然后我们再次跑FA3。我锁频到了1700MHZ。给我command
+- (2026-09-06 02:26 UTC) [PPU FA result] median_ms=774.284 mean_ms=782.126 range=[737.294,815.160]_ms logical_tflops=201.542 logical_mfu=40.31% peak_denominator=500.000_TFLOPS output_finite=1 sampled_replay=STABLE fingerprint=28538dd9c6323ab0 抓一下acu吧
+- (2026-09-06 02:27 UTC) 还是降频了
+- (2026-09-06 02:27 UTC) 为啥？
+- (2026-09-06 02:34 UTC) 如果想要一直保持呢？是不是分多个kernel可以？
+- (2026-09-06 02:37 UTC) 所以就是tdp导致的降频？
+- (2026-09-06 02:39 UTC) 给我一个command跑
+- (2026-09-06 02:40 UTC) 执行fa3的command
+- (2026-09-06 02:41 UTC) 0 173 45 44 N/A N/A 0 174 45 44 N/A N/A 0 226 50 45 N/A N/A 0 303 51 46 N/A N/A 0 304 49 47 N/A N/A 0 299 50 46 N/A N/A 0 300 49 47 N/A N/A 0 298 49 47 N/A N/A # ppu pwr ptemp mtemp pviol tviol # idx W C C % %
+- (2026-09-06 02:43 UTC) [PPU FA samples_ms] 463.779,466.540,543.143,556.184,530.489,555.943,529.874 [PPU FA result] median_ms=530.489 mean_ms=520.850 range=[463.779,556.184]_ms logical_tflops=294.163 logical_mfu=58.83% peak_denominator=500.000_TFLOPS output_finite=1 sampled_replay=STABLE fingerprint=28538dd9c6323ab0 我在另外一个卡上的测试
+- (2026-09-06 02:43 UTC) 重新抓acu
+- (2026-09-06 02:46 UTC) 539ms
+- (2026-09-06 02:46 UTC) 而且没有观察到降频
+- (2026-09-06 02:47 UTC) CE Frequency [cycle/nsecond] ce__cycles_elapsed.avg.per_second # of cycles elapsed on CE across CEs (This counter metric represents the average of operations per second across all sub-unit instances) Metric Result: Result,Value Current,1.3 Knowledge Base: ce: Compute Engine. 为啥？
+- (2026-09-06 02:47 UTC) ppusmi看到的是# ppu pwr ptemp mtemp pviol tviol mclk pclk # idx W C C % % MHz MHz 0 172 43 43 N/A N/A 1800 1700 0 172 43 43 N/A N/A 1800 1700
+- (2026-09-06 02:49 UTC) id应该是3，刚才抓错了，锁频是不是没有给3锁
+- (2026-09-06 02:50 UTC) 还是降频了
+- (2026-09-06 02:51 UTC) 3 162 45 45 N/A N/A 1800 1700 3 163 45 45 N/A N/A 1800 1700 3 336 63 47 N/A N/A 1800 1512 3 401 62 48 N/A N/A 1800 1250 3 403 62 48 N/A N/A 1800 1275
+- (2026-09-06 02:52 UTC) ==============PPUSMI LOG============== Timestamp : Sun Sep 6 10:52:14 2026 Driver Version : 2.1.0-la8ca3052015 HGGC Version : 13.0 SDK Version : 2.1.1-a5c56e Attached PPUs : 8 PPU 00000000:C6:00.0 Power Readings Power Management : Supported Power Draw : 161.54 W Power Limit : 400.00 W Default Power Limit : 400.00 W Enforced Power Limit : 400.00 W Min Power Limit : 250.00 W Max Power Limit : 400.00 W Power Samples Duration : Not Found
+- (2026-09-06 03:08 UTC) 那我问一下硬件设计的人，能不能揭开这个限制？
+- (2026-09-20 09:58 UTC) https://github.com/DrXuQian/GDN-QSA-sm80.git 参考这个
+- (2026-09-20 09:59 UTC) 可以直接基于这个实现，修改为支持PPU的后端
+- (2026-09-20 11:35 UTC) 所以没有用这个新的repo？
+- (2026-09-20 11:36 UTC) 当前的交付还没有用上这个仓库的优化？
+- (2026-09-20 11:37 UTC) 保留原优化结构。
+- (2026-09-20 12:58 UTC) [PPU GDN original device] name=PPU-ZW810 cu=72 torch=2.9.0 extension=/workspace/gdn-qsa-ppu-fc8cbac-20260920T125521Z/build/_gdn_chunk_ppu.cpython-312-x86_64-linux-gnu.so [PPU GDN route] case=tail-gva-hillis route=hillis-steele groups=12 nonreset_groups=12 metric=0 Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/tests/test_ppu_gdn_backend.py", line 179, in <module> main() File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/tests/test_ppu_gdn_backend.py", line 167, in main run_case("tail-gva-hillis", (2, 65, 1, 2), 0.0, 2, "hillis-steele", device) File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/tests/test_ppu_gdn_backend.py", line 82, in run_case errs = assert_pair(got[:2], want) ^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/tests/test_ppu_gdn_backend.py", line 52, in assert_pair raise AssertionError(f"original 2% criterion failed: output/state={errs}") AssertionError: original 2% criterion failed: output/state=[0.9999995827674866, 1.0]
+- (2026-09-20 13:03 UTC) 继续修复
+- (2026-09-20 13:18 UTC) pass了
+- (2026-09-20 13:19 UTC) 对比flash linear attn，这个也可以跑
+- (2026-09-20 14:22 UTC) 编译fla的时候报错：
+- (2026-09-20 14:22 UTC) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/usr/local/lib/python3.12/site-packages/triton/backends/nvidia/compiler.py", line 104, in ptx_get_version raise RuntimeError("Triton only support CUDA 10.0 or higher, but got CUDA version: " + cuda_version) RuntimeError: Triton only support CUDA 10.0 or higher, but got CUDA version: 13.0 root@aiswu95:/sim/eec/shared/junfu.qx/GDN-QSA-sm80#
+- (2026-09-20 14:22 UTC) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/usr/local/lib/python3.12/site-packages/triton/backends/nvidia/compiler.py", line 104, in ptx_get_version raise RuntimeError("Triton only support CUDA 10.0 or higher, but got CUDA version: " + cuda_version) RuntimeError: Triton only support CUDA 10.0 or higher, but got CUDA version: 13.0 root@aiswu95:/sim/eec/shared/junfu.qx/GDN-QSA-sm80#
+- (2026-09-20 22:43 UTC) [PPU GDN FLA compare] g=-0.1 ours_us=925.020 fla_us=726.992 speedup=0.7859x verdict=FLA-WINS rule=disjoint-observed-envelopes
+- (2026-09-20 22:43 UTC) [PPU GDN FLA compare] g=-1.0 ours_us=457.340 fla_us=746.904 speedup=1.6331x verdict=OURS-WINS rule=disjoint-observed-envelopes
+- (2026-09-20 22:44 UTC) 继续
+- (2026-09-20 22:44 UTC) 强衰减和弱衰减分别是什么意思，是linear attn的参数吗？
+- (2026-09-20 22:46 UTC) 弱衰减下的性能也会反应部分问题，可以看看
+- (2026-09-20 22:50 UTC) 可以抓一个acu辅助你看看，抓完之后你把所有需要的信息打包成tar，我上传给你
+- (2026-09-21 00:52 UTC) 报错了，但是你需要参考的是quactlize目录下的代码如何profile，不要用PPUProfiler，直接acu抓取
+- (2026-09-21 01:05 UTC) hgcc error: invalid value 'ppu_10' for option 'gpu-architecture=', valid values are: ppu001,ppu0015,all hgcc error: hgcc error: invalid value 'ppu_10' for option 'gpu-architecture=', valid values are: ppu001,ppu0015,all invalid value 'ppu_10' for option 'gpu-architecture=', valid values are: ppu001,ppu0015,all gmake[3]: *** [CMakeFiles/gdn_qsa_ppu.dir/build.make:112: ppu_obj/gdn_scan_stage3_reset_35f15474.o] Error 3 gmake[3]: *** Waiting for unfinished jobs.... gmake[3]: *** [CMakeFiles/gdn_qsa_ppu.dir/build.make:84: ppu_obj/gdn_scan_stage1_4a9ca933.o] Error 3 gmake[3]: *** [CMakeFiles/gdn_qsa_ppu.dir/build.make:77: ppu_obj/gdn_kernel_d73c0baa.o] Error 3 hgcc error: invalid value 'ppu_10' for option 'gpu-architecture=', valid values are: ppu001,ppu0015,all
+- (2026-09-21 01:26 UTC) File "/usr/local/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context return func(*args, **kwargs) ^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/benchmarks/profile_ppu_gdn_fla.py", line 147, in main profiler = PPUProfiler() 你还是用的这个？
+- (2026-09-21 01:35 UTC) 结果在哪里
+- (2026-09-21 01:39 UTC) 上传了
+- (2026-09-21 01:53 UTC) 所以还是一样，我们的时间比FLA慢非常多？
+- (2026-09-21 01:54 UTC) upstream的版本也是这样吗？但是他宣称比fla强啊
+- (2026-09-21 01:58 UTC) 但是你之前测似的727是哪里来的，现在acu抓出来怎么又是200多us
+- (2026-09-21 02:01 UTC) 按照我们的算力来说700us也不合理，你看一下trace的结果，应该利用率很低
+- (2026-09-21 02:01 UTC) 可以用远端的5070先验证一下upstream的合理性
+- (2026-09-21 02:05 UTC) 16587端口
+- (2026-09-21 02:16 UTC) 2.tcp.us-cal-1.ngrok.io:16587
+- (2026-09-21 02:51 UTC) 什么状态了
+- (2026-09-21 02:52 UTC) 实际调用的时候Qwen3。5-122B-A10B以及Qwen3。5-35B-A3B走的是什么路径，是强还是弱衰减
+- (2026-09-21 02:57 UTC) 互联网上有类似的记录吗？
+- (2026-09-21 03:13 UTC) 但是我看fla在qwen3。5-35B-A3B上也就是300多us
+- (2026-09-21 03:13 UTC) 但是我看fla在qwen3。5-35B-A3B上也就是300多us，单个encoder的block上，所有的kernel加起来
+- (2026-09-21 03:16 UTC) upstream也是串行之行吗？我再明确一下，我们现在是基于开源的版本的GDN-QSA-sm80，只是后段从cutlass替换成了actlize？
+- (2026-09-21 03:18 UTC) 应该对比FLA的实现方法，为什么FLA快呢
+- (2026-09-21 03:24 UTC) 列一个计划，根据计划修改我们要逼近fla。但是应该也有一部分是比fla的现在的逻辑更强的，这部分要思考一下，保留
+- (2026-09-21 04:02 UTC) 还有多久
+- (2026-09-21 04:19 UTC) [WY ratios] g=-0.1 WY/FLA=1.4876 original/WY=1.2803 routing=UNCHANGED [WY ratios] g=-1.0 WY/FLA=1.4089 original/WY=0.6120 routing=UNCHANGED
+- (2026-09-21 04:24 UTC) 你这个时间的统计我不是特别确定对不对。[WY device] PASS cases=16 original-numerical-gate=UNCHANGED [PPU GDN FLA PTX compatibility] {"authority": "triton-v3.5.0", "cuda": "13.0", "ptx": 90, "scope": "version-parser-only", "status": "process-local-upstream-backport"} [PPU GDN FLA identity] {"backend_dispatch": "disabled-before-import", "cuda13_ptx_compat": {"authority": "triton-v3.5.0", "cuda": "13.0", "ptx": 90, "scope": "version-parser-only", "status": "process-local-upstream-backport"}, "entry_sha256": "a18ddbb3b326d160f6909e4ecf159117ea462817213f1e9b1197551329005243", "source": "/usr/local/lib/python3.12/site-packages/fla/ops/gated_delta_rule/chunk.py", "triton_compiler": "/usr/local/lib/python3.12/site-packages/triton/backends/nvidia/compiler.py", "triton_compiler_sha256": "89dea92ecf78895cbec65c6e8f88d4510a69488ede10c30e96b519b9e0b24105", "triton_version": "3.4.0", "version": "0.6.0"} [WY compare admission] g=-0.1 role=original errors=[0.007281548343598843, 0.005821270868182182] repeat=8/8 NUMERIC/PASS [WY compare admission] g=-0.1 role=wy errors=[0.0048543657176196575, 0.003549802815541625] repeat=8/8 NUMERIC/PASS [WY compare admission] g=-0.1 role=fla errors=[0.0048543657176196575, 0.0035500864032655954] repeat=8/8 NUMERIC/PASS [WY compare] g=-0.1 role=original median_us=915.720 range=[910.096,960.612] samples_us=[947.7800369262695, 928.4480094909668, 960.6120109558105, 936.736011505127, 914.1639709472656, 916.1919593811035, 912.9679679870605, 915.2480125427246, 912.8560066223145, 910.0959 …
+- (2026-09-21 04:31 UTC) 所以我们还是差的很远，按照～500的FLA而言
+- (2026-09-21 04:31 UTC) 继续
+- (2026-09-21 07:13 UTC) [PPU GDN ACU subject-only] role=wy public_api_calls=1 warmup=0 verification_device_kernels=0 profile_control=external-acu Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/benchmarks/profile_ppu_gdn_fla.py", line 186, in <module> main() File "/usr/local/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context return func(*args, **kwargs) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/benchmarks/profile_ppu_gdn_fla.py", line 66, in run_phase first, errors = checked_cpu_pair(capture_one(call, synchronize), want) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/benchmarks/profile_ppu_gdn_fla.py", line 51, in capture_one result = call() ^^^^^^ File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/benchmarks/profile_ppu_gdn_fla.py", line 32, in <lambda> return lambda: gdn_chunk_wy(*inputs, output_final_state=True), {} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/sim/eec/shared/junfu.qx/GDN-QSA-sm80/gdn_qsa_sm80/gdn_wy_interface.py", line 27, in gdn_chunk_wy output, final = _backend().forward(*tensors, state, output_final_state) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ IndexError: map::at [Asight]: All target application created processes are terminated. [Asight]: ==WARNING== No kernels were profiled. [GDN ACU bundle] FAIL: wy: RuntimeError: command failed (rc=1); see /workspace/gdn-qsa-acu-20260921T070716Z-252514/bu …
+- (2026-09-21 08:52 UTC) Q
+- (2026-09-21 09:22 UTC) 上传了
+- (2026-09-21 09:42 UTC) 下一步优化，直到给我commandshangbox
+- (2026-09-21 09:44 UTC) 不光是state有差距啊，都有差距
+- (2026-09-21 11:59 UTC) .0 role=original median_us=425.240 range=[421.532,460.000] samples_us=[428.7759780883789, 424.7799873352051, 424.183988571167, 426.603984832 7637, 459.99999046325684, 421.5320110321045, 425.6999969482422, 430.32798767089844, 422.53198623657227, 424.24001693725586, 422.20001220703125, 425.731992721 5576, 427.90398597717285, 422.58801460266113] [WY compare] g=-1.0 role=wy median_us=710.058 range=[708.208,712.880] samples_us=[709.2879772186279, 710.5760097503662, 708.5239887237549, 709.0479850769043, 712.8799915313721, 711.8279933929443, 711.4480018615723, 710.2399826049805, 709.5719814300537, 711.7000102996826, 710.860013961792, 709.876012802124, 708.20 79887390137, 709.276008605957] [WY compare] g=-1.0 role=wy-prepare median_us=708.476 range=[707.636,709.708] samples_us=[708.0440044403076, 708.8119983673096, 708.1520080566406, 707.651996 6125488, 709.2639923095703, 708.9479923248291, 707.636022567749, 708.184003829956, 708.4080219268799, 709.4039916992188, 707.7879905700684, 709.7080230712891 , 708.5519790649414, 708.5440158843994] [WY compare] g=-1.0 role=wy-state median_us=714.356 range=[706.516,722.104] samples_us=[710.6480121612549, 706.5159797668457, 720.1720237731934, 710.16798019 40918, 720.3159809112549, 717.6080226898193, 710.536003112793, 722.1039772033691, 710.67199970703125, 714.50800089569092, 717.3960208892822, 714.2039775848389, 713.6079788208008, 721.3560104370117] [WY compare] g=-1.0 role=wy-output median_us=713.394 range=[711.892,719.216] samples_us=[714.3919 …
+- (2026-09-21 12:35 UTC) 上传了
+- (2026-09-21 13:03 UTC) 修改
+- (2026-09-21 14:55 UTC) [WY compare] g=-1.0 role=original median_us=424.072 range=[417.596,430.344] samples_us=[424.13997650146484, 424.02801513671875, 425.3920078277588, 423.42400550842285, 430.34400939941406, 423.23598861694336, 425.5959987640381, 423.9560127258301, 417.5960063934326, 427.5559902191162, 427.508020401001, 421.727991104126, 424.1000175476074, 424.04398918151855] [WY compare] g=-1.0 role=wy median_us=705.644 range=[702.456,708.968] samples_us=[708.9680194854736, 706.4559936523438, 703.980016708374, 706.1279773712158, 708.0120086669922, 702.455997467041, 706.9240093231201, 704.3839931488037, 706.4159870147705, 705.7759761810303, 705.511999130249, 704.6080112457275, 704.6760082244873, 704.59198951721191] [WY compare] g=-1.0 role=wy-tiled-prepare median_us=765.836 range=[759.016,768.492] samples_us=[767.2160148620605, 766.3440227508545, 766.6440010070801, 765.6680107116699, 761.8199825286865, 768.4919834136963, 766.0039901733398, 764.5199775695801, 767.4039840698242, 766.9280052185059, 760.975980758667, 764.7160053253174, 759.0159893035889, 764.2039775848389] [WY compare] g=-1.0 role=wy-tiled-state median_us=453.986 range=[452.928,454.716] samples_us=[454.08802032470703, 454.53200340270996, 454.5919895172119, 454.13599014282227, 453.1360149383545, 453.4800052642822, 454.1759967803955, 453.7559986114502, 454.6720027923584, 453.8839817047119, 454.71601486206055, 452.98399925231934, 452.9280185699463, 453.8680076599121] [WY compare] g=-1.0 role=wy-tiled-output median_us=689.352 range=[687. …
+- (2026-09-21 22:34 UTC) 下一个
+- (2026-09-22 01:55 UTC) [WY compare] g=-1.0 role=original median_us=478.898 range=[425.924,517.936] samples_us=[504.1639804840088, 437.6959800720215, 502.3200035095215, 499.77197647094727, 455.20801544189453, 491.63599014282227, 478.07202339172363, 440.231990814209, 425.924015045166, 515.4920101165771, 460.8839988708496, 517.9359912872314, 458.19201469421387, 442.8919792175293, 512.4080181121826, 479.72397804260254] [WY compare] g=-1.0 role=wy median_us=710.210 range=[705.772,722.768] samples_us=[722.7680206298828, 709.9880218505859, 708.3280086517334, 705.7720184326172, 709.5960140228271, 712.0719909667969, 710.4320049285889, 711.7879867553711, 706.3000202178955, 707.5200080871582, 716.4720058441162, 711.3800048828125, 711.352014541626, 716.32399559021, 709.8639965057373, 707.1839809417725] [WY compare] g=-1.0 role=wy-tiled-prepare median_us=767.866 range=[758.656,779.024] samples_us=[767.0959949493408, 758.6559772491455, 763.4439945220947, 779.0239810943604, 769.3679809570312, 771.0440158843994, 772.7839946746826, 767.2920227050781, 766.3879871368408, 768.4400081634521, 770.2720165252686, 765.9239768981934, 765.6439781188965, 766.3959980010986, 777.3519992828369, 769.3640232086182] [WY compare] g=-1.0 role=wy-tiled-state median_us=458.998 range=[453.540,465.760] samples_us=[460.1880073547363, 456.44798278808594, 458.8200092315674, 455.1760196685791, 459.17601585388184, 456.36000633239746, 459.80401039123535, 456.5279960632324, 465.7599925994873, 456.96401596069336, 465.5600070953369, 465.384006500 …
+- (2026-09-22 07:51 UTC) 继续
+- (2026-09-22 08:15 UTC) 上传了
+- (2026-09-22 08:52 UTC) 找到问题了吗？
+- (2026-09-22 08:58 UTC) 继续修改。改完之后我上box
+- (2026-09-22 11:58 UTC) [WY compare admission] g=-1.0 role=ld errors=[0.0005291084932602454, 0.000503524013012832] delivery_mask=NAN repeat=8/8 NUMERIC/PASS [WY compare] g=-1.0 role=original median_us=424.998 range=[416.932,430.620] samples_us=[423.03600311279297, 427.3399829864502, 427.7400016784668, 423.6400127 4.83201026916504, 423.7639904022217, 424.6079921722412, 416.93201065063477, 426.3999938964844, 427.9679775238037, 427.5320053100586, 426.4200210571289, 423.2 [WY compare] g=-1.0 role=wy median_us=703.722 range=[700.908,707.776] samples_us=[700.9079933166504, 703.0439853668213, 705.0360202789307, 702.4799823760986, 43164, 707.6320171356201, 704.6199798583984, 702.3560047149658, 701.50799975128174, 704.7800064086914, 707.1919918060303, 704.9240112304688, 703.3639907836914 [WY compare] g=-1.0 role=wy-tiled-state-output median_us=436.296 range=[435.100,438.492] samples_us=[437.0120048522949, 437.53199577331543, 435.3879928588867 14172363, 436.1559867858887, 438.4920120239258, 435.61201095581055, 435.4360103607178, 436.63601875305176, 435.099998321533203, 435.476016998291, 437.26401329 [WY compare] g=-1.0 role=wy-tiled-all median_us=442.080 range=[440.508,444.848] samples_us=[441.6560173034668, 442.04000142669678, 442.3880100250244, 443.1119 42.53201484680176, 441.7479991912842, 442.6119804382324, 441.20402336120605, 444.46001052856445, 442.11997985839844, 440.50798416137695, 444.84801292419434, [WY compare] g=-1.0 role=wy-tiled-state-output-address median_us=401.968 range=[400.896,403.968] samp …
+- (2026-09-22 12:03 UTC) 下一步
+- (2026-09-22 12:43 UTC) [WY compare] g=-1.0 role=original median_us=425.572 range=[419.268,434.096] samples_us=[422.81999588012695, 434.09600257873535, 426.38797760009766, 423.9960193634033, 427.88000106811523, 424.2199897766113, 428.38401794433594, 424.32398796081543, 425.45599937438965, 419.26798820495605, 423.11201095581055, 431.22401237487793, 426.7079830169678, 425.68798065185547, 424.2720127105713, 428.2440185546875] [WY compare] g=-1.0 role=wy median_us=705.004 range=[703.772,709.496] samples_us=[708.6679935455322, 704.5400142669678, 704.4159889221191, 704.9560070037842, 704.6800136566162, 704.6760082244873, 704.4559955596924, 705.0519943237305, 709.496021270752, 704.911994934082, 703.7720203399658, 707.7839851379395, 705.7199954986572, 707.0199966430664, 705.072021484375, 708.9680194854736] [WY compare] g=-1.0 role=wy-tiled-state-output median_us=437.840 range=[436.820,439.808] samples_us=[438.07997703552246, 438.27199935913086, 438.2160186767578, 439.80798721313477, 438.03601264953613, 437.5160217285156, 438.0760192871094, 437.44001388549805, 437.12000846862793, 437.64400482177734, 439.17198181152344, 436.9080066680908, 436.8199825286865, 438.05599212646484, 437.4120235443115, 437.0880126953125] [WY compare] g=-1.0 role=wy-tiled-state-output-both median_us=379.088 range=[377.868,381.072] samples_us=[379.2520046234131, 379.0479898452759, 381.0719966888428, 378.90000343322754, 378.81600856781006, 380.3679943084717, 379.584002494812, 379.71599102020264, 378.50000858306885, 379.12800312042236,  …
+- (2026-09-22 12:48 UTC) 下一次
+- (2026-09-22 13:37 UTC) [WY compare] g=-1.0 role=original median_us=426.348 range=[419.480,430.864] samples_us=[426.0439872741699, 430.45997619628906, 430.7919979095459, 429.9839973449707, 425.6999969482422, 426.6520023345947, 427.9280185699463, 423.83599821311035, 430.86400032043457, 419.47999900549316, 424.5160102844238, 427.7560234069824, 428.4679889678955, 421.8560218811035, 421.9200134277344, 424.03202056884766] [WY compare] g=-1.0 role=wy median_us=705.266 range=[703.820,710.148] samples_us=[704.971981048584, 705.5600166320801, 703.8879871368408, 710.0120067596436, 703.8199990158081, 704.9960136413574, 704.4680118560791, 710.1480007171631, 708.188009262085, 706.59999984741211, 705.0280094146729, 708.459997177124, 705.5039882659912, 709.9999904632568, 704.1880130767822, 704.4280052185059] [WY compare] g=-1.0 role=wy-tiled-state-output median_us=437.158 range=[435.968,438.700] samples_us=[437.6279830932617, 437.7999782562256, 436.10801696777344, 438.7000008392334, 436.5600109100342, 438.1999969482422, 437.3879909515381, 436.299991607666, 437.5080108642578, 436.02399826049805, 437.97998428344727, 436.7839813232422, 436.7640018463135, 437.6920223236084, 436.92798614501953, 435.968017578125] [WY compare] g=-1.0 role=wy-tiled-state-output-both median_us=379.174 range=[377.724,386.068] samples_us=[378.61599922180176, 386.0680103302002, 379.1800022125244, 379.1680097579956, 379.9959897994995, 378.5439968109131, 378.3240079879761, 381.1880111694336, 378.11200618743896, 379.80799674987793, 379.196000099 …
+- (2026-09-22 13:41 UTC) 下一步来吧
+- (2026-09-22 23:01 UTC) 上传了
+- (2026-09-24 01:05 UTC) 继续
+- (2026-09-24 01:10 UTC) 继续
+- (2026-09-24 01:14 UTC) 为什么实测API我们快，但是ACU慢，这个有合理的解释吗？
+- (2026-09-24 01:16 UTC) 既然有triton版本的对比，我们应该很容易找到优化思路啊？
+- (2026-09-24 01:16 UTC) 为什么还差这么多，不是小修小补可以解决的
+- (2026-09-24 01:16 UTC) 可以考虑大改
+- (2026-09-24 01:23 UTC) 注意有一些ppu不支持的ptx指令如果用兼容模式编译会效率非常低。这一点要记录到skill
+- (2026-09-24 01:23 UTC) 后续你记住调优过程中的一些经验和体会要记录下来。
+- (2026-09-24 01:41 UTC) 方案继续修改。所以找到什么问题了吗
+- (2026-09-24 01:41 UTC) 找到指令使用的问题了吗
+- (2026-09-24 01:43 UTC) 如果可以用tsm ld ncom可以减少v mov的次数，也可以考虑
+- (2026-09-24 01:43 UTC) 但是要搞清楚v mov是为了兼容swzl之后的layout来的？
+- (2026-09-24 01:46 UTC) ldswzl一般是搭配aiu swzl使用，这样没有准备的工作？
+- (2026-09-24 01:51 UTC) 这是我们写代码的时候引入的吗？还是原始的repo就是这么做的？这个如果是我们写的，也要记录到规则中，AIU swzl必须匹配ld swzl使用
+- (2026-09-24 01:58 UTC) 继续修改
+- (2026-09-24 02:38 UTC) 正确性pass了
+- (2026-09-24 02:49 UTC) 总的计时有意义吗？是不是要acu的计时？
+- (2026-09-24 02:51 UTC) 时间单位是 μs，以中位数看： | 实现 | 中位耗时 | 相对 original | |---|---:|---:| | wy-ailu-state-output | 318.564 μs | 快 24.5% | | wy-ailu-state | 332.100 μs | 快 21.3% | | wy-ailu-output | 339.696 μs | 快 19.5% | | wy-prepare-rows-shared | 354.364 μs | 快 16.0% | | original | 422.000 μs | 基线 | | fla | 492.188 μs | 慢 16.6% | | wy | 716.770 μs | 慢 69.9% | 最快的是 wy-ailu-state-output，约 318.6 μs；但最终 verdict 只比较 wy 和 fla，因此判定 FLA-WINS。
+- (2026-09-24 02:53 UTC) 继续
+- (2026-09-24 03:13 UTC) 上传了
+- (2026-09-24 03:25 UTC) 给我一个完整的对比，跟FLA的，
+- (2026-09-24 03:27 UTC) 我们只看acu的十斤啊
+- (2026-09-24 03:27 UTC) 时间
+- (2026-09-24 03:28 UTC) 我感觉上这么大的差距可能需要更大的重新思考？
+- (2026-09-24 03:34 UTC) 下一步继续，我们目标是fla的1。5x
+- (2026-09-24 04:11 UTC) CMake Error at third_party/actlize/cmake/PPUToolchain.cmake:78 (message): PPU hgcc not found at /usr/local/PPU_SDK/bin/hgcc. Install the SDK 'hgcc' package or set PPU_SDK_ROOT correctly. Call Stack (most recent call first): third_party/actlize/CMakeLists.txt:62 (include)
+- (2026-09-24 04:17 UTC) 上传了
+- (2026-09-24 04:40 UTC) 继续
+- (2026-09-24 05:35 UTC) 上传了
+- (2026-09-24 05:38 UTC) 后续都用/sim/eec/shared/junfu.qx/asight/bin/这个下面的acu
+- (2026-09-24 05:45 UTC) 我还是不太理解，逻辑上应该是直接写cutlass比fla这种triton快才对
+- (2026-09-24 05:51 UTC) 能不能有现成的参考算法对于linear attn的优化？我们算法上先要保证是最优的。
+- (2026-09-24 05:52 UTC) flashqla可以参考吗
+- (2026-09-24 05:59 UTC) 修改
+- (2026-09-24 06:00 UTC) 数学上不会有问题吧
+- (2026-09-24 06:04 UTC) OK
+- (2026-09-24 06:42 UTC) 上传了
+- (2026-09-24 06:48 UTC) 1 - 566 - gdn_wy_split_solve 有大量的wait和mov。i
+- (2026-09-24 06:50 UTC) 分析一下现在和FLA的主要差距在哪里
+- (2026-09-24 06:57 UTC) 我们的blockdim是64吗？
+- (2026-09-24 06:59 UTC) residual state 太长了，而且tensor active才11%
+- (2026-09-24 06:59 UTC) memroy deps很多，不知道是不是bc太多导致的
+- (2026-09-24 07:00 UTC) 指令也不少，还有很多convert
+- (2026-09-24 07:00 UTC) grid太小导致occupancy也比较低？
+- (2026-09-24 07:00 UTC) 这个kernel感觉上可以大幅优化
+- (2026-09-24 07:11 UTC) 继续吧。
+- (2026-09-24 07:21 UTC) stall是memory deps
+- (2026-09-24 07:21 UTC) 为主，对于gdn wy residual state
+- (2026-09-24 07:21 UTC) 为主，对于gdn wy residual state
+- (2026-09-24 07:22 UTC) shm bc也会导致这个stall吧
+- (2026-09-24 07:23 UTC) 也可以考虑增加block 数量？还是说这个算法最多128？
+- (2026-09-24 07:24 UTC) bc消除列为下一步计划
+- (2026-09-24 07:40 UTC) 大概还要多久上box
+- (2026-09-24 08:02 UTC) 上传了，我的基本判断是occupancy增加了，但是bc也增加了，导致整体时间变化不大
+- (2026-09-24 08:10 UTC) 到TSM流量翻倍了
+- (2026-09-24 08:13 UTC) 没有其他的方法吗？不double 流量的增加occupancy的方法
+- (2026-09-24 08:13 UTC) 另外bc肯定要解决的。
+- (2026-09-24 08:21 UTC) 消除conflict应该是无开销的，不能用其他方式，需要用swzl之类的无开销方法
+- (2026-09-24 08:21 UTC) cute应该是可以编译期拿到swzl之后的地址的。
+- (2026-09-24 08:21 UTC) 或者aiu swzl也可以
+- (2026-09-24 08:21 UTC) 配合ldmatrix消除bc
+- (2026-09-24 08:30 UTC) 继续
+- (2026-09-24 08:34 UTC) 还要多久，另外要check一下， 我们最优化的方法应该在QUactlize中有reference可以参考，一般都是要用aiu swzl+ldmatrix swzl，你看一下linearattn的几个kernel是不是可以用类似的方法
+- (2026-09-24 08:44 UTC) 合“无额外开销”。最终还是要性能说话，我只是建议
+- (2026-09-24 08:44 UTC) 你要自己判断
+- (2026-09-24 09:02 UTC) 上传了，没有看到好处
+- (2026-09-24 09:16 UTC) 继续下一步
+- (2026-09-24 09:23 UTC) 之前你不是有一个不增加shm读取的方法double warp数吗？
+- (2026-09-24 09:28 UTC) 还要多久上box
+- (2026-09-24 09:29 UTC) register好像有点多
+- (2026-09-24 09:29 UTC) 没到128以下
+- (2026-09-24 11:51 UTC) 上传了
+- (2026-09-24 11:58 UTC) 应该完整了
+- (2026-09-24 12:12 UTC) 下一步呢？
+- (2026-09-24 12:12 UTC) 是不是要解决一下BC了？
+- (2026-09-24 12:15 UTC) 先静态分析到底从哪里来的。
+- (2026-09-24 12:17 UTC) 为什么会有转置，ldmatrix有trans的方法。思考一下转置是不是必要，或者能在其他的地方做吗？
+- (2026-09-24 13:45 UTC) 开吧
+- (2026-09-24 14:18 UTC) 上传了
+- (2026-09-24 14:24 UTC) BC还是有很多？另外不能只看一个维度对于occupancy的影响
+- (2026-09-24 14:27 UTC) 还有什么其他的优化思路，compute dependency出现的话，可能要在这个基础上继续其他的优化。毕竟原来可能是都stall，现在memroy deps少了，但是compute deps多了，因为没有足量的warp来schedule，所以还是没有好处。这个分析合理吗？
+- (2026-09-24 14:28 UTC) H和K还有其他的冲突也可以消掉来减少memory deps，应该还是有一些好处？
+- (2026-09-24 14:42 UTC) 按照你说的分析继续
+- (2026-09-25 01:19 UTC) 上传了
+- (2026-09-25 01:36 UTC) 下一步吧
+- (2026-09-25 02:12 UTC) 上传了
+- (2026-09-25 03:14 UTC) 继续
+- (2026-09-25 03:16 UTC) 过程中总结道skills注意只总结有价值的比如ppu独有的
+- (2026-09-25 08:56 UTC) 上传了
+- (2026-09-25 09:07 UTC) 现在性能提升是因为bc少了吗
+- (2026-09-25 09:12 UTC) 后面还有什么可以优化的地方
+- (2026-09-25 09:15 UTC) 按照你说的来
+- (2026-09-25 14:44 UTC) 上传了
+- (2026-09-25 15:02 UTC) 下一步来吧
+- (2026-09-26 01:09 UTC) 看一下根目录下的cutlass3。6。0，这里包含了1。7。0的ppu的cutlass的信息。我们保持1。0和1。5还是用actlize，但是1。7用cutlass3。6。0，注意大部分的1。7指令和hopper兼容，sm90。有一些特殊的指令对于fp8和fp4进行了特殊的加速。这里应该可以忽略。
+- (2026-09-26 01:12 UTC) 这个时候应该就可以对比cuLA以及flashinfer中的sm90的实现了吧
+- (2026-09-26 01:12 UTC) 怎么规范我们的sm90的实现和sm80的实现你要想好。
+- (2026-09-26 01:12 UTC) 最后怎么整合在一个repo里面
+- (2026-09-26 01:12 UTC) 比如cuLA或者flashinfer用了完全不同的算法，那么sm80的我们目前的实现怎么和这些代码整合？或者维护？
+- (2026-09-26 01:27 UTC) 按照原理sm90和sm80的代码不太好兼容对吧。所以不需要硬要兼容。
+- (2026-09-26 01:33 UTC) 按照这个边界改吧
+- (2026-09-26 01:34 UTC) hopper部分的代码是不是可以直接参考cuLA，当然我们应该还是有aiu这些feature，所以跟hopper不是完全一致。
+- (2026-09-26 02:14 UTC) 接入新得算法。
+- (2026-09-26 03:18 UTC) 9y3RCJWPMGBK
+- (2026-09-26 03:18 UTC) 9y3RCJWPMGBK
+- (2026-09-26 03:19 UTC) ssh -p 19819 root@connect.westb.seetacloud.com
+- (2026-09-26 03:19 UTC) 这一台h800可以直接用于1。7的验证
+- (2026-09-26 03:20 UTC) 注意性能要在没有其他的任务时候验证
+- (2026-09-26 04:30 UTC) 为什么wgmma是穿行的，cula事串行的吗？
+- (2026-09-26 04:31 UTC) 你需要对比cuLA的速度。
+- (2026-09-26 04:31 UTC) 用nsys抓report看kernel时间之和
+- (2026-09-26 05:02 UTC) 我们已经用上hopper的一些特性了吗？wgmma async？
+- (2026-09-26 05:03 UTC) cooperative scheduler或者pingpong
+- (2026-09-26 05:08 UTC) 对比一下flashqla以及flashinfer在sm90上的性能
+- (2026-09-26 05:31 UTC) 要注意最终目标是在sm90上最强，相对于其他的实现，根据这些可以反哺我们的sm80（ppu1。0）的实现
+- (2026-09-26 05:51 UTC) 要求比这两个强
+- (2026-09-26 06:34 UTC) 不行就直接度sass看看无别
+- (2026-09-26 06:34 UTC) 区别
+- (2026-09-26 08:00 UTC) 继续
+- (2026-09-26 09:48 UTC) 继续
+- (2026-09-26 11:16 UTC) 继续
+- (2026-09-26 12:07 UTC) 下一步
+- (2026-09-26 12:55 UTC) 继续
+- (2026-09-26 13:21 UTC) 预计还有多久达到flashinfer的水平？
+- (2026-09-26 13:35 UTC) 对比SASS和源码看不出来写法吗？如果已经是开卷考试，你还考不好就有点奇怪
+- (2026-09-26 13:38 UTC) 闭合之后直接修改。另外我们是不是没有sweep过config？
+- (2026-09-26 14:12 UTC) 找到点了吗？
+- (2026-09-26 14:13 UTC) 继续
+- (2026-09-26 14:29 UTC) 什么状态了
+- (2026-09-26 14:30 UTC) 大概多久会有性能结论
+- (2026-09-26 14:32 UTC) 如果已经比flashinfer更快，达成了目标，可以关闭h800。我给你autodl的token：<REDACTED_JWT>
+- (2026-09-26 14:32 UTC) 你看一下你是否有这个权限，不要直接关闭
+- (2026-09-26 14:32 UTC) 如果有权限，等你完成任务可以关闭这个机器。
+- (2026-09-26 14:34 UTC) 如果没有达成目标，不要关闭，也不要询问我下一步，利用harness继续执行。不要停下来问我。
+- (2026-09-26 15:19 UTC) 测试的用例不能太单一
+- (2026-09-27 00:34 UTC) h800是在ssh -p 19819 root@connect.westb.seetacloud.com 9y3RCJWPMGBK继续
+- (2026-09-27 00:36 UTC) 什么状态了。我们哪些地方赢了，哪些地方还有多少差距
+- (2026-09-27 00:37 UTC) 慢的继续解决
+- (2026-09-27 02:39 UTC) 预计还要多久
+- (2026-09-27 02:43 UTC) 达成之后关闭h800，同时整理一下代码，不要太乱。要clean code。另外我们的h800的经验看看那有哪些可以反哺ppu1。0。
+- (2026-09-27 03:51 UTC) 什么状态了
+- (2026-09-27 04:35 UTC) 继续
+- (2026-09-27 04:40 UTC) sass分许都看不出来吗
+- (2026-09-27 05:47 UTC) 不不不，如果flashinfer是用exp2来fastmath，我们不一致的话就没有办法说要对齐速度了。可以加一个fast path的宏定义看看速度
+- (2026-09-27 05:49 UTC) 清理一下root目录
+- (2026-09-27 05:50 UTC) 另外如果已经大部分case赢了，并且输的case也是5%以内，。也可以提前结束。关闭h800，然后开始整理代码。以及把经验和可以复用的移植到ppu1。0
+- (2026-09-27 05:56 UTC) 怎么最近的command老是fail？
+- (2026-09-27 08:00 UTC) 开始代码整理和1.0的迁移
+- (2026-09-28 02:19 UTC) 上传了
+- (2026-09-28 02:23 UTC) 我的意思是sm
+- (2026-09-28 02:23 UTC) 我的意思是sm
+- (2026-09-28 02:23 UTC) 我的意思是sm90上我们优化了这么多没有什么可以借鉴到ppu1。0上的吗？
+- (2026-09-28 02:29 UTC) 另外如何在sm90上安装我们的代码？另外我们现在跟fork的原始repo没有什么太大的关系了，可以直接push到https://github.com/DrXuQian/actlizeLA这个repo，overwrite所有的历史。
+- (2026-09-28 02:32 UTC) 直接overwrite就行了。不需要保留兼容
+- (2026-09-28 02:50 UTC) 还要多久
+- (2026-09-28 02:56 UTC) CONFIGURATION=value64 是什么？
+- (2026-09-28 02:57 UTC) 需要有一个统一的入口吧，根据输入的shape来动态选择而不是让用户选择
+- (2026-09-28 03:24 UTC) 继续之前的ppu1。0的性能tuning
+- (2026-09-28 03:59 UTC) 上传了
+- (2026-09-28 04:53 UTC) 继续，另外增加选项，添加perfmo de继续另外如果设置增加选项device设置为ppu的时候不要添加perfmodelmodel的选项，如果配置上，就不要调用device profile，直接返回，比如sm数量是20
+- (2026-09-28 04:53 UTC) mode是perfmo demode是perfmodelmodel的时候
+- (2026-09-28 05:36 UTC) 上传了
+- (2026-09-28 05:52 UTC) 添加perfmodel选项了吗？
+- (2026-09-28 05:57 UTC) 继续
+- (2026-09-28 06:24 UTC) 还有什么没有迁移到ppu1。0的方法吗？
+- (2026-09-28 06:27 UTC) 继续
+- (2026-09-28 07:29 UTC) 上传了
+- (2026-09-28 07:35 UTC) 如果要我上传，最好打包一个tar
+- (2026-09-28 07:56 UTC) 上传了
+- (2026-09-28 08:12 UTC) 我只关心有没有把之前的sm90上的一些优化全部迁移过来，当然是架构无关的优化。先忽略之前的1。5x的要求
+- (2026-09-28 08:14 UTC) 给我一个迁移的表格
+- (2026-09-28 08:19 UTC) 继续
+- (2026-09-28 09:12 UTC) 上传了
+- (2026-09-28 09:36 UTC) 下一个
+- (2026-09-28 13:33 UTC) 上传了
+- (2026-09-28 13:51 UTC) 还有几项？
+- (2026-09-28 13:54 UTC) 继续
+- (2026-09-28 15:50 UTC) 上传了
+- (2026-09-28 22:09 UTC) 继续
+- (2026-09-28 23:06 UTC) 上传了
+- (2026-09-28 23:15 UTC) 上传了
+- (2026-09-28 23:28 UTC) 下一步是什么
+- (2026-09-28 23:28 UTC) 来吧
+- (2026-09-29 03:12 UTC) 太大了，不能都上传
+- (2026-09-29 03:32 UTC) 上传了
+- (2026-09-29 03:53 UTC) 下一步吧。
+- (2026-09-29 03:54 UTC) 保持原来的就行了， 这个接线不划算
+- (2026-09-29 03:54 UTC) 是不是可以结束tuning了
+- (2026-09-29 04:04 UTC) 整理一下branches
+- (2026-09-29 04:17 UTC) 调优部分不能到main吗？
+- (2026-09-29 04:17 UTC) 最终我只要一个main
+- (2026-10-09 01:23 UTC) reg.docker.alibaba-inc.com/ai-tmp/llm:pytorch2.9.0-ubuntu24.04-cuda13.0-py312-ppu202606061210
+- (2026-10-09 01:23 UTC) 报错：运行时缺少libhggcrt.12.0.so
+- (2026-10-09 01:23 UTC) 继续
+- (2026-10-10 05:41 UTC) 提交了
+- (2026-10-30 06:51 UTC) 我们后续需要支持actlizeLA在890上
+- (2026-10-30 07:16 UTC) 接入
+- (2026-10-30 08:04 UTC) hi
+- (2026-11-04 09:59 UTC) • 下面这份给 actlizeLA，范围集中在 GDN、QSA 和配合 MTP 的增量状态接口： 任务：让 actlizeLA 的 GDN/QSA 算子接入 Flare，支持 Qwen3.8-Flash-Next 在 PPU 上进行 prefill、decode 和 MTP 验证。 一、背景与范围 框架基于 Flare，直接复用其 MTP 单轮图： draft → target verify → acceptance → 状态提交 → draft 状态吸收。 PPU 兼容 NVIDIA API，模型包在 PPU 平台本地构图、捕获和导出。 RTX PRO 6000 Blackwell（SM120）用于 NVIDIA 侧框架验证。 本任务负责： - GDN prefill； - GDN 增量 decode； - GDN 多 token 验证及接受前缀的状态提交； - QSA indexer、稀疏 attention 的分页与增量接口。 RMSNorm、gated norm、RoPE、ShortConv 等优先复用 Flare/b12x 已有实现。 如某项必须移入 actlizeLA 才能完成接口或状态处理，明确范围后复用其逻辑， 不要将所有辅助算子都重新开发一遍。 量化 GEMM 和 MoE 由 QUactlize 负责；普通 Attention 由 FlashAttention 负责。 不重写框架、采样算法或 MTP 图编排。 首要目标是正确接入和稳定图重放，不要求超过 Flare 性能。 二、代码与参考 actlizeLA： https://github.com/DrXuQian/actlizeLA 本地：/root/marlin_ppu/actlizeLA 本次检查版本：66ec165aae1fa2ae1e780e413c3618a0914c6ad2 先检查最新 main 和目标 PPU 后端，使用独立工作分支。 Flare： https://github.com/DrXuQian/spark-local-inference 分支：feat/qwen38-gguf 本地：/root/autodl-tmp/qwen4flash-flare 重点阅读： - ignition/components/gated_delta.py - ignition/components/gdn_recovery.py - ignition/components/gated_norm.py - ignition/recipes/qwen38/attention.py - ignition/recipes/qwen38/state.py - ignition/recipes/qwen38/speculative_model.py actlizeLA 重点入口： - actlize_la/gdn_interface.py - actlize_la/qsa_indexer_interface.py - actlize_la/qsa_core_interface.py - csrc/backends/ 下目标 PPU 的实现和 launch ABI 已有代码包含 GDN、QSA indexer 和稀疏 attention，不从零另写一套。 当前公开 Python 接口与部分 native 接口的能力不同，要分别检查。 已有 PPU 源码或编译结果，也不等于对应接口已经完成真机验证。 三、模型几何与算术合同 主模型 48 层： - 36 层 GDN； - 12 层 QSA。  …
+- (2026-11-04 10:03 UTC) 最终给我command去box上测试
+- (2026-11-05 02:26 UTC) 读取并完成• 已写好：/root/actlizeLA-flashnext-prompt.txt (actlizeLA-flashnext-prompt.txt)
+- (2026-11-05 06:16 UTC) File "/sim/eec/shared/junfu.qx/actlizeLA/actlize_la/serving/gdn.py", line 331, in launch self.check(self.fn(C.byref(args), self.stream())) File "/sim/eec/shared/junfu.qx/actlizeLA/actlize_la/serving/_native.py", line 187, in check raise RuntimeError(f"actlizeLA serving launch failed: status={rc}") RuntimeError: actlizeLA serving launch failed: status=1 [Flare serving box] NOT_ADMITTED: rc=1; inspect logs (SKIP is not PASS)
+- (2026-11-05 06:17 UTC) 这是在干什么
+- (2026-11-05 06:18 UTC) 给我comamnd定位
+- (2026-11-05 06:22 UTC) [GDN FAIL] phase= native-launch mode= decode {'requests': 3, 'tokens': 3, 'slots': 5, 'hk': 16, 'hv': 48, 'width': 1, 'mode': 0, 'mixed_stride': 10256, 'a_stride': 96, 'b_stride': 96, 'state_stride': 786496, 'initial_stride': 8, 'final_stride': 8} Traceback (most recent call last): [IDENTITY] b5696176ce66735afc6e72d079bc05018377523d ppu15 [GDN ENTER] decode {'requests': 3, 'tokens': 3, 'slots': 5, 'hk': 16, 'hv': 48, 'width': 1, 'mode': 0, 'mixed_stride': 10256, 'a_stride': 96, 'b_stride': 96, 'state_stride': 786496, 'initial_stride': 8, 'final_stride': 8} capture= False Traceback (most recent call last): File "<stdin>", line 37, in <module> File "<frozen runpy>", line 286, in run_path File "<frozen runpy>", line 98, in _run_module_code File "<frozen runpy>", line 88, in _run_code File "tests/serving_device.py", line 801, in <module> sys.exit(main()) ^^^^^^ File "tests/serving_device.py", line 779, in main test_gdn(lib) File "tests/serving_device.py", line 171, in test_gdn c.plan() File "/sim/eec/shared/junfu.qx/actlizeLA/actlize_la/serving/_native.py", line 157, in __call__ _serving_out(self.inputs, self.buffers, self.handle) File "/usr/local/lib/python3.12/site-packages/torch/_library/custom_ops.py", line 676, in __call__ return self._opoverload(*args, **kwargs) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/usr/local/lib/python3.12/site-packages/torch/_ops.py", line 841, in __call__ return self._op(*args, **kwargs) ^^^^^^^^^^^^^^^^^^^^^^^^^ File "/usr/local/lib/python3.12/site-p …
+- (2026-11-05 06:24 UTC) 1.0
+- (2026-11-05 06:24 UTC) 要按照1。0的机器编译
+- (2026-11-05 06:26 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/actlizeLA/tests/aux_device.py", line 1153, in <module> sys.exit(main()) File "/sim/eec/shared/junfu.qx/actlizeLA/tests/aux_device.py", line 1138, in main chain_tests(lib) File "/sim/eec/shared/junfu.qx/actlizeLA/tests/aux_device.py", line 767, in chain_tests assert torch.equal(c.state[2].cpu(), before[2]) and torch.equal( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ A
+- (2026-11-05 06:42 UTC) 过了
+- (2026-11-05 13:57 UTC) 用autodl-tmp/actlizeLA-wheel-packaging-prompt.txt，完成
+- (2026-11-05 14:55 UTC) 我在机器上怎么编译
+- (2026-11-06 01:32 UTC) 我们之前相对于fla的性能数据又吗
+- (2026-11-06 01:45 UTC) 输入：8192，输出5120, Qwen3.5-35B-A3B-Q4_K_M.gguf 对应的是什么输入的shape，这个case我们比fla更差
+- (2026-11-06 01:51 UTC) 目前没有用wheel测试，另外你为什么没有接入我们的胜出的kernel
+- (2026-11-06 01:54 UTC) 所以main上测试的性能差是有原因的？
+- (2026-11-06 01:55 UTC) 列一个todo，现在缺的有点多，一个个解决，
+- (2026-11-06 01:59 UTC) 一个个修复
+- (2026-11-06 02:03 UTC) 我们最快的版本一定要体现在最终的代码的默认接线
+- (2026-11-06 02:30 UTC) [PPU default GDN] PASS cases=36 repeat=8 numeric+default-bits; performance=NOT_RUN
+- (2026-11-06 03:06 UTC) Traceback (most recent call last): File "/sim/eec/shared/junfu.qx/actlizeLA/tests/aux_device.py", line 1167, in <module> sys.exit(main()) ^^^^^^ File "/sim/eec/shared/junfu.qx/actlizeLA/tests/aux_device.py", line 1151, in main checked_gdn_tests(lib) File "/sim/eec/shared/junfu.qx/actlizeLA/tests/aux_device.py", line 880, in checked_gdn_tests close( File "/sim/eec/shared/junfu.qx/actlizeLA/tests/serving_device.py", line 81, in close torch.testing.assert_close(got, want, rtol=0.01, atol=2e-5) File "/usr/local/lib/python3.12/site-packages/torch/testing/_comparison.py", line 1589, in assert_close raise error_metas[0].to_error(msg) AssertionError: Tensor-likes are not close!
+- (2026-11-06 03:06 UTC) Mismatched elements: 118699 / 786432 (15.1%) Greatest absolute difference: 0.004327595233917236 at index (12, 50, 61) (up to 2e-05 allowed) Greatest relative difference: 688.4918823242188 at index (20, 0, 36) (up to 0.01 allowed)
+- (2026-11-06 03:21 UTC) 都pass了
+- (2026-11-06 04:14 UTC) 性能先不管吧，其他的先做完
+- (2026-11-06 07:41 UTC) 还有什么todo
+- (2026-11-06 07:43 UTC) 合入main，正式发布
+- (2026-11-06 08:10 UTC) 刚才和fla的性能对比继续
+- (2026-11-06 08:29 UTC) [prefill ACU] NOT_ADMITTED: RuntimeError: command failed (rc=101); see /workspace/actlize-la-prefill-acu-20261106T082836Z-1433586/T2048-Hk16-Hv32-g-0.1/serving-0.log
+- (2026-11-06 08:30 UTC) [prefill ACU] NOT_ADMITTED: RuntimeError: command failed (rc=101); see /workspace/actlize-la-prefill-acu-20261106T082836Z-1433586/T2048-Hk16-Hv32-g-0.1/serving-0.log [prefill ACU] status=INCOMPLETE artifacts=/workspace/actlize-la-prefill-acu-20261106T082836Z-1433586 upload=/workspace/actlize-la-prefill-acu-20261106T082836Z-1433586/results.tar.gz [prefill ACU] operand files and original .acurep stay on box; not included in small upload root@aiswu52:/sim/eec/shared/junfu.qx/actlizeLA# cat /workspace/actlize-la-prefill-acu-20261106T082836Z-1433586/T2048-Hk16-Hv32-g-0.1/serving-0.log [libprotobuf ERROR ../../buildtools/protobuf/src/google/protobuf/text_format.cc:324] Error parsing text-format HG.Profiler.ProfilerSection: 15:23: Message type "HG.Profiler.ProfilerSectionBodyItem" has no field named "MemoryMetricTable".
+- (2026-11-06 08:45 UTC) 上传了resultsresults
+- (2026-11-06 08:50 UTC) serving是指的什么？flare serving需要特殊的kernel支持？
+- (2026-11-06 08:57 UTC) 开始优化这个kernel
+- (2026-11-06 08:57 UTC) 这个GDN的输入是什么shape
+- (2026-11-06 08:59 UTC) 给我command，我侧视一下flash next的对应shape的gdn core时间，你继续优化serving的入口
+- (2026-11-06 09:37 UTC) 3 - 536 - gdn_wy_residual_warps8_hvlayout_output 这个事serving的kernel吗？
+- (2026-11-06 09:38 UTC) core kernel加起来都快1ms了
+- (2026-11-06 09:38 UTC) 我侧视的8192
+- (2026-11-06 09:41 UTC) 给我侧视FLA的代码
+- (2026-11-06 09:45 UTC) results上传了
+- (2026-11-06 10:07 UTC) 我让本地的kda agent来优化吧。给我promtp，我需要多种shape，多个网络的shape上我们超过fla的20%。另外我们的serving的helper需要优化。
+- (2026-11-08 03:13 UTC) 应该做了一些优化并且上传了。你看一下最新的commit
+- (2026-11-08 06:26 UTC) 不对啊，那怎么core还快了，如果core没有修改
+- (2026-11-08 06:29 UTC) 但是我们之前是core慢于fla，这次的结果是快于？
+- (2026-11-08 06:30 UTC) core你指的是什么？core部分的代码逻辑可以代表整体时间吗？周边还有helper吗
+- (2026-11-08 06:34 UTC) 但是FLA的helper不也变快了吗
+- (2026-11-08 06:34 UTC) 已经修改了 core 的代码逻辑，不只是测试或 benchmark： state kernel：修改 K@H 操作数加载调度。 solve kernel：实现 prefix 融合、非对角块静态展开，均已编译并通过真机数值门。 output kernel：当前正在验证 gate 指数因子复用，这是 FP32 数学重排，不只是调度调整。 尚未替换的是公共默认 core：前几个候选没有满足性能晋级门，因此仍保留已验证基线。当前 output 候选验证完成后，我会按结果继续迭代。
+- (2026-11-08 06:38 UTC) ‎check_output_factors.py A 已应用 ‎check_output_factors.py A 已应用 ‎check_output_factors.py -1 A 已接受 ‎record_iteration.py +19 -3 M 已应用 ‎record_iteration.py +2 -1 M 已应用 ‎record_iteration.py +2 -1 M 已接受 ‎check_inverse_prefetch.py +1 -1 M 已接受 ‎run_output_factors_v1.sh A 已接受 已探索 1文件 0问题 3终端 ‎STATUS.md +2 -2 M 已应用 ‎round-result.md +2 M 已应用 ‎STATUS.md +1 -1 M 已接受 ‎round-result.md +1 -1 M 已接受 已探索 1文件 2终端 你现在还没有修改core部分的代码逻辑？ 2026-11-08 14:34:06 已经修改了 core 的代码逻辑，不只是测试或 benchmark： state kernel：修改 K@H 操作数加载调度。 solve kernel：实现 prefix 融合、非对角块静态展开，均已编译并通过真机数值门。 output kernel：当前正在验证 gate 指数因子复用，这是 FP32 数学重排，不只是调度调整。 尚未替换的是公共默认 core：前几个候选没有满足性能晋级门，因此仍保留已验证基线。当前 output 候选验证完成后，我会按结果继续迭代。 已探索 1终端 最终即使没有达成，也要保留最优性能的kernel 没有理解，所以现在core部分相对于baseline有优化吗？ 2026-11-08 14:37:30 有，相对 baseline 已测到 core 性能提升；但公共默认版本还没切换。最明确的是 solve8 候选，同输入、完整 core 的 ACU 结果： G32/B1/T2048：306.05 → 293.87 μs，约快 4.0%。 G64/B1/T2048：454.29 → 432.85 μs，约快 4.7%。 “没达到比 FLA 耗时低 20%”不等于“没有比 baseline 更快”。我之前把这两个判据混在一起解释，造成了误解。按你新增的要求，最终即使未达目标，也会保留已通过正确性和性能验证的最优 kernel，并明确其适用 shape；不会因未达 20% 就舍弃已有收益。
+- (2026-11-08 06:50 UTC) 还有什么可以探索的方向
+- (2026-11-08 06:52 UTC) Registered cells: 54 (manifest 48a7aa907067) Counts: TARGET_MET=24, TARGET_NOT_MET=28, UNRESOLVED=2, UNADJUDICATED=0, NOT_RUN=0 | cell | status | ours median us [min,max] | FLA median us [min,max] | ours/FLA | speedup | gap to 0.80 (us) | |---|---|---|---|---:|---:|---:| | G32-B1-T512-g-0.1 | TARGET_NOT_MET | 96.56 [96.03,97.25] | 114.45 [113.53,115.34] | 0.8437 | 1.1852x | +5.00 | | G32-B1-T512-g-1.0 | TARGET_NOT_MET | 96.47 [96.30,96.72] | 113.67 [112.93,114.59] | 0.8487 | 1.1783x | +5.53 | | G32-B1-T2048-g-0.1 | UNRESOLVED | 303.84 [303.63,307.95] | 304.53 [303.70,304.67] | 0.9977 | 1.0023x | +60.22 | | G32-B1-T2048-g-1.0 | UNRESOLVED | 305.71 [303.77,307.24] | 304.69 [304.10,304.75] | 1.0034 | 0.9967x | +61.96 | | G32-B1-T4096-g-0.1 | TARGET_NOT_MET | 578.43 [577.13,581.56] | 640.81 [639.44,642.80] | 0.9027 | 1.1078x | +65.79 | | G32-B1-T4096-g-1.0 | TARGET_NOT_MET | 578.80 [576.44,581.91] | 639.64 [638.88,641.07] | 0.9049 | 1.1051x | +67.08 | | G32-B1-T8192-g-0.1 | TARGET_NOT_MET | 1145.52 [1140.92,1157.76] | 1319.61 [1318.84,1319.66] | 0.8681 | 1.1520x | +89.83 | | G32-B1-T8192-g-1.0 | TARGET_NOT_MET | 1152.90 [1147.47,1154.30] | 1315.52 [1313.84,1324.59] | 0.8764 | 1.1411x | +100.48 | | G32-B1-T16384-g-0.1 | TARGET_NOT_MET | 2284.91 [2283.20,2290.60] | 2735.33 [2733.47,2742.10] | 0.8353 | 1.1971x | +96.65 | | G32-B1-T16384-g-1.0 | TARGET_NOT_MET | 2291.88 [2280.76,2291.96] | 2735.98 [2734.42,2736.41] | 0.8377 | 1.1938x | +103.09 | | G32-B2-T2048-g-0.1 | TARGET_NOT_MET  …
+- (2026-11-08 06:52 UTC) 610上的实测数据，没有比FLA更慢的啊，难道是硬件差距导致的？810和610
+- (2026-11-08 08:06 UTC) 我们的gdn的core相对于fla的性能画一张图，表示610上的性能优势
+- (2026-11-09 06:23 UTC) FLA里面的g是什么
+- (2026-11-09 06:30 UTC) 拉一下最新的代码， 看看结果
+- (2026-11-09 08:06 UTC) 在拉一下拉一下
+- (2026-11-09 08:15 UTC) 我们现在是怎么进行的actlizeLA的优化，相对于FlashQLA的区别？
+- (2026-11-09 08:18 UTC) 在拉
+- (2026-11-09 08:19 UTC) 我们再次在这个基础上在810上对比我们之前差的shape的性能
+- (2026-11-09 08:35 UTC) [libprotobuf ERROR ../../buildtools/protobuf/src/google/protobuf/text_format.cc:324] Error parsing text-format HG.Profiler.ProfilerSection: 15:23: Message type "HG.Profiler.ProfilerSectionBodyItem" has no field named "MemoryMetricTable".
+- (2026-11-09 08:46 UTC) 读一下https://github.com/t-head/pla，拉取下来，对比我们的实现
+- (2026-11-09 12:00 UTC) 上传了
+- (2026-11-09 12:06 UTC) 来吧，我们来三个一起对比。为什么chunk我们用64
+- (2026-11-09 12:26 UTC) PLA你在那里安装？
+- (2026-11-09 12:26 UTC) unk_cumsum_cute.cu warning: src/prefill/flashqla/kernels/chunk_cumsum_cute.cu:273:13: loop not unrolled: the optimizer was unable to perform the requested transformation; the transformation might be disabled or specified as part of an unsupported transformation ordering
+- (2026-11-09 12:53 UTC) CXX /workspace/actlize-la-gdn-threeway-20261109T122552Z-2632276/pla-source/src/prefill/flashqla/host/torch_extension_cute.cc FAILED: /workspace/actlize-la-gdn-threeway-20261109T122552Z-2632276/pla-build/temp.linux-x86_64-cpython-312/pla.prefill.flashqla._C/torch_extension_cute_ed4f725a196d.o
+- (2026-11-09 12:59 UTC) .h:7, from /workspace/actlize-la-gdn-threeway-20261109T122552Z-2632276/pla-source/src/prefill/flashqla/host/torch_extension_cute.cc:44: /usr/local/lib/python3.12/site-packages/torch/include/c10/cuda/CUDAStream.h:3:10: fatal error: cuda_runtime_api.h: No such file or directory 3 | #include <cuda_runtime_api.h>
+- (2026-11-09 13:32 UTC) Complete-call kernel sums (us), not uninstrumented API latency. Native chunks: default=64 / PLA=32 / FLA=64. All include final state. | cell | default median [min,max] | PLA median [min,max] | FLA median [min,max] | default vs PLA | default vs FLA | PLA vs FLA | |---|---:|---:|---:|---|---|---| | T2048-Hk16-Hv32-g-0.1 | 238.788 [235.522,238.929] | 314.945 [313.556,316.294] | 206.337 [206.147,206.808] | DEFAULT_WINS | FLA_WINS | FLA_WINS | | T2048-Hk16-Hv32-g-1.0 | 237.099 [237.014,239.094] | 315.472 [314.580,317.996] | 205.921 [205.875,206.061] | DEFAULT_WINS | FLA_WINS | FLA_WINS | | T2048-Hk16-Hv48-g-0.1 | 305.511 [305.186,305.688] | 352.886 [350.434,357.626] | 294.578 [294.058,296.126] | DEFAULT_WINS | FLA_WINS | FLA_WINS | | T2048-Hk16-Hv48-g-1.0 | 306.658 [306.178,308.541] | 348.656 [346.787,352.451] | 293.808 [285.272,293.983] | DEFAULT_WINS | FLA_WINS | FLA_WINS | | T8192-Hk16-Hv32-g-0.1 | 921.941 [920.382,924.254] | 1148.115 [1148.062,1150.844] | 818.281 [814.281,822.209] | DEFAULT_WINS | FLA_WINS | FLA_WINS | | T8192-Hk16-Hv32-g-1.0 | 921.194 [918.848,921.976] | 1148.771 [1146.832,1150.685] | 820.918 [812.310,824.928] | DEFAULT_WINS | FLA_WINS | FLA_WINS | | T8192-Hk16-Hv48-g-0.1 | 1119.599 [1117.584,1120.658] | 1244.140 [1241.953,1256.422] | 1129.907 [1126.674,1133.710] | DEFAULT_WINS | DEFAULT_WINS | FLA_WINS | | T8192-Hk16-Hv48-g-1.0 | 1116.031 [1113.615,1119.883] | 1246.626 [1243.985,1250.106] | 1127.865 [1127.477,1134.254] | DEFAULT_WINS | DEFAULT_WINS | FLA_WIN …
+- (2026-11-09 13:34 UTC) 我们来对于FLA进行debug，我们一定要胜过fla，我们按照kda的方法，但是中间需要迭代的时候我来
+- (2026-11-09 13:56 UTC) 穿了
+- (2026-11-09 14:41 UTC) fatal: invalid reference: tune/zw810-gdn-fla-kda
+- (2026-11-09 22:33 UTC) 上传了
+- (2026-11-09 23:33 UTC) 穿了
+- (2026-11-09 23:40 UTC) 你这个也讲的太少了。。。。
+- (2026-11-09 23:42 UTC) 直接对比指令数量等直观因素，先从算法上让我们没有多算，然后再去调整我们的秉性度
+- (2026-11-10 00:48 UTC) 直接对比指令数量等直观因素，先从算法上让我们没有多算，然后再去调整我们的秉性度
+- (2026-11-10 00:49 UTC) 穿了
+- (2026-11-10 01:05 UTC) [GDN work export] INCOMPLETE; upload=/workspace/actlize-la-gdn-work-details-20261110T010524Z-1336244/results.tar.gz; bytes=43048; device_execution=NONE
+- (2026-11-10 01:05 UTC) [GDN work export] T2048-Hk16-Hv32-g-0.1 default repeat0: ACU --import only; Python API not required
+- (2026-11-10 01:05 UTC) [GDN work export] INCOMPLETE: ValueError: ACU source page lacks the native PC table
+- (2026-11-10 01:25 UTC) 上传了
+- (2026-11-10 01:42 UTC) [GDN work export] T2048-Hk16-Hv32-g-0.1 default repeat0: ACU --import + embedded native rule; external Python API not required [GDN work export] INCOMPLETE: RuntimeError: ACU offline native rule rc=1; see /workspace/actlize-la-gdn-work-details-20261110T014158Z-2077790/T2048-Hk16-Hv32-g-0.1/default-0-native.log /sim/eec/shared/junfu.qx/asight/bin/acu: unrecognized option '--stats-rule'
+- (2026-11-10 01:43 UTC) 不要用/sim/eec/shared/junfu.qx/asight/bin/acu，直接acu
+- (2026-11-10 01:44 UTC) 这个是有states rule的。，跟你本地的版本一直
+- (2026-11-10 01:55 UTC) [GDN work export] INCOMPLETE: ValueError: re-imported timing/instructions differ from captured CSV
+- (2026-11-10 01:56 UTC) 结果上传了
+- (2026-11-10 01:57 UTC) 这一次的上传可以分析了吗？还是要继续上传
+- (2026-11-10 02:27 UTC) 结果上传了
+- (2026-11-10 03:08 UTC) 继续下一步
+- (2026-11-10 04:00 UTC) 结果上传了
+- (2026-11-10 04:14 UTC) 固化到接线
+- (2026-11-10 06:05 UTC) 上传了
+- (2026-11-10 06:12 UTC) 上传了
+- (2026-11-10 06:34 UTC) 在890上侧视一下正确性
+- (2026-11-10 06:57 UTC) Traceback (most recent call last): File "/tmp/qz890.LGa1tSzj/source/tools/ppu15/check.py", line 205, in <module> if __name__=='__main__':main() ^^^^^^ File "/tmp/qz890.LGa1tSzj/source/tools/ppu15/check.py", line 195, in main sdk,lib,identity=setup(args.sdk,args.output) ^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/tmp/qz890.LGa1tSzj/source/tools/ppu15/check.py", line 47, in setup raise ValueError('this bring-up requires one visible ZW890 with warp size32; got '+repr(identity)) ValueError: this bring-up requires one visible ZW890 with warp size32; got {'ordinal': 0, 'major': 8, 'minor': 9, 'compute_units': 39, 'warp_size': 32, 'max_threads_per_block': 1024, 'max_threads_pe r_cu': 2048, 'shared_per_block': 262144, 'shared_optin_per_block': 262144, 'shared_per_cu': 262144, 'registers_per_block': 131072, 'registers_per_cu': 131072, 'driver_version': 13030, 'runtime_versi on': 13030, 'name': 'ZW-M890P', 'pci': '0000:01:00.0'}
+- (2026-11-10 08:15 UTC) hgcc error: unknown argument '--version'
+- (2026-11-10 08:25 UTC) hgcc error: unknown argument '--version'
+- (2026-11-10 08:31 UTC) actlizeLA下面没有这个hggc identity
+- (2026-11-10 08:38 UTC) { "compiler": "/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/bin/hgcc", "sha256": "e1a371012cef677ebcfbb1a6f0326d6d8b31b084dc05a3b1e8ef79aed5d27025", "version": "hgcc(HGGC C/C++ Compiler)\nRelease version 2.2.1-184ee6\nRuntime API version v3\nBuilt on Oct 30 2026 at 21:22:23", "version_flag": "-V", "probes": [ { "argv": [ "/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/bin/hgcc", "-V" ], "returncode": 0, "output": "hgcc(HGGC C/C++ Compiler)\nRelease version 2.2.1-184ee6\nRuntime API version v3\nBuilt on Oct 30 2026 at 21:22:23" } ]
+- (2026-11-10 08:41 UTC) Initialize HGGC Api Failed: cudaGetDeviceProperties_v2. [ppu15 box] NOT_ADMITTED rc=1; SKIP is not PASS
+- (2026-11-10 08:50 UTC) Initialize HGGC Api Failed: cudaGetDeviceProperties_v2.
+- (2026-11-10 08:57 UTC) 还是出错
+- (2026-11-11 01:09 UTC) == 容器原环境 == torch: 2.9.0 cuda: 13.0 loaded: ['/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcudart.so.13.0.48', '/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/targets/x86_64-linux/lib/libhggc.so', '/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/targets/x86_64-linux/lib/libhggcrt.13.0.so', '/usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so'] device: _CudaDeviceProperties(name='PPU-ZW810', major=8, minor=0, total_memory=98304MB, multi_processor_count=72, uuid=019ef014-0110-0306-0000-0000605bfd56, pci_bus_id=8, pci_device_id=0, pci_domain_id=0, L2_cache_size=64MB) returncode: 0 == 追加 SDK/lib == torch: 2.9.0 cuda: 13.0 loaded: ['/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcudart.so.13.0.48', '/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/targets/x86_64-linux/lib/libhggc.so', '/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/targets/x86_64-linux/lib/libhggcrt.13.0.so', '/usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so'] device: _CudaDeviceProperties(name='PPU-ZW810', major=8, minor=0, total_memory=98304MB, multi_processor_count=72, uuid=019ef014-0110-0306-0000-0000605bfd56, pci_bus_id=8, pci_device_id=0, pci_domain_id=0, L2_cache_size=64MB) returncode: 0
+- (2026-11-11 01:11 UTC) == 容器原环境 == torch: 2.9.0 cuda: 12.9 loaded: ['/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/targets/x86_64-linux/lib/libhggc.so', '/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/targets/x86_64-linux/lib/libhggcrt.13.0.so', '/usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcudart.so.12.9.37', '/usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so'] Initialize HGGC Api Failed: cudaGetDeviceProperties_v2. returncode: 1 == 追加 SDK/lib == torch: 2.9.0 cuda: 12.9 loaded: ['/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/targets/x86_64-linux/lib/libhggc.so', '/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/targets/x86_64-linux/lib/libhggcrt.13.0.so', '/usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcudart.so.12.9.37', '/usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so'] Initialize HGGC Api Failed: cudaGetDeviceProperties_v2. returncode: 1
+- (2026-11-11 01:27 UTC) 我们的actlizeLA有什么创新点吗
+- (2026-11-11 01:31 UTC) 现在环境应该没问题了，继续给我command
+- (2026-11-11 02:18 UTC) merge到main，pass了
+- (2026-11-11 08:14 UTC) 1。5的mma的布局跟1。0不同，写代码的时候你考虑这个了？
+- (2026-11-11 08:27 UTC) 有没有什么flare的相关改动没有到main
+- (2026-11-11 08:34 UTC) 合入。
+
+## `01a0d292-443c-79b3-9ee2-0af5f5c470a4` — 切换Int8 kernel至PPU
+
+- (2026-09-24 08:43 UTC) 目录下有一个cutlass3。6。0的版本，我需要你把flash attn for sail接到这个后段的ppu1。7的支持，ppu1。7也是sm90，除了一些特定的定义在cute的arch下面，其他的和sm90应该是一致的。看一下需要做哪些适配。另外看一下本地的ppu sdk有没有1。7
+- (2026-09-24 08:46 UTC) 当前的falsh attenion的代码
+- (2026-09-24 08:46 UTC) 中应该有hopper部分吧
+- (2026-09-24 08:50 UTC) 先源码接线完成吧
+- (2026-09-24 08:53 UTC) casual的case，2048的输入len，利用率只有39%合理吗？ NUM_HEADS = 32 NUM_KV_HEADS= 2 HEAD_DIM = 256
+- (2026-09-24 08:54 UTC) 已经按照casual修正
+- (2026-09-24 08:55 UTC) 我现在只有1。7的perf simulation的mo deperf simulation的modelmodel，所以不是acu，而是simulation出来的
+- (2026-09-24 08:57 UTC) 可以依赖于pytorch，simualtion tool可以接受，注意我们是20个sm，所以有一些特性可以优化适配20个sm。另外我们的LLC或者对应nvidia的L2cache有32M
+- (2026-09-24 09:00 UTC) 如果有一个hopper的机器，可以通过mig之类的方式弄成20个sm吗？
+- (2026-09-24 09:12 UTC) 在simulation model上跑的时候只能跑单次，并且对比的kernel只能是cpu的reference，要不然gpu上的时间没办法区分
+- (2026-09-24 09:13 UTC) ppu1。7的调试和simulation要写到一个单独的skill
+- (2026-09-24 09:13 UTC) 速度优化也是
+- (2026-09-24 09:14 UTC) 尤其是hopper到ppu1。7的映射skill
+- (2026-09-25 09:21 UTC) 给我执行的command
+- (2026-09-25 09:22 UTC) 需要rebase一下
+- (2026-09-26 03:19 UTC) 9y3RCJWPMGBK ssh -p 19819 root@connect.westb.seetacloud.com 这一台h800可以直接用于1。7的验证
+- (2026-09-26 03:19 UTC) 注意要在没有别的任务的时候验证
+- (2026-09-26 03:27 UTC) 继续
+- (2026-09-26 04:02 UTC) 精度也过了？
+- (2026-09-26 04:03 UTC) 速度验证了吗？主要是casual的时候利用率能不能到70%，我说的是casual之后的实际的flops
+- (2026-09-26 04:03 UTC) 可以先在h800上测试一下
+- (2026-09-26 04:29 UTC) 看一下互联网上的报告？最高到多少？
+- (2026-09-26 04:40 UTC) 来吧
+- (2026-09-26 05:17 UTC) 所以为啥这么低，是不是可以加速？
+- (2026-09-26 05:17 UTC) 我们用更大的shape看看能不能更高
+- (2026-09-26 06:44 UTC) 思考一下如优化
+- (2026-09-26 06:44 UTC) 尤其是casual
+- (2026-09-26 06:44 UTC) 对比其他实现
+- (2026-09-26 07:00 UTC) 来吧
+- (2026-09-28 03:20 UTC) 如何安装hopper版本的flash attn？
+- (2026-09-28 03:30 UTC) File "/workspace/flash-attention-for-sail/hopper/ppu_build.py", line 52, in _build_extension_hgcc ppu_target_include = self._require( ^^^^^^^^^^^^^^ File "/workspace/flash-attention-for-sail/hopper/ppu_build.py", line 31, in _require raise RuntimeError(f"missing {what}: {path}") RuntimeError: missing PPU target include directory: /usr/local/PPU_SDK/targets/x86_64-linux/include 跟hopper还是不完全一样
+- (2026-09-28 07:19 UTC) 我切换到了root目录下的4。3。0，会有什么问题。我编译出错： /workspace/flash-attention-for-sail/csrc/cutlass3/include/cutlass/epilogue/collective/builders/sm90_common.inl:42:1: note: candidate template ignored: couldn't infer template argument 'EpilogueTile_MN' 42 | sm90_get_smem_store_op_for_accumulator() { | ^ In file included from /workspace/flash-attention-for-sail/hopper/instantiations/flash_fwd_hdim128_bf16_sm90.cu:6: In file included from /workspace/flash-attention-for-sail/hopper/flash_fwd_launch_template.h:37: /workspace/flash-attention-for-sail/hopper/epilogue_fwd.hpp:112:18: error: no matching function for call to 'sm90_get_smem_store_op_for_accumulator' 112 | decltype(cutlass::epilogue::collective::detail::sm90_get_smem_store_op_for_accumulator<StrideO, Element>()),
+- (2026-09-28 07:24 UTC) 修改适配4。3
+- (2026-09-28 09:36 UTC) 为什么我跑一个特别dense的fa，利用率也就是70%
+- (2026-09-28 09:36 UTC) 非casual
+- (2026-09-28 09:36 UTC) 非casual
+- (2026-09-28 09:38 UTC) batch = 1 seqlen_q = 1024 seqlen_k = 1024 num_heads = 56 num_heads_k = 56 head_dim = 128 head_dim_value = 128 dtype = torch.float16
+- (2026-09-28 09:53 UTC) 跟bf16还是fp16有关系吗？
+- (2026-09-28 09:57 UTC) 怎么安装？
+- (2026-09-28 10:13 UTC) Building wheel for flash_attn_3 (setup.py): finished with status 'error' error: subprocess-exited-with-error
+- (2026-09-28 13:23 UTC) 我给一个不安装的版本。直接编译出可执行的文件。 batch = 1 seqlen_q = 1024 seqlen_k = 1024 num_heads = 56 num_heads_k = 56 head_dim = 128 head_dim_value = 128 dtype = torch.float16
+- (2026-09-28 13:55 UTC) [FA17 standalone build] FAIL: 'utf-8' codec can't decode byte 0x82 in position 22: invalid start byte
+- (2026-09-28 13:56 UTC) 没太理解为什么要输出ptx
+- (2026-09-28 14:22 UTC) [FA17 standalone] FAIL: expected 20 SMs, got 40; assertion does not partition hardware
+- (2026-09-28 14:23 UTC) verify会跑多次吗？
+- (2026-09-28 15:41 UTC) 跑完了，perfstatistics上传了，你可以根据这个推理一下计算利用率，这个report里面的MFU等等不能直接用。max utilization can be achieved=55.556%。所以tensorcore的利用率要除这个数字。
+- (2026-09-28 15:51 UTC) 如何优化
+- (2026-09-28 15:53 UTC) perfstatistics里面应该有完整的可以用于性能分析的信息
+- (2026-09-28 22:08 UTC) 开始优化
+- (2026-09-28 23:35 UTC) 上传了，变慢了
+- (2026-09-29 02:40 UTC) 继续
+- (2026-09-29 03:43 UTC) 有没有可能用软件模拟exp来加速？看看fa4之类的怎么做的
+- (2026-09-29 03:48 UTC) 240412 cycles
+- (2026-09-29 03:52 UTC) 查看Snipaste_2026-09-29_11-51-37.png，我感觉最后一段时间有点问题。是因为大部分的warp结束了吗？这里会触发利用率的问题吗？
+- (2026-09-29 04:16 UTC) 思考一下是不是可以想办法解决这个weibo问题
+- (2026-09-29 04:19 UTC) weibo问题要和之前的exp的优化分开进行
+- (2026-09-29 04:44 UTC) 继续
+- (2026-09-29 05:38 UTC) 跟我们的sm的数量相关的，是不是我们需要优化scheduler以增加cache hit？
+- (2026-09-29 05:41 UTC) 我的意思是当前的cache hit还有优化的空间吗？独立于weibo问题
+- (2026-09-29 05:47 UTC) 刚才这个改动跑了非常久，也没技术
+- (2026-09-29 05:48 UTC) 402013 cycles
+- (2026-09-29 06:39 UTC) 是对的。后续还有什么思路吗？
+- (2026-09-29 07:08 UTC) 1
+- (2026-09-29 08:20 UTC) 还是240325cycles
+- (2026-09-29 08:25 UTC) 大部分的stall都是selected，第二是sync
+- (2026-10-01 03:53 UTC) 清理一下root目录，可以挪到autodl-tmp的都挪过去。
+- (2026-10-14 06:58 UTC) 我在1。5上测试flash attn，非常dense的shape，才能拿到50%的MFU，但是instruction issue active时间占到了65%+。另外This kernel executes 132700848 fused and 390356400 non-fused FP32 instructions. By converting pairs of non-fused instructions to their fused, higher-throughput equivalent, the achieved FP32 performance could be increased by up to 37% (relative to its current performance). Check the Source page to identify where this kernel executes FP32 instructions.
+- (2026-10-14 07:00 UTC) 基于最新的2。8。2的branch看看
+- (2026-10-14 07:03 UTC) 我已经fast foward了
+- (2026-10-14 07:09 UTC) out = flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=softmax_scale, causal=False)
+- (2026-10-14 07:09 UTC) batch, seqlen, nheads, head_dim = 1, 8398, 56, 128 softmax_scale = 1.0 / (head_dim ** 0.5) # 与 flash_attn 默认一致
+- (2026-10-14 07:12 UTC) 思考一下有什么优化的思路
+- (2026-10-14 07:52 UTC) 先来1
+- (2026-10-14 08:52 UTC) 指令减半了，对于mul，但是时间变长了，memorydeps多了，tsm ld swzl多了。
+- (2026-10-14 09:00 UTC) compute deps占了原来的大部分warp state。第二是stall pipe busy。第三是stall tensor pipe busy
+- (2026-10-14 09:00 UTC) 也不是大部分，但是最多的是compute deps
+- (2026-10-14 09:06 UTC) 如何判断呢？
+- (2026-10-14 09:12 UTC) results=/workspace/kpack-rule-exec.DVdxvgaY.1791968341227668030.results.tgz runner_rc=0 stage=complete 1661 00000000 5580b3e0 v.exp2.f32 vreg208, vreg169 208 59 1936704 61974528 2080 1115 0 0 0 0 1865 0 0 0 215 0 0 0 0 0 0 0 0 0 905 0 0 0 210 0 0 0 0 0 0
+- (2026-10-14 09:12 UTC) 0 0 0 0 0 0
+- (2026-10-14 09:13 UTC) 0
+- (2026-10-14 09:14 UTC) 0
+- (2026-10-14 09:14 UTC) 1662 00000000 5580b3e8
+- (2026-10-14 09:14 UTC) 我看到了很多coimpute deps都是exp下面的指令
+- (2026-10-14 09:15 UTC) 都是vfma f32 rtte
+- (2026-10-14 09:15 UTC) 不对啊，如果是fma
+- (2026-10-14 09:16 UTC) 不对啊，如果是fma，应该是他的依赖项没有完成，所以才是compute deps
+- (2026-10-14 09:16 UTC) Source: flash_fwd_kernel # Address Source
+- (2026-10-14 09:16 UTC) 1658 00000000 5580b3c8 v.add.f32 vreg137, vreg175, vreg137 1659 00000000 5580b3d0 v.fma.f32.rtte vreg169, sreg70, vreg223, !vreg4 1660 00000000 5580b3d8 v.add.f32 vreg137, vreg207, vreg137 1661 00000000 5580b3e0 v.exp2.f32 vreg208, vreg169 1662 00000000 5580b3e8 v.fma.f32.rtte vreg169, sreg70, vreg182, !vreg4
+- (2026-10-14 09:16 UTC) 1663 00000000 5580b3f0 v.add.f32 vreg137, vreg208, vreg137 1664 00000000 5580b3f8 v.exp2.f32 vreg206, vreg169 1665 00000000 5580b400 v.fma.f32.rtte vreg169, sreg70, vreg183, !vreg4 1666 00000000 5580b408 v.add.f32 vreg137, vreg206, vreg137 1667 00000000 5580b410 v.exp2.f32 vreg201, vreg169 1668 00000000 5580b418 v.fma.f32.rtte vreg169, sreg70, vreg186, !vreg4
+- (2026-10-14 09:16 UTC) 1669 00000000 5580b420 v.add.f32 vreg137, vreg201, vreg137 1670 00000000 5580b428 v.exp2.f32 vreg203, vreg169 1671 00000000 5580b430 v.fma.f32.rtte vreg169, sreg70, vreg187, !vreg4 1672 00000000 5580b438 v.add.f32 vreg137, vreg203, vreg137 1673 00000000 5580b440 v.exp2.f32 vreg204, vreg169 1674 00000000 5580b448 v.fma.f32.rtte vreg169, sreg70, vreg226, !vreg4 1675 00000000 5580b450 v.add.f32 vreg137, vreg204, vreg137 1676 00000000 5580b458 v.exp2.f32 vreg172, vreg169 1677 00000000 5580b460 v.fma.f32.rtte vreg169, sreg70, vreg227, !vreg4 1678 [底部截断]```text Source: flash_fwd_kernel # Address Source 1658 00000000 5580b3c8 v.add.f32 vreg137, vreg175, vreg137
+- (2026-10-14 09:16 UTC) 1659 00000000 5580b3d0 v.fma.f32.rtte vreg169, sreg70, vreg223, !vreg4 1660 00000000 5580b3d8 v.add.f32 vreg137, vreg207, vreg137 1661 00000000 5580b3e0 v.exp2.f32 vreg208, vreg169 1662 00000000 5580b3e8 v.fma.f32.rtte vreg169, sreg70, vreg182, !vreg4 1663 00000000 5580b3f0 v.add.f32 vreg137, vreg208, vreg137 1664 00000000 5580b3f8 v.exp2.f32 vreg206, vreg169 1665 00000000 5580b400 v.fma.f32.rtte vreg169, sreg70, vreg183, !vreg4
+- (2026-10-14 09:16 UTC) 1666 00000000 5580b408 v.add.f32 vreg137, vreg206, vreg137
+- (2026-10-14 09:16 UTC) 1667 00000000 5580b410 v.exp2.f32 vreg201, vreg169
+- (2026-10-14 09:16 UTC) 1668 00000000 5580b418 v.fma.f32.rtte vreg169, sreg70, vreg186, !vreg4 1669 00000000 5580b420 v.add.f32 vreg137, vreg201, vreg137 1670 00000000 5580b428 v.exp2.f32 vreg203, vreg169 1671 00000000 5580b430 v.fma.f32.rtte vreg169, sreg70, vreg187, !vreg4 1672 00000000 5580b438 v.add.f32 vreg137, vreg203, vreg137 1673 00000000 5580b440 v.exp2.f32 vreg204, vreg169 1674 00000000 5580b448 v.fma.f32.rtte vreg169, sreg70, vreg226, !vreg4 1675 00000000 5580b450 v.add.f32 vreg137, vreg204, vreg137
+- (2026-10-14 09:16 UTC) 1676 00000000 5580b458 v.exp2.f32 vreg172, vreg169
+- (2026-10-14 09:16 UTC) 1677 00000000 5580b460 v.fma.f32.rtte vreg169, sreg70, vreg227, !vreg4 1678 [底部截断] ``` 对应停顿指标如下，`—` 表示截图为空白，不代表零。`Excessive Cache Lines Global`、`Stall Instruction Fetch`、`Stall Memory Dependency`、`Stall Memory Throttle` 在这些行均为空白。
+- (2026-10-14 09:16 UTC) ```text # Stall Compute Dependency Stall Not Selected Stall Pipe Busy 1658 0.11% 0.51% 0.01% 1659 0.27% 0.39% 0.01% 1660 0.05% 0.30% 0.00% 1661 0.65% — 0.12% 1662 1.26% 0.15% — 1663 0.08% 0.24% —
+- (2026-10-14 09:16 UTC) 1664 0.54% — 0.07% 1665 1.18% 0.29% —
+- (2026-10-14 09:16 UTC) 1666 0.08% 0.09% —
+- (2026-10-14 09:16 UTC) 1667 0.47% — 0.13%
+- (2026-10-14 09:16 UTC) 1668 1.18% 0.13% —
+- (2026-10-14 09:16 UTC) 1669 0.07% 0.18% —
+- (2026-10-14 09:16 UTC) 1670 0.56% — 0.01% 1671 1.18% 0.28% — 1672 0.05% 0.13% —
+- (2026-10-14 09:16 UTC) 1673 0.50% — 0.00% 1674 1.16% 0.10% — 1675 0.06% 0.17% —
+- (2026-10-14 09:16 UTC) 1676 0.53% — 0.01% 1677 1.13% 0.12% —
+- (2026-10-14 09:16 UTC) ``` 这段呈现 `FMA → EXP2 → ADD` 的 softmax 计算模式。FMA 行的计算依赖停顿较突出，但不能直接归结为 FMA 本身慢：这里反复复用 `vreg169`，且 `vreg137` 连续累
+- (2026-10-14 09:22 UTC) 那如何理解，我看到了256的reg use，可能是限制
+- (2026-10-14 09:25 UTC) 那怎么才能减少这部分的compute deps
+- (2026-10-14 09:28 UTC) exp2改成用数学方法模拟是不是可能解决这个问题？
+- (2026-10-14 09:30 UTC) packed FMA也是更便宜的
+- (2026-10-14 09:36 UTC) 还有别的方法吗？
+- (2026-10-14 09:40 UTC) 先做1
+- (2026-10-16 08:13 UTC) coop-128x128x192 3 183 0.0699 1.4 FAIL timed_launches=1 MISMATCH vs reference summary: PASS=0 NOT_CHECKED=0 UNSUPPORTED=0 FAIL=4 FAIL: no configuration completed a timed launch
+- (2026-10-16 08:14 UTC) device: ZW-V900P SMs: 142 M=256 N=256 K=384 L=2 e4m3 x e4m3 (ue8m0 / 32 K) -> fp32 -> bf16 k48 only, 96-K atom iterations=1 work per launch: 0.100663 GFLOP config stages smem KB avg ms TFLOP/s check note coop-256x128x96 5 220 29.3870 0.0 FAIL timed_launches=1 MISMATCH vs reference coop-256x128x192 2 183 0.1146 0.9 FAIL timed_launches=1 MISMATCH vs reference coop-128x128x96 7 208 0.0701 1.4 FAIL timed_launches=1 MISMATCH vs reference coop-128x128x192 3 183 0.0699 1.4 FAIL timed_launches=1 MISMATCH vs reference summary: PASS=0 NOT_CHECKED=0 UNSUPPORTED=0 FAIL=4
+- (2026-10-16 08:19 UTC) 先测试基准的kernel能够精度匹配
+- (2026-10-16 08:25 UTC) 多久给我command
+- (2026-10-16 08:31 UTC) 本地的patch位置？
+- (2026-10-16 08:33 UTC) patch放到cutlass3-3。6。0目录下
+- (2026-10-16 08:36 UTC) FAIL: set BUILD_DIR to the existing PPU1.7 CMake build used for 710: /ptghome/junfu.qx/cutlass-ppu17-494e809/build
+- (2026-10-19 03:50 UTC) 检查一下为什么我发现890上也有fa3，如何支持的。另外我发现fa3对于paged 的attn的case，速度比fa2快非常多，而且流量fa2从hbm读取的多很多
+
+## `01a0db40-3809-7fc2-82f7-f8527492c63d` — 切换Int8 kernel至PPU
+
+- (2026-09-26 01:10 UTC) 查看最近的cutlass3。6。0的提交，在根目录下面，我希望你review一下这些claude的改动。理解是不是可以解决1。5x的fp8和fp4的加速问题。另外我希望了解除了这两个特性，也就是fp8的加速和fp4的加速，其他的ppu1。7和hopper的区别？
+- (2026-09-26 01:11 UTC) 整理为文档，如果特性上有差距，希望写成skill，但是skill一定要精炼，不要有歧义。
+- (2026-09-26 01:22 UTC) 本地ppu sdk没有1。7
+- (2026-09-26 01:28 UTC) 一句话告诉我hopper和1。7的区别
+- (2026-09-26 01:29 UTC) fp8 非microscaling的fp8在1。7上有吗？如果有的话，跟hopper指令对齐吗？
+- (2026-09-26 01:31 UTC) 有microscaling应该也有k48扩展吧
+- (2026-09-26 01:32 UTC) 按照你的理解修改上面的claude的错误的地方。
+- (2026-09-26 01:32 UTC) 另外思考一下这种方式能不能到1。5x
+- (2026-09-26 01:34 UTC) 1。7里面应该是还是有aiu ld这些feature的吧。所以还是跟hopper不完全一致。
+- (2026-09-26 03:19 UTC) ssh -p 19819 root@connect.westb.seetacloud.com ↳ 这一台h800可以直接用于1。7的验证9y3RCJWPMGBK
+- (2026-09-26 03:20 UTC) 注意性能要在没有其他的机器的时候验证
+- (2026-09-26 03:27 UTC) 继续
+- (2026-10-16 07:32 UTC) 我有实际的机器了，怎么验证
+- (2026-10-16 07:46 UTC) 新的环境，给我完整的command，包括clone和编译
+- (2026-10-16 07:48 UTC) 可以直接git clone的budle如何理解
+- (2026-10-16 07:58 UTC) 打包给我tar文件的位置
+- (2026-10-16 07:58 UTC) 放到root
+- (2026-10-16 08:04 UTC) 编译和测试的command
+- (2026-10-16 08:40 UTC) M=256 N=256 K=384 L=2 e4m3 x e4m3 (ue8m0 / 32 K) -> fp32 -> bf16 k48 only, 96-K atom iterations=1 work per launch: 0.100663 GFLOP config stages smem KB avg ms TFLOP/s check note coop-256x128x96 5 220 29.3870 0.0 FAIL timed_launches=1 MISMATCH vs reference coop-256x128x192 2 183 0.1146 0.9 FAIL timed_launches=1 MISMATCH vs reference coop-128x128x96 7 208 0.0701 1.4 FAIL timed_launches=1 MISMATCH vs reference coop-128x128x192 3 183 0.0699 1.4 FAIL timed_launches=1 MISMATCH vs reference summary: PASS=0 NOT_CHECKED=0 UNSUPPORTED=0 FAIL=4 FAIL: no configuration completed a timed launch
+- (2026-10-16 08:41 UTC) 先测试原始版本是不是精度无问题
+- (2026-10-16 08:53 UTC) include/cutlass/gemm/device/gemm_universal_adapter.h:41:10: fatal error: ppu_1.7_inc/eit_config.h: No such file or directory 41 | #include "ppu_1.7_inc/eit_config.h"
+- (2026-10-16 08:57 UTC) /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc_wrapper.so /ppuswhome/junfu.qx/PPU_SDK/lib/libhg_wrapper.so
+- (2026-10-16 09:03 UTC) 没有这个就不行吗？
+- (2026-10-16 09:09 UTC) eit_config.h 在哪个文件调用？
+- (2026-10-16 09:21 UTC) 在 /ptghome/junfu.qx/include目录下，两个都在
+- (2026-10-16 09:25 UTC) /ptghome/junfu.qx/include/common/hggc/eit/hggcrt_eit_acompute.h:20:10: fatal error: hggc_uuid.h: No such file or directory 20 | #include "hggc_uuid.h" | ^~~~~~~~~~~~~ compilation terminated. hgcc error: Exited with error code 1 Target failed with exit code: 5 junfu.qx@btv1p7-evb13:~/cutlass-ppu17-494e809$ find ~/ -name hggc_uuid.h /ptghome/junfu.qx/include/common/hggc12/hggc_uuid.h
+- (2026-10-16 09:25 UTC) /ptghome/junfu.qx/include/common/hggc/hggc_uuid.h
+- (2026-10-16 09:26 UTC) 不是两个目录都有
+- (2026-10-16 09:27 UTC) /bin/ld: /tmp/704_ppu_fp8_gemm-EyEbh2.o: in function `main': 704_ppu_fp8_gemm-splitter-61MmTO.cpp:(.text.startup+0x16df): undefined reference to `hggcGetExportTable' collect2: error: ld returned 1 exit status hgcc error: Exited with error code 1
+- (2026-10-16 09:31 UTC) 000000000007fed0 T hggcGetExportTable@@libhggc_wrapper.so
+- (2026-10-16 09:45 UTC) o ～/ppu17-stock-fp8-explicit-link/704_ppu_fp8_gemm.o -lcudart_static -lcuda -lrt -lpthread -ldl -lrt -lpthread -ldl -Wl,--end-group -o ～/ppu17-stock-fp8-explicit-link/704_ppu_fp8_gemm /bin/ld: /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc_wrapper.so: definition of hggcGetExportTable /bin/ld: ～/ppu17-stock-fp8-explicit-link/704_ppu_fp8_gemm.o: reference to hggcGetExportTable
+- (2026-10-16 09:49 UTC) /bin/ld: /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc_wrapper.so: definition of hggcGetExportTable /bin/ld: ～/ppu17-stock-fp8-explicit-link/704_ppu_fp8_gemm.o: reference to hggcGetExportTable 之后没有打印了
+- (2026-10-16 09:51 UTC) 没有输出，给我新的继续的command
+- (2026-10-16 09:54 UTC) [FP8 baseline] example=704 path=K32 shape=256x256x384x1 output=e4m3 reference=CPU gemm_launches=1 timing=OFF =====kernel info===== grid: 2, 2, 1, smem: 211968, vreg: 168, stack: 196 timeout: the monitored command dumped core EXIT_CODE=139
+- (2026-10-16 10:01 UTC) [顶部内容截断] ) DEBUG: /ptghome/junfu.qx/cutlass-ppu17-494e809/[不可辨字符] /ppu17-stock-fp8-explicit-link/704_ppu_fp8_gemm [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". [New Thread 0x7ffff66006c0 (LWP 19262)] Thread 1 "704_ppu_fp8_gemm" received signal SIGSEGV, Segmentation fault. 0x000055555555b58f in main () #0 0x000055555555b58f in main () From To Syms Read Shared Object Library 0x00007ffff7fc6000 0x00007ffff7ff0195 Yes (*) /lib64/ld-linux-x86-64.so.2 0x00007ffff7ea5900 0x00007ffff7f87f04 Yes /ppuswhome/junfu.qx/PPU_SDK/lib/libhg_wrapper.so 0x00007ffff7dd6900 0x00007ffff7e72e14 Yes /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc_wrapper.so 0x00007ffff7aa55c0 0x00007ffff7be4ce2 Yes (*) /lib/x86_64-linux-gnu/libstdc++.so.6 0x00007ffff7cdd420 0x00007ffff7d5b418 Yes (*) /lib/x86_64-linux-gnu/libm.so.6 0x00007ffff7ca3780 0x00007ffff7cc6745 Yes (*) /lib/x86_64-linux-gnu/libgcc_s.so.1 0x00007ffff7628800 0x00007ffff77afc8d Yes (*) /lib/x86_64-linux-gnu/libc.so.6 0x00007ffff795ea00 0x00007ffff79cac80 Yes (*) /ppuswhome/junfu.qx/PPU_SDK/lib/libhggcrt_13.0.so 0x00007ffff73f1e20 0x00007ffff754767d Yes (*) /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc.so 0x00007ffff7122fc0 0x00007ffff7263350 Yes (*) /ppuswhome/junfu.qx/PPU_SDK/lib/libalippu.so 0x00007ffff78e4450 0x00007ffff7921550 Yes (*) /lib/x86_64-linux-gnu/libnss_systemd.so.2 0x00007ffff7c8f9c0 0x00007ffff7c94607 Yes (*) /lib/x86_64-linux-gnu/libcap.so.2 0x00007ffff7c80680 0x00007 …
+- (2026-10-16 10:13 UTC) Temporary breakpoint 1 at 0x6010 [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". Temporary breakpoint 1, 0x000055555555a010 in main () Breakpoint 2 at 0x7ffff7e4ced0: file ../hggc_wrapper/hggc_runtime_api.cpp, line 5046. [New Thread 0x7ffff66006c0 (LWP 12908)] Thread 1 "704_ppu_fp8_gem" hit Breakpoint 2, hggcGetExportTable (ppExportTable=0x7fffffffbd40, pExportTableId=0x55555558b080 <HGGC_EIT_ID_ACOMPUTE>) at ../hggc_wrapper/hggc_runtime_api.cpp:5046 warning: 5046 ../hggc_wrapper/hggc_runtime_api.cpp: No such file or directory #0 hggcGetExportTable (ppExportTable=0x7fffffffbd40, pExportTableId=0x55555558b080 <HGGC_EIT_ID_ACOMPUTE>) at ../hggc_wrapper/hggc_runtime_api.cpp:5046 #1 0x000055555555b4f3 in main () Value returned is $1 = hggcErrorInvalidValue EIT after-finish: eax=1 table=(nil) #0 0x000055555555b4f3 in main () => 0x55555555b4f3 <main+5347>: lea -0x1cf0(%rbp),%rsi rax 0x1 1 rbx 0x2 2 rcx 0x0 0 rdx 0x0 0 rsi 0x0 0 rdi 0x7ffff75fc988 140737343637896 rip 0x55555555b4f3 0x55555555b4f3 <main+5347> Thread 1 "704_ppu_fp8_gem" received signal SIGSEGV, Segmentation fault. 0x000055555555b58f in main () #0 0x000055555555b58f in main () => 0x55555555b58f <main+5503>: call *(%rax) 0x55555555b591 <main+5505>: lea 0x2f8d9(%rip),%rsi # 0x55555558ae71 0x55555555b598 <main+5512>: mov $0x2,%edi 0x55555555b59d <main+5517>: xor %eax,%eax 0x55555555b59f <main+5519>: call 0x555555559490 <__printf_chk@plt> 0x55555555b5 …
+- (2026-10-17 02:14 UTC) 我下载了一个新的include文件，重新给我command编译
+- (2026-10-17 02:19 UTC) mkdir: cannot create directory ‘~/ppu17-stock-fp8-newinclude-20261017T021902Z-89488’: No such file or directory
+- (2026-10-17 02:31 UTC) [FP8 baseline] example=704 path=K32 shape=256x256x384x1 output=e4m3 reference=CPU gemm_launches=1 timing=OFF =====kernel info===== grid: 2, 2, 1, smem: 211968, vreg: 168, stack: 196 timeout: the monitored command dumped core EXIT_CODE=139
+- (2026-10-17 05:58 UTC) [不可辨字符] /ptghome/junfu.qx/ppu17-stock-fp8-newinclude-20261017T022913Z-89488/704_ppu_fp8_gemm de64458841b583ec53f2ad345e4135bb94cf1acba8af555c9565c74980ed9cc9 /ptghome/junfu.qx/ppu17-stock-fp8-newinclude-20261017T022913Z-89488/704_ppu_fp8_ge mm f561cb15edc6fe3f59783cc79dc72270a5cd84cc3d1c44d09d2122241b156058 /ptghome/junfu.qx/include/ppu_1.7_inc/eit_config.h 58124c25f528b8da673bf08485a69c6ca689935630136e6756badf2736df05f0 /ptghome/junfu.qx/include/common/hggc/eit/hggcrt_eit_acompute.h Temporary breakpoint 1 at 0x6010 [Thread debugging using libthread_db enabled] Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1". Temporary breakpoint 1, 0x000055555555a010 in main () Breakpoint 2 at 0x7ffff7e4ced0: file ../hggc_wrapper/hggc_runtime_api.cpp, line 5046. [New Thread 0x7ffff66006c0 (LWP 101817)] Thread 1 "704_ppu_fp8_gemm" hit Breakpoint 2, hggcGetExportTable (ppExportTable=0x7fffffffb940, pExportTableId=0x55555558b080 <HGGC_EIT_ID_ACOMPUTE>) at ../hggc_wrapper/hggc_runtime_api.cpp:5046 warning: 5046 ../hggc_wrapper/hggc_runtime_api.cpp: No such file or directory #0 hggcGetExportTable (ppExportTable=0x7fffffffb940, pExportTableId=0x55555558b080 <HGGC_EIT_ID_ACOMPUTE>) at ../hggc_wrapper/hggc_runtime_api.cpp: 5046 #1 0x000055555555b4f3 in main () Requested EIT UUID bytes: 0x55555558b080 <_ZL20HGGC_EIT_ID_ACOMPUTE>: 0x04 0x9c 0xb7 0xfd 0x52 0xa6 0x53 0x0d 0x55555558b088 <_ZL20HGGC_EIT_ID_ACOMPUTE+8>: 0x08 0xf9 0x30 0xf8 0x62 0x99 0xfb 0xf1 0x000055555555b4f3 in …
+- (2026-10-17 09:23 UTC) nm: '/ppuswhome/junfu.qx/PPU_SDK/lib/libhggcrt_13.0.so': No such file nm: /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc.so: no symbols objdump: '/ppuswhome/junfu.qx/PPU_SDK/lib/libhggcrt_13.0.so': No such file objdump: '/ppuswhome/junfu.qx/PPU_SDK/lib/libhggcrt_13.0.so': No such file /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc.so: file format elf64-x86-64 Disassembly of section .init: Disassembly of section .plt: Disassembly of section .plt.got: Disassembly of section .plt.sec: Disassembly of section .text: Disassembly of section .fini:
+- (2026-10-17 09:43 UTC) LIB: /ppuswhome/junfu.qx/PPU_SDK/lib/libhggcrt.13.0.so SYMBOL: hggcGetExportTable@@libhggcrt.so.13 address=0x000000000006a570 size=0x0000000000000041 /ppuswhome/junfu.qx/PPU_SDK/lib/libhggcrt.13.0.so: file format elf64-x86-```text Disassembly of section .text: 000000000006a570 <hggcGetExportTable@@libhggcrt.so.13>: 6a570: f3 0f 1e fa endbr64 6a574: 55 push %rbp 6a575: 48 89 f5 mov %rsi,%rbp 6a578: 53 push %rbx 6a579: 48 89 fb mov %rdi,%rbx 6a57c: 48 83 ec 08 sub $0x8,%rsp 6a580: e8 0b 45 02 00 call 8ea90 <hggcCreateChannelDesc@@libhggcrt.so.13+0x149b0> 6a585: 85 c0 test %eax,%eax 6a587: 74 1f je 6a5a8 <hggcGetExportTable@@libhggcrt.so.13+0x38> 6a589: 48 8d 05 30 c3 05 00 lea 0x5c330(%rip),%rax # c68c0 <hggcCreateChannelDesc@@libhggcrt.so.13+0x4c7e0> 6a590: 48 89 ee mov %rbp,%rsi 6a593: 48 89 df mov %rbx,%rdi 6a596: 48 8b 80 f8 13 00 00 mov 0x13f8(%rax),%rax 6a59d: 48 83 c4 08 add $0x8,%rsp 6a5a1: 5b pop %rbx 6a5a2: 5d pop %rbp 6a5a3: ff e0 jmp *%rax 6a5a5: 0f 1f 00 nopl (%rax) 6a5a8: 48 83 c4 08 add $0x8,%rsp 6a5ac: 31 c0 xor %eax,%eax 6a5ae: 5b pop %rbx 6a5af: 5d pop %rbp 6a5b0: c3 ret LIB: /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc.so SYMBOL: hgGetExportTable@@libhggc.so address=0x00000000000ec140 size=0x00000000000002f9 /ppuswhome/junfu.qx/PPU_SDK/lib/libhggc.so: file format elf64-x86-64 Disassembly of section .text: 00000000000ec140 <hgGetExportTable@@libhggc.so>: ec140: f3 0f 1e fa endbr64 ec144: 41 55 push %r13 ec146: 41 54 push %r12 ec148: 55 push %rbp ec149: 48 89 fd mov …
+- (2026-10-17 09:44 UTC) 所以问题是什么
+- (2026-10-17 09:44 UTC) 是sdk版本不匹配？
+- (2026-10-17 09:45 UTC) 不是cutlass的问题，对吗？
+- (2026-10-17 09:46 UTC) 如何判断sdk版本是匹配的。
+- (2026-11-05 01:49 UTC) 我们现在1。5x的方案是什么来着
+- (2026-11-05 01:51 UTC) 为什么不用TMA搬运
+- (2026-11-05 05:44 UTC) 之前是什么文件缺失？
+- (2026-11-05 05:45 UTC) 在新的环境怎么验证这个
+
+## `01a0e601-9ccb-7450-9165-a90e843e17b2` — 查找最新 FlashAttention 优化
+
+- (2026-09-28 03:14 UTC) 找一下最近的flash attn优化casual
+- (2026-09-28 03:14 UTC) 找一下最近的flash attn优化casual的session id
+- (2026-09-28 03:14 UTC) 找一下最近的flash attn优化casual的session id
+
+## `01a0e626-c32d-7302-905c-5b457bd30665` — 应用补丁并替换linear attn
+
+- (2026-09-28 03:56 UTC) 打上这个repo下面的patch，然后提交一个新的commit。然后我们尝试用GDN-QSA-sm80里面的方法来替换本地的linear attn，我说的是cuLA的方法。
+- (2026-09-28 03:57 UTC) 只需要添加一个脚本到kernels repo就行了，然后脚本中替换掉linera attn的调用为actlize的实现。注意这几个模型的脚本的sh也要对应修改
+- (2026-09-28 04:00 UTC) 要在main上打patch
+- (2026-09-28 04:00 UTC) 要在main上打patch
+- (2026-09-28 04:22 UTC) push
+- (2026-09-28 04:28 UTC) linear_prefill_gdn_qsa_sm80 是直接调用actlize进行linear attn的运算吗？
+- (2026-09-28 04:37 UTC) bench actlize_gdn_prefill (cuLA): {"algorithm": "fused_sm90", "backend": "cuda_sm90", "configuration": "control", "source_check": false, "batch": 1, "seq_len": 2048, "q_heads": 16, "v_heads": 64, "head_dim": 128, "dtype": "bf16", "gate": "fp32 natural-log increments", "state": "fp32 [B,Hv,K,V]", "output_final_state": true, "warmup": 0, "iters": 1} actlize_gdn_prefill: set GDN_QSA_SM90_EXTENSION (or --extension) to the built SM90 extension failed_at: 2026-09-28T12:36:36+08:00
+- (2026-09-28 04:37 UTC) [GDN SM90 build] PASS scope=COMPILE_LINK_ONLY target=cuda_sm90 mode=native device=NOT_RUN [actlizeLA SM90 auto] PASS candidates=3 registered=True bundle=/workspace/actlizeLA/build/sm90 device=NOT_RUN [actlizeLA install] ready: from actlize_la import gdn_forward root@na131t-eec02:/workspace/actlizeLA# which nvcc
+- (2026-09-28 04:37 UTC) 但是已经pass了啊
+- (2026-09-28 06:19 UTC) 单次运行脚本 tools/run_sm90_gdn.py 增加： --mode perfmodel --sm-count 20 根据这个修正一下Kernels里面的gdn
+- (2026-09-28 07:20 UTC) flash_attn_3 和flash_attn的python import的区别是？
+- (2026-09-28 07:26 UTC) 改成flash attn3
+- (2026-09-28 08:33 UTC) 用了casual了吗？
+- (2026-09-28 08:39 UTC) 给我一个脚本，我测一下casual=False的prefill。kernel参数 seqlen_q = 1024 -> Q sequence length seqlen_k = 1024 -> K/V sequence length (== seqlen_q: full self-attention) num_heads = 56 -> Q heads num_heads_k = 56 -> KV heads (== num_heads: standard MHA, group size 1) head_dim = 128 -> Q/K head dim head_dim_value = 128 -> V head dim data_type = bf16 -> bfloat16
+- (2026-10-09 00:54 UTC) decoding的时候用attn2
+- (2026-10-09 00:54 UTC) 继续
+- (2026-10-09 03:56 UTC) linear attention的编译不在当前的compile脚本里面，对吗？
+- (2026-10-09 03:56 UTC) cuLA应该已经从当前的脚本中去掉了吧？
+- (2026-10-09 03:58 UTC) flashinfer gdn prefill是triton吗？。然后安装actlize——la的过程加入。然后actlize——la作为thirdparty加入。cuLA删掉。
+- (2026-10-09 04:00 UTC) 另外不是SM80 gdn_chunk ，sm80的相关字眼去掉
+- (2026-10-10 01:33 UTC) hi
+- (2026-10-10 01:41 UTC) source resume_codex.sh 为什么resume不起来，报错了194;57M35;199;54M35;202;53M35;203;53M35;201;53M35;200;53M35;199;52M35;197;50M35;194;49M35;191;47M35;186;45M35;181;43M35;174;41M35;170;40M35;166;39M35;164;38M35;163;37M35;164;37M35;165;37M0;165;37M32;165;37M0;165;37m35;165;37M35;166;36M35;170;34M35;176;31M35;185;27M35;197;23M35;220;15M35;233;11M35;248;4M35;255;1M35;168;3M35;166;10M35;164;15M35;162;20M35;160;26M35;161;28M35;163;29M35;167;29M35;168;29M35;166;29M35;163;29M35;161;29M35;158;29M35;157;29M35;156;29M0;156;29M0;156;29m35;156;29M35;157;30M35;159;32M35;164;35M35;168;38M35;177;44M35;187;49M35;201;55M35;226;62M35;236;64M35;239;64M35;240;64M35;239;64M35;232;63M35;227;63M35;224;64M35;223;65M35;220;68M35;219;69M35;219;74M35;219;75M35;220;75M35;220;76M35;221;76M35;223;76M35;225;76M35;227;76M35;228;77M35;229;77M35;230;77M35;173;73M35;175;64M35;176;59M35;175;52M35;175;51M35;176;49M35;178;47M35;179;47M35;179;46M35;179;45M35;178;44M35;175;43M35;172;41M35;167;37M35;165;35M35;162;33M35;149;26M35;136;20M35;132;18M35;131;18M35;131;17M65;131;17M65;131;17M65;131;17M65;131;17M35;131;17M35;129;17M35;122;16M35;112;15M35;99;14M35;82;11M35;64;9M35;42;4M35;34;2M35;31;1M35;35;1M35;37;1M35;36;1M35;37;1M^C
+- (2026-10-12 01:04 UTC) 在helpers中添加一个输入两个目录的对比的脚本。
+- (2026-10-12 01:22 UTC) 输入要包含着两个可能是不同的GHZ
+- (2026-10-12 01:24 UTC) 最终也要展示为一个bar图，然后每个栏目都显示两个，分别是GHZ的label。
+- (2026-10-12 01:32 UTC) 按照原来的画法，横着画，最高的最上面
+- (2026-10-12 01:34 UTC) 按照model_latency_decode_operators_bar.png的画法
+- (2026-10-12 01:40 UTC) 为什么 python helpers/summarize_perfstatistics.py $OUT/perfstatistics --bench-out-dir $OUT --bench-script ./bench_Qwen3.5-122B-A10B-GPTQ.sh --phase decode --ghz 1.0 --peak-tflops 250 --model-summary-dir $OUT/model_summary显示是36ms的latency for decode，但是python helpers/compare_bench_dirs.py /workspace/Kernels/.bench_logs/bench_20261008_180335/ /workspace/Kernels/.bench_logs/bench_20261010_084617 --baseline-ghz 1.5 --candidate-ghz 1.0 --plot comparison.png显示是33
+- (2026-10-12 01:43 UTC) 统一一下。
+- (2026-10-12 02:10 UTC) fp16 gemv (cuda core )指的是什么kernel？
+- (2026-10-12 03:10 UTC) bash compile.sh general 是不是会编译cublas gemm
+- (2026-10-12 09:41 UTC) 放一个sol的folder，然后添加一个1dir的cp的kernel：// read_heavy_bw.cu #include <cuda_runtime.h> #include <cstdint> #include <cstdio> #include <cstdlib> #include <vector> #define CUDA_CHECK(expr) \ do { \ const cudaError_t err = (expr); \ if (err != cudaSuccess) { \ std::fprintf(stderr, "%s:%d: %s\n", \ __FILE__, __LINE__, cudaGetErrorString(err)); \ std::exit(EXIT_FAILURE); \ } \ } while (0) __global__ void init_kernel(uint4 * dst, size_t count) { size_t i = (size_t) blockIdx.x * blockDim.x + threadIdx.x; size_t stride = (size_t) blockDim.x * gridDim.x; for (; i < count; i += stride) { const uint32_t x = (uint32_t) i; dst[i] = make_uint4( x * 1664525u + 1013904223u, x * 22695477u + 1u, x * 1103515245u + 12345u, x * 214013u + 2531011u); } } // One block reads one complete BF16 matrix row and writes one uint32 result. __global__ __launch_bounds__(128) void read_heavy_kernel( const uint4 * __restrict__ src, uint32_t * __restrict__ dst, int vecs_per_row) { const int row = blockIdx.x; const int lane = threadIdx.x & 31; const int warp = threadIdx.x >> 5; const uint4 * row_src = src + (size_t) row * (size_t) vecs_per_row; uint32_t acc = 0; // For 12288 BF16 elements: // 24576 bytes / 16 bytes = 1536 uint4 loads per row. // With 128 threads, each thread performs 12 loads. for (int i = threadIdx.x; i < vecs_per_row; i += blockDim.x) { const uint4 value = row_src[i]; // Keep every global load observable while adding little arithmetic. acc += value.x; acc += value.y; acc += value.z; acc += value.w; }  …
+- (2026-10-12 09:43 UTC) 这是一个read bw的测试，还有rw bw的测试：// copy_bw.cu #include <cuda_runtime.h> #include <cstdio> #include <cstdlib> #define CUDA_CHECK(expr) \ do { \ cudaError_t err = (expr); \ if (err != cudaSuccess) { \ std::fprintf(stderr, "%s:%d: %s\n", \ __FILE__, __LINE__, cudaGetErrorString(err)); \ std::exit(1); \ } \ } while (0) __global__ void copy_kernel( const uint4 * __restrict__ src, uint4 * __restrict__ dst, size_t n) { const size_t i = (size_t) blockIdx.x * blockDim.x + threadIdx.x; if (i < n) { dst[i] = src[i]; // 16 B load + 16 B store } } int main(int argc, char ** argv) { // 默认对应 12288 x 12288 BF16，约 288 MiB。 size_t bytes = 2ULL * 12288 * 12288; // 也可以通过参数指定 MiB。 if (argc > 1) { bytes = std::strtoull(argv[1], nullptr, 10) << 20; } if (bytes % sizeof(uint4) != 0) { std::fprintf(stderr, "bytes must be a multiple of 16\n"); return 1; } uint4 * src = nullptr; uint4 * dst = nullptr; CUDA_CHECK(cudaMalloc(&src, bytes)); CUDA_CHECK(cudaMalloc(&dst, bytes)); CUDA_CHECK(cudaMemset(src, 1, bytes)); CUDA_CHECK(cudaMemset(dst, 0, bytes)); const size_t n = bytes / sizeof(uint4); const int threads = 256; const int blocks = (int) ((n + threads - 1) / threads); for (int i = 0; i < 10; ++i) { copy_kernel<<<blocks, threads>>>(src, dst, n); } CUDA_CHECK(cudaDeviceSynchronize()); constexpr int iterations = 100; cudaEvent_t begin; cudaEvent_t end; CUDA_CHECK(cudaEventCreate(&begin)); CUDA_CHECK(cudaEventCreate(&end)); CUDA_CHECK(cudaEventRecord(begin)); for (int i = 0; i < iterations; ++i) { copy_kernel<< …
+- (2026-10-12 09:49 UTC) 上传了吗？
+- (2026-10-14 02:34 UTC) 如果有1。7的硬件，应该怎么增加测试，acu测试时间，参考h800和perfmodel的测试方法
+- (2026-10-14 02:58 UTC) 添加吧
+- (2026-10-14 03:37 UTC) /sol$ ./copy_bw copy_bw.cu:45: unknown error
+
+## `01a0eaa2-b29f-7df0-b685-1e803cc9451a` — 清理系统root空间
+
+- (2026-09-29 00:48 UTC) 清理一下系统root空间。
+- (2026-09-29 01:05 UTC) 清理一下系统root空间。
+
+## `01a11e23-d14b-7101-8e61-d5344c8c4bee` — 查看PMKernels相关历史
+
+- (2026-10-09 00:50 UTC) 最近那个history是关于PMKernels的
+
+## `01a176c7-e428-7601-bcfb-cb360ea237d3` — 查找近期KDA开发历史
+
+- (2026-10-26 05:57 UTC) 找一下最近的历史有没有kda的开发相关的
+- (2026-10-26 05:58 UTC) 怎么resume
+
+## `01a185b4-58e3-72d0-a4dc-f7b52d5f2102` — 检查 llama.cpp 中 PCCL 未纳入 CUDA Graph 原
+
+- (2026-10-29 03:29 UTC) 看一下本地的llama cpp的代码，为什么pccl没有包含在cuda graph中
+- (2026-10-29 03:32 UTC) 最小改动的适配版本思考一下
+- (2026-10-29 03:38 UTC) 改动大概多少航
+- (2026-10-29 03:39 UTC) 你这个改法最终事decode是一张cuda graph吗？
+- (2026-10-29 03:39 UTC) 我需要单张
+- (2026-10-29 03:54 UTC) 推送到一个单独的branch，push
+- (2026-10-29 06:16 UTC) 给我command我们测试一下 /sim/eec/shared/AI_workspace/llm-models/bench_model_zoo/DeepSeek-V4-Flash-0731-UD-Q4_K_XL/ DeepSeek-V4-Flash-0731-UD-Q4_K_XL-00001-of-00005.gguf，4卡tp，然后抓asys
+- (2026-10-29 06:44 UTC) 我们从master branch out试试，我想要加一个ppu的backend，GGML_BACKEND_PATH，
+- (2026-10-29 06:45 UTC) 然后我们在这个backend指向的so内部实现ppu的功能，这样不touch原始的llamacpp的代码
+- (2026-10-29 06:45 UTC) 然后我们在这个中间实现一个简单的算子。但是中间加个打印证明调用到了
+- (2026-10-29 06:49 UTC) 不是加法算子，应该是原生的llamacpp中包含的算子。我们在so中替换了
+- (2026-10-29 06:56 UTC) 但是你本地可以编译这个so，最终也调用到，最后报个错可以的
+- (2026-10-29 07:02 UTC) 提交一个新的branch。
+- (2026-10-29 07:06 UTC) so怎么bian yi d？
+- (2026-10-29 07:07 UTC) 这些代码不需要到llama cpp里面，对吗？
+- (2026-10-29 07:08 UTC) 也就是ppu backend下面都可以不再？
+- (2026-10-29 07:12 UTC) 我的意思是如果我们跑一个模型，最终调用了rms norm，我们的代码会覆盖原生的实现？
+- (2026-10-29 07:13 UTC) 如果模型用原声cuda backend，rms norm数据在显存，就不会替换吗？那什么时候替换
+- (2026-10-29 07:14 UTC) 我们就是一种cuda的兼容的ppu
+- (2026-10-29 07:18 UTC) 怎么替换
+- (2026-10-29 07:36 UTC) 如果融合路径的算子我们也替换呢？
+- (2026-10-29 07:47 UTC) 如果要替换整段moe-gemm部分的实现呢？还有linear attention
+- (2026-10-29 07:55 UTC) 没太理解，moe的话我们需要实现什么？
+- (2026-10-29 08:02 UTC) 但是需要修改llamacpp
+- (2026-10-29 08:09 UTC) 如果我们对于权重进行了shuffle，这部分的逻辑怎么实现比较合理？可以不touch原始的代码吗？
+- (2026-10-29 08:11 UTC) 只保留一份
+- (2026-10-29 08:20 UTC) 为什么cuda grpah还是分开的没有生效，是不是有什么开关
+- (2026-10-29 08:37 UTC) 配置之后没看到decode？
+- (2026-10-29 08:38 UTC) 挂了，
+- (2026-10-29 08:39 UTC) #0 0x00007fe35d6d7813 in wait4 () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007fe35c9b58f3 in ggml_print_backtrace () from /sim/llama.cpp.1029/build-ci/bin/libggml-base.so.0 #2 0x00007fe35c9b5a9b in ggml_abort () from /sim/llama.cpp.1029/build-ci/bin/libggml-base.so.0#3 0x00007fe34e4ae605 in ggml_quactlize_mul_mat(ggml_backend_cuda_context&, ggml_tensor*) () from /sim/llama.cpp.1029/build-ci/bin/libggml-cuda.so.0 #4 0x00007fe34e34c9cb in ggml_cuda_compute_forward(ggml_backend_cuda_context&, ggml_tensor*) () from /sim/llama.cpp.1029/build-ci/bin/libggml-cuda.so.0 tpgraph为0的时候可以
+- (2026-10-29 08:39 UTC) #5 0x00007fe34e34f08b in ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context*, ggml_cgraph*, bool, bool, void const*) [clone .constprop.0] () from /sim/llama.cpp.1029/build-ci/bin/libggml-cuda.so.0 #6 0x00007fe34e3509fe in ggml_backend_cuda_comm_graph_compute(void*, ggml_cgraph**, unsigned long, unsigned long) () from /sim/llama.cpp.1029/build-ci/bin/libggml-cuda.so.0
+- (2026-10-29 08:50 UTC) 提交到对应的branch
+- (2026-10-29 09:13 UTC) 不同卡的cudagraph launch时间差距很大，
+- (2026-10-29 09:13 UTC) 第一个的pccl灯了非常久，我需要同时launch
+- (2026-10-29 09:28 UTC) 上传了
+- (2026-10-29 09:33 UTC) 你该杀了
+- (2026-10-29 09:33 UTC) 改啥了
+- (2026-10-29 09:34 UTC) 继续
+- (2026-10-29 09:37 UTC) 需要重新编译什么？
+- (2026-10-30 03:18 UTC) 我想要知道如果我只想用GGML_BACKEND_PATH 替换某个kernel的实现到我们自己的优化实现，怎么做？
+- (2026-10-30 03:23 UTC) 其他算子复用原实现，有什么需要改的？需要把所有的代码拷贝过来吗
+- (2026-10-30 03:25 UTC) 那你不就是相当于维护了一套基本上完整的代码吗
+- (2026-11-02 00:59 UTC) 如果想要实现llamacpp的中间表示用bf16？好实现吗？
+- (2026-11-02 00:59 UTC) 我需要最小改动的版本。对于原始的代码侵入越小yue ha。
+- (2026-11-02 00:59 UTC) 因为后期还要rebase
+- (2026-11-02 09:41 UTC) prefill如果也要multithread launch kernel呢？
+- (2026-11-02 09:44 UTC) 添加这个支持
+- (2026-11-05 03:10 UTC) vLLM 与 llama.cpp 的 DeepGemm 并发问题分析（截图转写） 验证完毕，不需要再跑代码。答案清晰了——【vLLM 从两个层面规避了这个问题，而这两个层面恰恰是 llama.cpp 没有的。】 1. 为什么 vLLM 不崩：架构层 + 策略层双保险 层面一（架构层）：【TP 是"多进程"，不是"多线程共享进程内缓存"。】 我们复现崩溃的核心是：kernel_runtime_cache 是文件作用域 static 的进程全局 unordered_map，4 个 TP rank 在同一个进程里无锁并发改它。vLLM 里 TP/NCCL rank 是各自独立进程（每卡一进程，torchrun/NCCL），所以每个进程里的 kernel_runtime_cache 各有一份、互不共享——根本不存在"多线程同时写同一个全局 map"这个前提。这是结构性差异。 层面二（策略层）：【warmup 在 compile_mode=1 下、单线程、逐 shape 串行把所有 kernel 预编译掉。】 kernel_warmup.py:179：PPU 平台在 CUDA(PPU) Graph capture 之前，逐个模型遍历所有可能用到的分组/稠密 GEMM shape（fp8/int8/bf16/fp4/w4a16/masked 全量或 relax 抽点），一次性调用 DeepGemm 把这些 kernel 全部 JIT build 进 cache（见 ppu_deep_gemm_warmup.py:135 set_compile_mode(1)，这是 DeepGemm 延迟编译的开关）。 于是到了图捕获多线程阶段：所有 kernel 都已在【runtime cache】里，多线程只会对这个 map 做并发 find（【纯读】）——只读的 unordered_map 并发查找是线程安全的，不触发 build()/insert，自然不会撞上我们修的那些 get_num_sms()、LazyInit、DeviceRuntime 初始化竞争。 一句话：vLLM 把"【并发冷 JIT build】"这一危险阶段提前到了单线程 warmup 里做掉，剩下的图捕获只是【并发热读热 kernel】。 2. "所有 JIT kernel 都会 touch 算子库"——你的推断对，但要分清修的是什么 你的担心是合理的：如果一个 TP rank 在冷 cache 且多线程进程内共享，那么任何 DeepGemm JIT kernel（dense GEMM、grouped GEMM、attention…）首次被并发调用时，都会走到那几个无锁的进程级 lazy-init 点。所以这确实是【算子库自身的一个缺陷】，不只是某一个 kernel 的问题。 但对齐一下我们修的和 vLLM 的差别： 我们修的是 DeepGemm 库的"初始化缺陷"：get_num_sms()、LazyInit、DeviceRuntime 这三处无锁的进程级惰性初始化。这是任何使用者在"单进程内多线程并发首次触发"时都会踩到的 bug——属于库本身该修的正确性问题，与我们是否使用 vLLM 无关。 vLLM 不是"有这种设计"，它没有在 DeepGemm 内部加锁，也没有改算子库代码。它靠自己的调用方式（多进程分散 + warmup 预编译）绕开了这个竞争窗口，所以它没暴露这个库 bug。 llama.cpp 是单进程 + 多 TP 线程 + 冷 cache（graph capture 时第一次触达 …
+- (2026-11-05 03:17 UTC) 有没有不touch 算子库本身的方法
+- (2026-11-05 03:28 UTC) 也就是第一次有时间差？还是每次都有
+- (2026-11-05 03:29 UTC) 如果runtime调用的get sm之类的呢
+- (2026-11-05 03:32 UTC) 为什么多线程调用这些会有问题？因为写同一块cpu内存？多进程为什么没有这个问题
+- (2026-11-05 03:34 UTC) 如果只是launch kernel的时候多线程，怎么操作呢
+- (2026-11-05 07:00 UTC) llama.cpp本身的cuda代码是什么开源协议？
+
+## `01a18a74-7c7a-7660-aa08-04b02a0305f7` — 理解KDA设计并提炼PPU实现
+
+- (2026-10-30 01:40 UTC) 我希望你根据我本地的历史，以及memory和skills，编写kda，ignore我们之前的kda的提交，这个压根不合理。我需要你从我的历史的memory中的linear attention，flash attention，quactlize，sage attention，以及其他的算子中提取出来。注意我们是PPU，所以和nvidia有所不同。注意写法要按照kda的写法，不要自己随意写。之前的commit可以回退。先理解kda的设计
+- (2026-10-30 01:42 UTC) 需要acu和asys的mcp吗？你先看看kda需要不需要
+- (2026-10-30 01:43 UTC) 这是我们的ppu自有工具链
+- (2026-10-30 01:44 UTC) 对应的kda中的文档都要想想怎么适配到ppu，如果不需要适配也可以
+- (2026-10-30 01:59 UTC) 上传
+- (2026-10-30 02:00 UTC) main去掉我们的自己添加的commit，然后sync fork，然后我们的ppu rebuild rebase到sync的main
+- (2026-10-30 02:03 UTC) skill太多了，你这里dummy都添加了，另外这些skill我也是要放到repo中，这些skill放到repo的都需要仔细看一下。对比kda原始的写法。我们有很多是冗余的，跟kda无关的都要删掉。
+- (2026-10-30 02:03 UTC) 我说的是repo里面的删掉
+- (2026-10-30 02:05 UTC) 很多比较有效的，比如cute的精度debug，以及ppu的ptx硬件差别。这些我觉得比较有用，需要放过去，你需要按照类似的逻辑一个个判断，需要加进去的才放过去。按照你是一个使用kda的agent，需要写或者迁移nvidia的kernel的逻辑思考哪些知识需要。而不是全部放过去，尤其是很多只有我们这几个repcai用的，什么quactlize budget之类的。。。。
+- (2026-10-30 02:06 UTC) nvidia的skills有一些也是有效的。不要都删掉，我们是nvidai兼容的，架构也差不多。
+- (2026-10-30 02:07 UTC) 你要思考你需要哪些信息，以及kda中nvidai的卡都包含了哪些信息，然后你根据这些你需要的，去memory和skill中找，找不到的总结给我
+- (2026-10-30 02:07 UTC) 另外actlize和cutlass的区别也在memory中。
+- (2026-10-30 02:19 UTC) 1.0不需要了？
+- (2026-10-30 02:20 UTC) skills/ppu-kernel-knowledge/references/sources.md 我要在其他的机器呢？这个里面的很多就不存在了吧？
+- (2026-10-30 02:30 UTC) 缺了哪些材料？
+- (2026-10-30 02:33 UTC) 我希望的是直接在810上跑，直接能够kda优化某个kernel或者迁移某个nvidia的kernel到ppu
+- (2026-10-30 02:44 UTC) sources里面不要出现我的github repo，如果需要某些markdown，直接放到当前的kda repo
+- (2026-10-30 02:44 UTC) 另外有一些actlize之类的有开源的版本，不要用我的fork版本
+- (2026-10-30 03:52 UTC) 我上传了PPU架构与NVIDIA_SM对照的markdown，你可以参考
+- (2026-10-30 03:58 UTC) 你提出你的问题，我去问内网的agent，读取我们自己的perf model。然后回复你
+- (2026-10-30 06:18 UTC) https://developer.t-head.cn/docs_center/doc_list/index.html 这里有很多问题的答案。你可以阅读一下。
+- (2026-10-30 06:19 UTC) https://developer.t-head.cn/docs_center/doc_detail/index.html?projectId=39&chapterId=612
+- (2026-10-30 06:20 UTC) https://developer.t-head.cn/docs_center/doc_detail/index.html?projectId=48
+- (2026-10-30 06:20 UTC) https://developer.t-head.cn/docs_center/doc_detail/index.html?projectId=1
+- (2026-10-30 10:00 UTC) 现在已经可以直接到机器上实际让这个kda开发算子了吗
+- (2026-11-02 01:40 UTC) 提取一下kda的整个repo的结构，画一个图
+- (2026-11-02 09:21 UTC) 直接svg吧
+- (2026-11-02 09:28 UTC) 放到root目录
+- (2026-11-02 09:35 UTC) 从写一个新的kernel开始画一个流程图，最终会发生哪些事情？
+- (2026-11-02 09:39 UTC) KDA仓库结构我想要的是原始的非PPU的结构。这个也给我svg
+- (2026-11-02 09:51 UTC) 如果是提升一个已有kernel的性能呢？
+- (2026-11-02 09:54 UTC) 而且目标机器如果是zw890，你这边还适用吗？
+- (2026-11-02 09:58 UTC) inspect ppu吧，其他的命名也参考这个修改
+- (2026-11-02 10:19 UTC) 如果我想要用kda去优化某个算子，需要怎么跟local的agent说
+- (2026-11-02 10:22 UTC) 假设是优化890上的fa的dense shape下的tensor利用率。
+- (2026-11-02 11:01 UTC) 什么时候会去reference我们自己的优化的kernel的经验
+- (2026-11-02 11:56 UTC) 同样的，把ppu的挪到forgekernel这个repo
+- (2026-11-02 11:56 UTC) https://github.com/DrXuQian/ForgeKernel 推送
+- (2026-11-02 12:07 UTC) 可以适配到ppu 吗
+- (2026-11-02 12:53 UTC) 还有多久
+- (2026-11-02 12:57 UTC) =================================== FAILURES =================================== ______________________ test_public_ffn[10-separate-dense] ______________________ package = PosixPath('/workspace/kpack-ffn-accuracy.vA3esJ91/package') sdk = <quactlize.runtime.native.SDK object at 0x7fb1ddf41e80>, kind = 0 merged = False, q = 10 @pytest.mark.parametrize('kind', [0, 1], ids=['dense', 'moe']) @pytest.mark.parametrize('merged', [False, True], ids=['separate', 'canonical-2n']) def test_public_ffn(package, sdk, kind, merged, q): > run_ffn(package, sdk, kind, merged, q) tests/ppu/test_ffn_library.py:23: _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ got = array([[ 1.19209290e-07, 2.38418579e-07, 3.57627869e-07, ..., 2.98023224e-07, 4.76837158e-07, 1.78813934e... [-0.00000000e+00, 1.19209290e-07, -5.96046448e-08, ..., 5.96046448e-08, -5.96046448e-08, 0.00000000e+00]]) gold = array([[ 1.44791557e-07, 2.59547960e-07, 3.74886440e-07, ..., 3.11003532e-07, 4.88973456e-07, 1.61366188e... [-6.54836185e-09, 9.84291546e-08, -3.58413672e-08, ..., 5.18630259e-08, -7.49278115e-08, 2.43016984e-09]]) denom = array([[8.92294338e-07, 1.68295810e-06, 1.34110451e-06, ..., 1.78656774e-06, 1.33158755e-06, 4.62416210e-07], ... [7.24656275e-07, 1.48994150e-06, 1.09478424e-06, ..., 1.49075640e-06, 1.12042471e-06, 3.84097802e-07]]) tolerance = 0.005
+- (2026-11-02 12:58 UTC) 颤过了，不是给你的
+- (2026-11-02 13:08 UTC) 给我promtp
+- (2026-11-02 23:04 UTC) 同样的逻辑给forgekernel画图，三个图
+- (2026-11-04 01:18 UTC) KDA的代码过程画一个动图吧。希望尽可能多的cover到所有的设计模块。并且要准确。忽略ppu部分。
+- (2026-11-04 01:54 UTC) 感觉上还是不对，太抽象了，以一个具体的kernel作为例子呢？然后查询的内容有哪些
+- (2026-11-10 01:47 UTC) 帮我按照kda的要求申请平头哥AI算力资源申请汇报模板，修改这个ppt，注意最后一页不写，另外风险应该也不用谢，第一页就直接在上面改。
+- (2026-11-10 01:55 UTC) 申请主要是token，参考最新上传的几个图片，三张图
+- (2026-11-10 06:10 UTC) KDA如何设计CI
+- (2026-11-10 06:15 UTC) KDA仓库本身有哪些测试能做
+
+## `01a1a3f9-10d4-78d0-bbd1-cf8aded7645a` — 评估 Strata 适配 PPU 工作量
+
+- (2026-11-04 00:33 UTC) 查看一下https://github.com/niko1221/strata，然后还有本地的llamacpp，我希望strata适配到我们的PPU，并且用我们的高性能算子。看一下需要有哪些工作量
+- (2026-11-04 02:55 UTC) 我们如果针对qwen3。8-flash-next做一个推理框架，gguf的格式，是用strata好，还是从头开始写好，还是基于flare或者其他的框架好。，思考一下
+- (2026-11-04 03:00 UTC) 单卡和少量PPU，模型主要放在显存
+- (2026-11-04 03:06 UTC) 不不不，我就是想要一个新的框架，轻量支持qwen3。8-flash-next
+- (2026-11-04 03:06 UTC) 如果我们重头开始写，用rust合适吗
+- (2026-11-04 03:12 UTC) 参考flare的结构，我们开始写一个版本的qwen4exp，对于算子本身，https://github.com/DrXuQian/actlizeLA https://github.com/DrXuQian/QUactlize https://github.com/t-head 下面的全部算子。
+- (2026-11-04 03:12 UTC) 至于怎么使用quactlize，可以参考我们的llamacpp，当然没有框架的束缚之后helper可以写的更精简
+- (2026-11-04 03:13 UTC) 注意要用MTP
+- (2026-11-04 03:18 UTC) › 模型是https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/tree/main/UD-Q4_K_XL，可以看一下strata用的是什么模型和mtp，他在96GB的单卡可以放下 › 为什么可以
+- (2026-11-04 03:24 UTC) 我想要知道如果是SSD或者CPU内存，这个方案要求分别要有多大
+- (2026-11-04 03:26 UTC) SSD空间可以认为很大，RAM如果要不影响性能需要多大
+- (2026-11-04 04:09 UTC) mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf 这个MTP
+- (2026-11-04 04:11 UTC) 推到https://github.com/DrXuQian/qwen4flash
+- (2026-11-04 04:43 UTC) ssh -p 23950 root@connect.westd.seetacloud.com <REDACTED_PASSWORD> 用这台RTX6000作为proxy，测试框架层面的改动，可以用flashattn nv版本，deepgemm nv版本等作为校验。quactlize应该也可以兼容测试。搞一个兼容版本，但是格式要对上。
+- (2026-11-04 05:48 UTC) 感觉上strata是不是做了什么别的设计，为什么decoding的时候还能到100tps，如果是权重offload，再加载，没有这么快吧
+- (2026-11-04 06:12 UTC) 现在什么状态了
+- (2026-11-04 06:13 UTC) 要加速，decode用cudagraph
+- (2026-11-04 06:13 UTC) decode和mtp需要裹在一个cudagraph
+- (2026-11-04 06:17 UTC) 我是要性能最优的版本，所以尽量不能有bubble。
+- (2026-11-04 06:18 UTC) 现在的算子你从那里来的
+- (2026-11-04 06:20 UTC) 你是pip install的吗？
+- (2026-11-04 06:21 UTC) rust推理路径没有python怎么跑fa？
+- (2026-11-04 06:22 UTC) flare是怎么做的
+- (2026-11-04 06:26 UTC) 我们还是参考flare的实现
+- (2026-11-04 06:28 UTC) 读一下flare的代码，我们看一下哪些可以复用，哪些是我们自己需要设计的。因为算子都是我们自己掌握的，所以有好处，如何利用。
+- (2026-11-04 06:35 UTC) 你先在rtx6000上达到甚至超过flare的水平吧，我们再去考虑适配ppu的事情。
+- (2026-11-04 06:35 UTC) 逻辑上就是替换一下算子
+- (2026-11-04 06:35 UTC) 主要是gguf的格式flare不支持
+- (2026-11-04 06:41 UTC) 或者是不是直接基于flare开发更好？
+- (2026-11-04 06:41 UTC) 在flare上支持gguf？
+- (2026-11-04 06:48 UTC) 所有的算子应该直接pip install就可以吧，比如flashattn之类的。
+- (2026-11-04 06:48 UTC) 我不想要像llamacpp一样引入大量的算子在框架内不
+- (2026-11-04 06:51 UTC) FlashInfer/b12x这个是pip install的吗？
+- (2026-11-04 07:08 UTC) 继续
+- (2026-11-04 07:48 UTC) 推送到https://github.com/DrXuQian/spark-local-inference
+- (2026-11-04 08:26 UTC) 现在什么状态了，可以推理gguf了吗？
+- (2026-11-04 08:26 UTC) 或者这个框架内有哪些算子的需求，对于ppu
+- (2026-11-04 08:35 UTC) nvidia上可以在quactlize中加入一个兼容接口，就是tc版本都是fully dequant+16-bit的gemm。这样也可以跑在nvidia的卡上。
+- (2026-11-04 08:45 UTC) 还有什么其他的kernel，gdn使用的flashlinearattention？在flare里面？
+- (2026-11-04 09:04 UTC) 之前的qwen3。8flash-next，ngram部分不在显存所以可以放下
+- (2026-11-04 09:19 UTC) cutile我们硬件没有，能跑吗？我们有flash attention，deepgemm，quactlize以及actlizeLA
+- (2026-11-04 09:25 UTC) 图导出，这部分应该硬件无关吧，我们兼容nvidia的api
+- (2026-11-04 09:26 UTC) 导出应该在我们的平台上导出
+- (2026-11-04 09:28 UTC) 继续
+- (2026-11-04 09:33 UTC) 还有多久
+- (2026-11-04 09:38 UTC) MTP单图，flare中本来应该也支持吧。另外现在不需要超过flare了，
+- (2026-11-04 09:38 UTC) 算子层面ppu缺了什么？
+- (2026-11-04 09:38 UTC) 给我一个表格
+- (2026-11-04 09:46 UTC) 继续吧，rmsnorm这些，flare里面没有嘛？
+- (2026-11-04 09:46 UTC) 继续吧，ppu的算子部分的工作，你先把quactlize的部分总结prompt给我
+- (2026-11-04 09:55 UTC) 给actlizeLA的呢
+- (2026-11-04 09:59 UTC) 你继续框架层面的工作
+- (2026-11-04 11:03 UTC) 继续
+- (2026-11-04 11:05 UTC) 目标是做到接入gguf的文件并且在rtx上没有bubble.做好去ppu之前的所有准备
+- (2026-11-04 11:05 UTC) 中间不要断掉
+- (2026-11-04 13:14 UTC) 什么进度了
+- (2026-11-04 13:15 UTC) 可以跑一个其他的小一点的模型吗
+- (2026-11-04 13:16 UTC) 或者只跑期中一部分曾
+- (2026-11-04 13:16 UTC) 层
+- (2026-11-04 13:20 UTC) 我不需要有意义的回答，只需要验证bubble和接入正确性。磁盘肯定不够，所以不要下完
+- (2026-11-04 13:22 UTC) 主要是验证gguf接入之后的行为是不是和flare的其他的模型预期一致
+- (2026-11-04 13:22 UTC) 这个比较重要
+- (2026-11-04 13:22 UTC) 然后我们再尝试迁移到nvidia的平台
+- (2026-11-04 13:22 UTC) 非nvidia的ppu
+- (2026-11-04 13:24 UTC) 另外ppu的算子也要静态检查是不是符合了需求。quactlize和actlizeLA应该都更新了，列一个todo，一个个昨晚
+- (2026-11-04 14:12 UTC) 在quactize的flashnext的branch上港推送
+- (2026-11-04 14:12 UTC) 检查完继续
+- (2026-11-04 22:16 UTC) 什么状态了
+- (2026-11-04 22:18 UTC) 预计还要多久
+- (2026-11-05 00:43 UTC) 等待什么环境
+- (2026-11-05 00:44 UTC) 目前在nvidia机器上只有上面的长尾没有找到原因了对吗
+- (2026-11-05 00:44 UTC) 如果是这样， 我是不是可以关闭rtx的机器了
+- (2026-11-05 00:45 UTC) 长尾在什么case会出现，从前后的kernel结合代码分析一下，如果实在分析不出来我再去关机
+- (2026-11-05 01:07 UTC) 这个cudaeventquery是在查询什么东西
+- (2026-11-05 01:12 UTC) 这个查询的时间怎么会这么长
+- (2026-11-05 01:17 UTC) OK，暂时我可以关闭机器了吧
+- (2026-11-05 01:18 UTC) 当前的系统盘也要清理一下，先给我ppu上/sim/eec/shared/junfu.qx/spark-local-inference 如何安装环境
+- (2026-11-05 01:23 UTC) 我没有cuTile，flashinfer和torch都有，flashinfer用来做那些计算
+- (2026-11-05 01:23 UTC) pip install的时候会默认用PPU的artifacts安装torch和flashinfer
+- (2026-11-05 01:25 UTC) 如何验证flashinfer的安装满足flare的要求，给我一个command。
+- (2026-11-05 01:31 UTC) FAIL b12x ModuleNotFoundError No module named 'b12x'
+- (2026-11-05 01:33 UTC) b12x用的应该是cutile，我不想用，所以内部用到的都要替换成其他的接口，先列一个表，我一个一个说
+- (2026-11-05 01:42 UTC) 1应该 cublas就可以吧。2
+- (2026-11-05 01:46 UTC) 其他的找开源方案或者我们这几个库里面的方案。https://github.com/orgs/t-head/repositories
+- (2026-11-05 02:03 UTC) qucatlize的prompt给我
+- (2026-11-05 02:07 UTC) 直接写到本地，给我路径
+- (2026-11-05 02:16 UTC) actlizeLA的prompt也写下来
+- (2026-11-05 02:26 UTC) 本地的其他算子确实你继续做
+- (2026-11-05 03:24 UTC) 继续
+- (2026-11-05 03:33 UTC) qucatlize和actlizeLA都已经上传了最新的改动。你可以check一下。
+- (2026-11-05 03:52 UTC) nvidia兼容的只是调试用的
+- (2026-11-05 04:02 UTC) 什么精度了
+- (2026-11-05 04:02 UTC) 进度了
+- (2026-11-05 04:06 UTC) 继续直到可以让我上box
+- (2026-11-05 04:21 UTC) 预估还要多久
+- (2026-11-05 05:32 UTC) 还有哪些todo？
+- (2026-11-05 06:03 UTC) 6 passed, 4919 warnings in 6.45s
+- (2026-11-05 06:04 UTC) te.py:804: 1627 warnings /usr/local/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:804: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead keys = [ast.Str(key) for key in current.keys()]
+- (2026-11-05 06:07 UTC) 还剩下哪些工作
+- (2026-11-05 06:39 UTC) FAILED tests/components/test_flash_attn3_prepared_cuda.py::test_prepared_copy_and_attention_replay[none-1] - IndexError: tuple index out of range FAILED tests/components/test_flash_attn3_prepared_cuda.py::test_prepared_copy_and_attention_replay[flare-1] - TypeError: make_fx() got an unexpected keyword argument '_disable_torch_fn_metadata_mode'
+- (2026-11-05 06:40 UTC) ______________________________________________________________________ test_prepared_copy_and_attention_replay[flare-128] _______________________________________________________________________ tests/components/test_flash_attn3_prepared_cuda.py:64: in test_prepared_copy_and_attention_replay forward = compile_forward(forward) ignition/preparation/compilation.py:368: in compile_forward module = (ForwardTracer() if tracer is None else tracer)(trace) ignition/preparation/compilation.py:337: in __call__ module = make_fx(fn, tracing_mode='fake', _allow_non_fake_inputs=True, E TypeError: make_fx() got an unexpected keyword argument '_disable_torch_fn_metadata_mode' tests/components/test_flash_attn3_prepared_cuda.py:65: in test_prepared_copy_and_attention_replay forward(); forward(); stream.synchronize() tests/components/test_flash_attn3_prepared_cuda.py:58: in forward writer() ignition/components/flash_attn3.py:118: in __call__ launch_triton(write_rows, self.compiled, (*self._arguments(), self.block), self.grid, num_warps=4) iignition/preparation/triton.py:58: in launch_triton compiled[grid](*args) /usr/local/lib/python3.12/site-packages/triton/compiler/compiler.py:512: in runner self.run(grid[0], grid[1], grid[2], stream, self.function, self.packed_metadata, launch_metadata, E IndexError: tuple index out of range
+- (2026-11-05 06:44 UTC) torch: 2.9.0 triton: 3.5.0 make_fx: (f: 'Callable', decomposition_table: 'Optional[Mapping[OpOverload, Callable]]' = None, tracing_mode: 'str' = 'real', _allow_non_fake_inputs: 'bool' = False, *, pre_dispatch: 'bool' = False, record_module_stack: 'bool' = False, _allow_fake_constant: 'bool' = False, _error_on_data_dependent_ops: 'bool' = True, record_stack_traces: 'bool' = False) -> 'Callable[..., GraphModule]'
+- (2026-11-05 06:55 UTC) 4 passed, 3 deselected, 4950 warnings in 9.29s
+- (2026-11-05 07:10 UTC) 7 passed, 4950 warnings in 11.47s
+- (2026-11-05 07:21 UTC) jixu
+- (2026-11-05 07:27 UTC) /sim/eec/shared/junfu.qx/actlizeLA 和/sim/eec/shared/junfu.qx/quactlize
+- (2026-11-05 07:48 UTC) 还剩哪些工作
+- (2026-11-05 07:49 UTC) 继续
+- (2026-11-05 08:06 UTC) FAILED tests/components/test_flash_attn3_prepared_cuda.py::test_prepared_copy_and_attention_replay[catalog-7] - RuntimeError: failed to prepare compiled forward attention FAILED tests/components/test_flash_attn3_prepared_cuda.py::test_prepared_copy_and_attention_replay[catalog-128] - RuntimeError: failed to prepare compiled forward attention FAILED tests/components/test_flash_attn3_prepared_cuda.py::test_prepared_copy_and_attention_replay[catalog-1] - RuntimeError: failed to prepare compiled forward attention
+- (2026-11-05 08:07 UTC) E torch._inductor.compile_worker.subproc_pool.SubprocException: An exception occurred in a subprocess: E E Name=<unknown> E Traceback (most recent call last): E File "/usr/local/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 397, in do_job E result = job() E ^^^^^ E File "/usr/local/lib/python3.12/contextlib.py", line 81, in inner E return func(*args, **kwds) E ^^^^^^^^^^^^^^^^^^^ E File "/sim/eec/shared/junfu.qx/spark-local-inference/ignition/preparation/compile_pool.py", line 37, in _compile_forward E artifact = aot_forward(forward, options=options) E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/sim/eec/shared/junfu.qx/spark-local-inference/ignition/preparation/aot.py", line 464, in aot_forward E dynamic=False).aot_compile(((forward,), {})) E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 719, in aot_compile E return aot_compile_fullgraph( E ^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/torch/_dynamo/aot_compile.py", line 221, in aot_compile_fullgraph E capture_output = convert_frame.fullgraph_capture( E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/torch/_dynamo/convert_frame.py", line 967, in fullgraph_capture E raise e.with_traceback(None) from e.__cause__ # User compiler error E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E Explanation: Dynamo developers have intentionally marked that the function `wrap_tri …
+- (2026-11-05 08:09 UTC) 是torch的版本太低了吗？
+- (2026-11-05 08:20 UTC) ignition/preparation/aot.py:763: in finish raise RuntimeError(f"failed to prepare compiled forward {name}") from error E RuntimeError: failed to prepare compiled forward attention ignition/preparation/aot.py:754: in finish bound = self._load(bound.owner, path, required=True, ignition/preparation/aot.py:1006: in _load raise BindingMismatch(f"rank-local forward does not match compiled guards: {reason}") E ignition.preparation.aot.BindingMismatch: rank-local forward does not match compiled guards: GuardDebugInfo( E result=0, verbose_code_parts=["___check_type_id(L['forward'].writer.compiled, 94088583735200) # if self.compiled is None: # im/eec/shared/junfu.qx/spark-local-inference/ignition/components/flash_attn3.py:116 in __call__"], E num_guards_executed=7) The above exception was the direct cause of the following exception: tests/components/test_flash_attn3_prepared_cuda.py:80: in test_prepared_copy_and_attention_replay compiled = cache.prepare_many({'attention': forward}, signature)['attention'] ignition/preparation/aot.py:729: in prepare_many return self._prepare_many(functions, signatures, progress=progress, ignition/preparation/aot.py:773: in _prepare_many finish() ignition/preparation/aot.py:763: in finish raise RuntimeError(f"failed to prepare compiled forward {name}") from error E RuntimeError: failed to prepare compiled forward attention
+- (2026-11-05 08:34 UTC) 找到问题了吗
+- (2026-11-05 08:36 UTC) 推送了吗
+- (2026-11-05 08:37 UTC) 继续
+- (2026-11-05 08:44 UTC) 4 passed, 7 deselected, 5049 warnings in 89.86s (0:01:29) 这回对了
+- (2026-11-05 09:03 UTC) test_external_session_catalog_replays_alternating_state_transfers torch.testing.assert_close(hidden.cpu(), expected_hidden, rtol=0, atol=0) E AssertionError: Tensor-likes are not equal! E E Mismatched elements: 34 / 315 (10.8%) E Greatest absolute difference: 34.0 at index (0, 34) E Greatest relative difference: 1.0 at index (0, 1)
+- (2026-11-05 09:11 UTC) 过了，继续
+- (2026-11-05 09:24 UTC) 这个gguf的shuffle在哪里做
+- (2026-11-05 09:26 UTC) 可以在flare的某一个准备阶段做吗？
+- (2026-11-05 09:39 UTC) 缺的部分告诉我，我去找quactlize开发
+- (2026-11-05 09:44 UTC) consider this done，继续开发其他部分
+- (2026-11-05 10:45 UTC) E ImportError: cannot import name 'runtime_version' from 'google.protobuf' (/usr/local/lib/python3.12/site-packages/google/protobuf/__init__.p
+- (2026-11-05 10:47 UTC) tests/preparation/test_gguf_weights_cuda.py:78: in test_native_reads_fuse_within_each_expert_and_preserve_plain_bits weight = loader.load_quantized_group(('blk.0.ffn_gate_exps.weight', 'blk.0.ffn_up_exps.weight')) ignition/components/gguf_weights.py:168: in load_quantized_group self._session.flush() ignition/preparation/gguf_pread.py:237: in flush raise RuntimeError(f'checkpoint CUDA copy failed: {status}') E RuntimeError: checkpoint CUDA copy failed: 35 __________________________________________________ test_selected_blocks_and_experts_are_exact __________________________________________________
+- (2026-11-05 10:50 UTC) torch: 2.9.0 runtime init: (<cudaError_t.cudaErrorInsufficientDriver: 35>,) /usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcuda.so.1 /usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcudart.so.13.0.48 /usr/local/lib/python3.12/site-packages/torch/lib/libc10_cuda.so /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so
+- (2026-11-05 11:00 UTC) ssh推送
+- (2026-11-05 11:10 UTC) 通过了继续
+- (2026-11-05 11:54 UTC) quactlize直接安装
+- (2026-11-05 11:54 UTC) 吗
+- (2026-11-05 11:54 UTC) pip
+- (2026-11-05 11:55 UTC) 最终还是要安装包的形式吧
+- (2026-11-05 11:55 UTC) 类似于其他几个库
+- (2026-11-05 12:05 UTC) 给我prompt
+- (2026-11-05 12:56 UTC) 已经上传了quactlize的大包版本
+- (2026-11-05 13:25 UTC) 都pass了，继续
+- (2026-11-05 13:39 UTC) /usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcublas.so
+- (2026-11-05 13:39 UTC) actlizeLA也是一样要安装
+- (2026-11-05 13:39 UTC) 给我prompt让actlizeLA也安装
+- (2026-11-05 14:46 UTC) 16 passed, 5109 warnings in 51.17s
+- (2026-11-05 14:59 UTC) 还有几步
+- (2026-11-05 15:06 UTC) 14 passed, 5177 warnings in 8.67s
+- (2026-11-05 15:14 UTC) 还有多久给我command上bo0x
+- (2026-11-05 15:15 UTC) 4 passed, 10 deselected, 5021 warnings in 4.09s
+- (2026-11-05 15:24 UTC) 还有多久
+- (2026-11-05 15:31 UTC) FAILED tests/components/test_actlize_qsa_cuda.py::test_qsa_pages_prefix_recovery_and_catalog_rebinding[1-none] - ValueError: QSA requires positive, page-aligned capacity and tokens >= batch FAILED tests/components/test_actlize_qsa_cuda.py::test_qsa_pages_prefix_recovery_and_catalog_rebinding[1-catalog] - ValueError: QSA requires positive, page-aligned capacity and tokens >= batch FAILED tests/components/test_actlize_qsa_cuda.py::test_qsa_pages_prefix_recovery_and_catalog_rebinding[7-catalog] - RuntimeError: failed to prepare compiled forward qsa FAILED tests/components/test_actlize_qsa_cuda.py::test_qsa_pages_prefix_recovery_and_catalog_rebinding[128-catalog] - RuntimeError: failed to prepare compiled forward qsa FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[none] - AttributeError: module 'flashinfer.sampling' has no attribute '_top_p_renorm_workspace_size' FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[catalog] - AttributeError: module 'flashinfer.sampling' has no attribute '_top_p_renorm_workspace_size'
+- (2026-11-05 15:33 UTC) ignition/preparation/aot.py:751: in finish bound.pending.result() /usr/local/lib/python3.12/concurrent/futures/_base.py:449: in result return self.__get_result() /usr/local/lib/python3.12/concurrent/futures/_base.py:401: in __get_result raise self._exception E torch._inductor.compile_worker.subproc_pool.SubprocException: An exception occurred in a subprocess: E E Name=<unknown> E Traceback (most recent call last): E File "/usr/local/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 397, in do_job E result = job() E ^^^^^ E File "/sim/eec/shared/junfu.qx/spark-local-inference/ignition/preparation/compile_pool.py", line 37, in _compile_forward E artifact = aot_forward(forward, options=options) E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ .... E File "/usr/local/lib/python3.12/site-packages/torch/__init__.py", line 605, in __hash__ E raise TypeError("unhashable type: non-nested SymInt") E torch._dynamo.exc.TorchRuntimeError: Dynamo failed to run FX node with fake tensors: call_function actlize_la.serving_out.default(*([FakeTensor(..., device='cuda:0', size=(128, 24, 256), dtype=torch.bfloat16), FakeTensor(..., device='cuda:0', size=(128, 2, 256), dtype=torch.bfloat16), FakeTensor(..., device='cuda:0', size=(128, 2, 256), dtype=torch.bfloat16), FakeTensor(..., device='cuda:0', size=(128, 4, 128), dtype=torch.bfloat16), FakeTensor(..., device='cuda:0', size=(128, 128), dtype=torch.bfloat16), FakeTensor(..., device='cuda:0', size=(128,)), FakeTensor(..., …
+- (2026-11-05 15:34 UTC) 我要睡觉了，你先把能在本地做完的做完
+- (2026-11-05 22:26 UTC) flashinfer为什么要重新编译？直接上传git lfs
+- (2026-11-05 22:36 UTC) 还剩下哪些todo
+- (2026-11-05 22:39 UTC) 安装好了
+- (2026-11-05 22:42 UTC) actlizeLA的改动推送了吗
+- (2026-11-05 22:42 UTC) quactlize没有改动？
+- (2026-11-05 22:42 UTC) flashinfer的改动推到https://github.com/DrXuQian/flashinfer-for-sail
+- (2026-11-05 22:43 UTC) 推送的分枝就按照你用的分枝就好了
+- (2026-11-05 22:43 UTC) 就是专为flare用的分枝
+- (2026-11-05 22:49 UTC) = FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[none] - RuntimeError: Ninja build failed. Ninja output: FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[catalog] - RuntimeError: Ninja build failed. Ninja output:
+- (2026-11-05 22:49 UTC) E flashinfer_sampling_binding-splitter-sVI5il.cpp:(.text+0x5d0): multiple definition of `acsparseCbsrsv2_bufferSizeExt'; /root/.cache/flashinfer/0.6.18+ppu.flare1/80/cached_ops/sampling/csrc_sampling.cuda.o:sampling-splitter-orivFc.cpp:(.text+0x580): first defined here E /usr/bin/ld: /root/.cache/flashinfer/0.6.18+ppu.flare1/80/cached_ops/sampling/csrc_flashinfer_sampling_binding.cuda.o: in function `acsparseCbsrsv2_solve':
+- (2026-11-05 22:49 UTC) 是不是原来的flashinfer导致的？
+- (2026-11-05 22:51 UTC) 等一下，你没有用t-head的flashinfer吗
+- (2026-11-05 22:51 UTC) 相对于main怎么差这么多
+- (2026-11-05 22:51 UTC) 差很多
+- (2026-11-05 22:54 UTC) 没关系，继续，应该是因为main没有ppu适配的原版
+- (2026-11-05 23:11 UTC) 先继续别的
+- (2026-11-05 23:11 UTC) ========= short test summary info ============================================================ FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[none] - TypeError: function takes exactly 24 arguments (18 given) FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[catalog] - TypeError: function takes exactly 24 arguments (18 given)
+- (2026-11-05 23:11 UTC) y:512: in runner self.run(grid[0], grid[1], grid[2], stream, self.function, self.packed_metadata, launch_metadata, /usr/local/lib/python3.12/site-packages/triton/backends/nvidia/driver.py:717: in __call__ self.launch(gridX, gridY, gridZ, stream, function, self.launch_cooperative_grid, self.launch_pdl, E TypeError: function takes exactly 24 arguments (18 given) tests/components/test_external_sampling_cuda.py:137: in test_draft_target_verification_share_a_graph_and_switch_shapes forwards = {f'{batch}x{width}': SamplingForward(batch, width, state, rng, pool) tests/components/test_external_sampling_cuda.py:51: in __init__ self.verify.prepare()
+- (2026-11-05 23:51 UTC) ============== short test summary info ============================================================ FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[catalog] - RuntimeError: failed to prepare compiled forward 1x1 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/triton/backends/nvidia/compiler.py", line 609, in make_cubin E with open(fbin, 'rb') as f: E ^^^^^^^^^^^^^^^^ E torch._inductor.exc.InductorError: FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmpm97wd157.ptx.o' /usr/local/lib/python3.12/concurrent/futures/_base.py:401: SubprocException ================================================================== FAILURES =================================================================== ___________________________________ test_draft_target_verification_share_a_graph_and_switch_shapes[catalog] ____________________________________ def finish(): name, bound, path = _completed(pending)
+- (2026-11-05 23:51 UTC) E File "/tmp/torchinductor_root/bk/cbktmsipyr2j6hayqvdtdac327azqtdxge2ft6xdkbhltgnntlxu.py", line 1186, in <module> E triton_red_fused_abs_all_bitwise_and_eq_ge_mul_ne_sum_view_12 = async_compile.triton('triton_red_fused_abs_all_bitwise_and_eq_ge_mul_ne_sum_view_12', ''' E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+- (2026-11-05 23:51 UTC) 1 failed, 1 passed, 5002 warnings in 141.04s (0:02:21)
+- (2026-11-05 23:52 UTC) 内容太多了，铁不过来，你要什么关键信息
+- (2026-11-05 23:56 UTC) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 500, in triton E kernel.precompile( E File "/usr/local/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 448, in precompile E self._precompile_worker() E File "/usr/local/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 470, in _precompile_worker E compile_results.append(self._precompile_config(c)) E ^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 778, in _precompile_config E binary = triton.compile(*compile_args, **compile_kwargs) E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/triton/compiler/compiler.py", line 326, in compile EE next_module = compile_ir(module, metadata) E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/triton/backends/nvidia/compiler.py", line 625, in <lambda> E stages["cubin"] = lambda src, metadata: self.make_cubin(src, metadata, options, self.target.arch) E ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/triton/backends/nvidia/compiler.py", line 609, in make_cubin E with open(fbin, 'rb') as f: E ^^^^^^^^^^^^^^^^ EE torch._inductor.exc.InductorError: FileNotFoundError: [Errno 2] No such file or directory: '/tmp/tmpm97wd157.ptx.o' /usr/local/lib/python3.12/concurre …
+- (2026-11-06 00:02 UTC) kernel=triton_red_fused_abs_all_bitwise_and_eq_ge_mul_ne_sum_view_12 compiler_process_returncode=1 /usr/local/PPU_SDK/CUDA_SDK/bin/ptxas -lineinfo --ppu-backend-options --ppu-blksync-schedule-boundary=false --ppu-backend-options --ppu-enable-rewrite-partial-reg-uses=true --ppu-backend-options --ppu-max-vreg-count=256 --ppu-backend-options --max-analysis-recursion-depth=7 --ppu-backend-options --enable-threadIdx-x-div32-always-uniform=true -v --gpu-name=sm_80 /tmp/tmp05fsk4zm.ptx.trans -o /tmp/tmp05fsk4zm.ptx.o returncode=0 artifact_present=False artifact_bytes=0 Full compiler log, source and assembler inputs: /tmp/flare-triton-compile-9o4_gqch
+- (2026-11-06 00:03 UTC) 我有点好奇，你本地没有复现吗？
+- (2026-11-06 00:04 UTC) 我理解是编译错误不需要实际设备啊，所以你本地能看到
+- (2026-11-06 00:04 UTC) 是因为这个是jit？
+- (2026-11-06 00:06 UTC) -rw-r--r-- 1 root root 13K Nov 6 08:02 /tmp/tmp05fsk4zm.ptx.trans
+- (2026-11-06 00:09 UTC) 已提取完成（剥离了每行的日志前缀，水印已忽略）。这个 kernel 是 TorchInductor 生成的一个融合归约 kernel，逻辑上等价于：对输入沿 reduction 维做 isnan(x) | (x < 0) 的 any 判断（输出 out_ptr0，i1）加上 sum(x)（输出 out_ptr1，fp32）——即典型的 masked_sum + mask_any 融合模式。 def triton_red_fused_abs_all_bitwise_and_eq_ge_mul_ne_sum_view_12(in_ptr0, out_ptr0, out_ptr1, xnumel, r0_numel, XBLOCK : tl.constexpr, R0_BLOCK : tl.constexpr): xnumel = 128 r0_numel = 1940 rnumel = r0_numel RBLOCK: tl.constexpr = R0_BLOCK xoffset = tl.program_id(0) XBLOCK xindex = xoffset + tl.arange(0, XBLOCK)[:, None] xmask = xindex < xnumel r0_base = tl.arange(0, R0_BLOCK)[None, :] rbase = r0_base x0 = xindex _tmp13 = tl.full([XBLOCK, R0_BLOCK], False, tl.int1) _tmp17 = tl.full([XBLOCK, R0_BLOCK], 0, tl.float32) for r0_offset in range(0, r0_numel, R0_BLOCK): r0_index = r0_offset + r0_base r0_mask = r0_index < r0_numel roffset = r0_offset rindex = r0_index r0_1 = r0_index tmp0 = tl.load(in_ptr0 + (r0_1 + 1940x0), r0_mask & xmask, eviction_policy='evict_first', other=0.0) tmp1 = tmp0 == tmp0 tmp2 = tl_math.abs(tmp0) tmp3 = float("inf") tmp4 = tmp2 != tmp3 tmp5 = tmp1 & tmp4 tmp6 = 0.0 tmp7 = tmp0 >= tmp6 tmp8 = tmp5 & tmp7 tmp9 = tmp8 == 0 tmp10 = tmp9.to(tl.int64) tmp11 = (tmp10 != 0) tmp12 = tl.broadcast_to(tmp11, [XBLOCK, R0_BLOCK]) tmp14 = _tmp13 | tmp12 _tmp13 = tl.where(r0_mask & xmask, tmp14, _tmp13) tmp16 = tl.broadcast_to(tmp0, [XBLOCK, R0_BLOCK]) tmp18 = _tmp17 + tmp16 _tmp17 = tl.where(r0_mask & xmask, tmp18, _tmp17) tmp15 = _tmp13.to(tl.int8) tmp13 = triton_helpers.an …
+- (2026-11-06 00:13 UTC) 是我们加的逻辑导致的错误吗
+- (2026-11-06 00:48 UTC) FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[catalog] - RuntimeError: failed to prepare compiled forward 1x1
+- (2026-11-06 00:49 UTC) FAILED tests/components/test_external_sampling_cuda.py::test_draft_target_verification_share_a_graph_and_switch_shapes[catalog] - RuntimeError: failed to prepare compiled forward 1x1 E TypeError: generated Inductor kernel 'triton_poi_fused___rshift____to_copy_bitwise_and_bitwise_not_bitwise_or_clamp_div_floor_divide_gt_index_mul_remainder_scalar_tensor_slice_sub_unsqueeze_view_where_2' in graph ccisj4c4sba5u4slosr6cgjbggrypszeflaxhlnt74bqffxpwsmm lacks its static autotuner binding: live_type=torch._inductor.runtime.triton_heuristics.CachingAutotuner, source_key=cnk6sfrmqlsdr2jzrd4bac3bxbzvaz2caidtrv7iud2fjoj7j6jt, bundled=False, static_entries=24 ignition/preparation/inductor_tuning.py:157: TypeError
+- (2026-11-06 00:51 UTC) compile_path_truncated: False reload_path_truncated: False
+- (2026-11-06 00:52 UTC) 要打patch到triton？
+- (2026-11-06 00:52 UTC) 这么tricky
+- (2026-11-06 00:55 UTC) 这个是patch到triton吗？还是什么操作？
+- (2026-11-06 00:55 UTC) 2 passed, 5002 warnings in 204.13s (0:03:24)
+- (2026-11-06 01:04 UTC) 所以到底patch哪个文件？
+- (2026-11-06 01:10 UTC) 非要patch torch吗？可以有别的work around吗
+- (2026-11-06 01:10 UTC) 6 passed, 4915 warnings in 98.58s (0:01:38)
+- (2026-11-06 01:32 UTC) 7 passed, 1 deselected, 5053 warnings in 292.58s (0:04:52)
+- (2026-11-06 01:35 UTC) lspci -nn | grep -Ei 'VGA|3D|Display|accelerator|processor|PPU'
+- (2026-11-06 01:36 UTC) 0000:7e:00.0 3D controller [0302]: Alibaba (China) Co., Ltd. Device [1ded:6001] (rev 01) 0000:a2:00.0 3D controller [0302]: Alibaba (China) Co., Ltd. Device [1ded:6001] (rev 01) 0000:08:00.0 3D controller [0302]: Alibaba (China) Co., Ltd. Device [1ded:6001] (rev 01) 0000:c6:00.0 3D controller [0302]: Alibaba (China) Co., Ltd. Device [1ded:6001] (rev 01) 0001:10:00.0 3D controller [0302]: Alibaba (China) Co., Ltd. Device [1ded:6001] (rev 01) 0001:86:00.0 3D controller [0302]: Alibaba (China) Co., Ltd. Device [1ded:6001] (rev 01) 0001:aa:00.0 3D controller [0302]: Alibaba (China) Co., Ltd. Device [1ded:6001] (rev 01) 0001:ce:00.0 3D controller [0302]: Alibaba (China) Co., Ltd. Device [1ded:6001] (rev 01)
+- (2026-11-06 01:38 UTC) 那如果我切换到别的设备会发生什么，这份代码就不能用了
+- (2026-11-06 02:13 UTC) ModuleNotFoundError: No module named 'flare_heliopause'
+- (2026-11-06 02:54 UTC) PPU module compiled and ELF globals checked: /tmp/ppu-export-replay-1/ppu-module.hgbin Traceback (most recent call last): File "<frozen runpy>", line 198, in _run_module_as_main File "<frozen runpy>", line 88, in _run_code File "/sim/eec/shared/junfu.qx/spark-local-inference/qualify/ppu_export.py", line 161, in <module> main() File "/sim/eec/shared/junfu.qx/spark-local-inference/qualify/ppu_export.py", line 157, in main prepare(args, module) File "/sim/eec/shared/junfu.qx/spark-local-inference/qualify/ppu_export.py", line 84, in prepare with ModuleImages() as images: File "/sim/eec/shared/junfu.qx/spark-local-inference/ignition/preparation/module_images.py", line 54, in __enter__ self.native.start() RuntimeError: cuptiEnableCallback(domain=1, id=742): CUPTI 1: One or more of the parameters is invalid.
+- (2026-11-06 03:06 UTC) /usr/local/PPU_SDK/CUDA_SDK/lib64/libcupti.so.13
+- (2026-11-06 03:09 UTC) version: 0 22 callback: 18 0 b'hgModuleLoad' callback: 687 0 b'hgKernelSetAttribute' callback: 732 0 b'hgStreamUpdateCaptureDependencies_v2_ptsz' callback: 742 1 None /usr/local/PPU_SDK/CUDA_SDK/targets/x86_64-linux/lib/libcupti.so.2025.3.0 /usr/local/PPU_SDK/targets/x86_64-linux/lib/libhgpti.so
+- (2026-11-06 03:10 UTC) flare有offloadngram或者一部分expert到cpu的逻辑吗
+- (2026-11-06 03:17 UTC) 继续
+- (2026-11-06 03:21 UTC) cuInit: 0 cuModuleGetLoadingMode: 0 2 LAZY '
+- (2026-11-06 03:50 UTC) Successfully installed flare-heliopause-0.1.0
+- (2026-11-06 03:53 UTC) Traceback (most recent call last): File "<string>", line 1, in <module> File "/sim/eec/shared/junfu.qx/spark-local-inference/ignition/preparation/module_images.py", line 20, in check_callback_names NativeModuleRecorder(str(cupti_library(library))).check_callback_names() RuntimeError: CUPTI callback table in /sim/eec/shared/junfu.qx/ppu-sdk-2.1.1-a5c56e/PPU_SDK/CUDA_SDK/lib64/libcupti.so.13 cannot record the required driver APIs: cuFuncLoad (domain=1, id=742): CUPTI 1, no callback name Use a compatible CUPTI/HGPTI and driver; no callbacks were omitted. Name lookup alone does not verify callback activation or delivery.
+- (2026-11-06 04:00 UTC) 添加了新版sdk
+- (2026-11-06 04:01 UTC) /sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/
+- (2026-11-06 04:07 UTC) 3 passed, 4896 warnings in 1.29s PPU module compiled and ELF globals checked: /tmp/ppu-export-sdk221-1/ppu-module.hgbin Segmentation fault (core dumped)
+- (2026-11-06 04:13 UTC) ulimit -c 0 cd /sim/eec/shared/junfu.qx/spark-local-inference ppu_sdk=/sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK export CUDA_HOME="$ppu_sdk/CUDA_SDK" CUDA_PATH="$ppu_sdk/CUDA_SDK" export PATH="$ppu_sdk/bin:$CUDA_HOME/bin:$PATH" export LD_LIBRARY_PATH="$CUDA_HOME/lib64:$ppu_sdk/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" export CUDA_VISIBLE_DEVICES=0 gdb -q -batch \ -ex 'set pagination off' \ -ex 'run' \ -ex 'bt 25' \ -ex 'info sharedlibrary libhgpti|libhggc|libcuda|flare_heliopause' \ --args python -X faulthandler -u -m qualify.ppu_export \ --target ppu10 --compiler "$ppu_sdk/bin/hgcc" \ --output /tmp/ppu-export-sdk221-debug-1 \ > /tmp/ppu-export-segv.log 2>&1 cat /tmp/ppu-export-segv.log )Thread 1 "python" received signal SIGSEGV, Segmentation fault. 0x00007ffff78be377 in ?? () from /lib/x86_64-linux-gnu/libc.so.6 #0 0x00007ffff78be377 in ?? () from /lib/x86_64-linux-gnu/libc.so.6 #1 0x00007ffff60755fd in <alloc::sync::Arc<[u8]>>::copy_from_slice () from /usr/local/lib/python3.12/site-packages/flare_heliopause/flare_heliopause.cpython-312-x86_64-linux-gnu.so #2 0x00007ffff625f825 in flare_heliopause::export::recorder::callback () from /usr/local/lib/python3.12/site-packages/flare_heliopause/flare_heliopause.cpython-312-x86_64-linux-gnu.so #3 0x00007ffff549a1f9 in hgpti::HgtoolResourceCallbackHandler(void*, unsigned int, void const*) () from /sim/eec/shared/junfu.qx/ppu-sdk-2.2.1-184ee6/PPU_SDK/lib/libhgpti.so #4 0x00007fffca11cd9e in ?? () from /sim/eec/shared/junfu …
+- (2026-11-06 04:15 UTC) 跟我们中途切sdk有关系吗
+- (2026-11-06 04:31 UTC) 继续xiufu
+- (2026-11-06 04:32 UTC) 所以问题到底是什么
+- (2026-11-06 04:32 UTC) 需要修改sdk？
+- (2026-11-06 04:34 UTC) 有什么方法workaround
+- (2026-11-06 05:31 UTC) TypeError: MemPool.snapshot() got an unexpected keyword argument 'include_traces'
+- (2026-11-06 05:38 UTC) [HG ERR][PID 2101920][TID 2101920]: hgapiFuncGetParamInfo: function not implemented (hggc_api_module.cpp:702:hgapiFuncGetParamInfo)
+- (2026-11-06 06:10 UTC) File "/sim/eec/shared/junfu.qx/spark-local-inference/ignition/preparation/runtime_package.py", line 138, in _capture self.native_output = flare_heliopause.export_capture(json.dumps(request), owners, recorder) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RuntimeError: cuGraphKernelNodeGetAttribute(5): CUDA 1: invalid argument
+- (2026-11-06 07:21 UTC) 还有多久
+- (2026-11-06 07:36 UTC) PPU package exported; run test_actlize_runtime_package after this process exits Fatal Python error: Segmentation fault Current thread 0x00007f485a2932c0 (most recent call first): File "/sim/eec/shared/junfu.qx/spark-local-inference/qualify/ppu_export.py", line 172 in main File "/sim/eec/shared/junfu.qx/spark-local-inference/qualify/ppu_export.py", line 176 in <module> File "<frozen runpy>", line 88 in _run_code File "<frozen runpy>", line 198 in _run_module_as_main Extension modules: numpy._core._multiarray_umath, numpy._core._multiarray_tests, numpy.linalg._umath_linalg, torch._C, torch._C._dynamo.autograd_compiler, torch._C._dynamo.eval_frame, torch._C._dynamo.guards, torch._C._dynamo.utils, torch._C._fft, torch._C._linalg, torch._C._nested, torch._C._nn, torch._C._sparse, torch._C._special, _cffi_backend, google._upb._message, numpy.random._common, numpy.random.bit_generator, numpy.random._bounded_integers, numpy.random._mt19937, numpy.random.mtrand, numpy.random._philox, numpy.random._pcg64, numpy.random._sfc64, numpy.random._generator (total: 25) Segmentation fault (core dumped)
+- (2026-11-06 07:57 UTC) E Extension modules: numpy._core._multiarray_umath, numpy._core._multiarray_tests, numpy.linalg._umath_linalg, torch._C, torch._C._dynamo.autograd_compiler, torch._C._dynamo.eval_frame, torch._C._dynamo.guards, torch._C._dynamo.utils, torch._C._fft, torch._C._linalg, torch._C._nested, torch._C._nn, torch._C._sparse, torch._C._special (total: 14) E E assert -6 == 0 E
+- (2026-11-06 07:57 UTC) E + where -6 = CompletedProcess(args=['/usr/local/bin/python', '-X', 'faulthandler', '-c', "\nimport gc\nimport sys\nimport weakref\n...s, torch._C._fft, torch._C._linalg, torch._C._nested, torch._C._nn, torch._C._sparse, torch._C._special (total: 14)\n').returncode
+- (2026-11-06 07:58 UTC) FAILED tests/preparation/test_package_storage_cuda.py::test_package_pool_destruction_keeps_allocator_alive[False] - AssertionError: Traceback (most recent call last): FAILED tests/preparation/test_package_storage_cuda.py::test_package_pool_destruction_keeps_allocator_alive[True] - AssertionError: Traceback (most recent call last):
+- (2026-11-06 08:00 UTC) > assert result.returncode == 0, result.stdout + result.stderr E AssertionError: Traceback (most recent call last): E File "<string>", line 31, in <module> E File "<string>", line 14, in prepare E File "/usr/local/lib/python3.12/contextlib.py", line 137, in __enter__ E return next(self.gen) E ^^^^^^^^^^^^^^ E File "/usr/local/lib/python3.12/site-packages/torch/cuda/memory.py", line 1235, in use_mem_pool E _cuda_beginAllocateCurrentThreadToPool(device_index, pool.id) E RuntimeError: beginAllocateToPool: already recording to mempool_id E terminate called after throwing an instance of 'c10::Error' E what(): use_count() == 1 INTERNAL ASSERT FAILED at "../c10/cuda/CUDACachingAllocator.cpp":4485, please report a bug to PyTorch. E Exception raised from ~MemPool at ../c10/cuda/CUDACachingAllocator.cpp:4485 (most recent call first): E frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x94 (0x7fe30ac92804 in /usr/local/lib/python3.12/site-packages/torch/lib/libc10.so)E frame #1: c10::detail::torchCheckFail(char const*, char const*, unsigned int, char const*) + 0x82 (0x7fe30ac1a72f in /usr/local/lib/python3.12/site-packages/torch/lib/libc10.so) E frame #2: c10::cuda::MemPool::~MemPool() + 0x343 (0x7fe30ad26213 in /usr/local/lib/python3.12/site-packages/torch/lib/libc10_cuda.so) E frame #3: <unknown function> + 0xef7fb2 (0x7fe329489fb2 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_python.so) …
+- (2026-11-06 08:11 UTC) 2 passed, 13 deselected, 5756 warnings in 5.39s
+- (2026-11-06 08:16 UTC) bash: cargo: command not found
+- (2026-11-06 08:17 UTC) error: failed to parse manifest at `/sim/eec/shared/junfu.qx/spark-local-inference/helios/Cargo.toml`
+- (2026-11-06 08:17 UTC) Caused by: feature `edition2024` is required The package requires the Cargo feature called `edition2024`, but that feature is not stabilized in this version of Cargo (1.75.0). Consider adding `cargo-features = ["edition2024"]` to the top of Cargo.toml (above the [package] table) to tell Cargo you are opting in to use this unstable feature. See https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#edition-2024 for more information about the status of this feature.
+- (2026-11-06 08:21 UTC) cargo 1.99.1 (5f94df478 2026-08-27) rustc 1.99.1 (58cf8f9c3 2026-10-13)
+- (2026-11-06 08:26 UTC) Fetch 36 complete; 21 pending 在fetch什么东西
+- (2026-11-06 08:27 UTC) warning: spurious network error (3 tries remaining): transfer too slow: failed to transfer more than 10 bytes in 30s (transferred 0 bytes)
+- (2026-11-06 08:40 UTC) error: failed to run custom build command for `flare-selene v0.1.0 (/sim/eec/shared/junfu.qx/spark-local-inference/selene)`
+- (2026-11-06 08:41 UTC) Error: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+- (2026-11-06 08:42 UTC) warning: `flare-helios` (lib) generated 2 warnings Finished `release` profile [optimized] target(s) in 30.85s Running `helios/target/release/test_actlize_runtime_package ''` Error: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+- (2026-11-06 08:46 UTC) Replay directory: /tmp/ppu-export-replay.DfZ1Rq Error: Execution(Manifest(Failure { message: "CUDA address collision: requested 0x40000000, reserved 0x55800000", source: None }))
+- (2026-11-06 08:47 UTC) kind: ppu-module-export-v1 external-0 0x55800000 device-0 0x80000000000 device-1 0x80000800000 buffers: {'control': {'allocation': 'device-0', 'offset': 512, 'nbytes': 24}, 'output': {'allocation': 'device-0', 'offset': 0, 'nbytes': 48}, 'frame_index': {'allocation': 'device-1', 'offset': 1024, 'nbytes': 4}, 'submission_sequence': {'allocation': 'device-1', 'offset': 1536, 'nbytes': 8}, 'completion_records': {'allocation': 'device-1', 'offset': 2048, 'nbytes': 1024}}
+- (2026-11-06 08:51 UTC) request=0x40000000 size=0x40000000 status=0 actual=0x55800000 request=0x55800000 size=0x800000 status=0 actual=0x55800000 request=0x80000000000 size=0x40000000 status=0 actual=0x80000000000
+- (2026-11-06 09:13 UTC) File "/sim/eec/shared/junfu.qx/spark-local-inference/ignition/preparation/module_images.py", line 20, in check_callback_names NativeModuleRecorder(str(cupti_library(library)), module_resource_abi=module_resource_abi).check_callback_names() RuntimeError: CUPTI callback table in /usr/local/PPU_SDK/CUDA_SDK/lib64/libcupti.so.13 cannot record the required driver APIs: cuFuncLoad (domain=1, id=742): CUPTI 1, no callback name
+- (2026-11-06 09:13 UTC) Use a compatible CUPTI/HGPTI and driver; no callbacks were omitted. Name lookup alone does not verify callback activation or delivery.
+- (2026-11-06 09:20 UTC) 8 native ppu-module-export-v1 replays passed; no Python, Torch or operator host library
+- (2026-11-06 09:40 UTC) /sim/eec/shared/AI_workspace/llm-models/Qwen3.8-Flash-Next-GGUF/UD-Q4_K_XL
+- (2026-11-06 09:47 UTC) /sim/eec/shared/AI_workspace/llm-models/MTP-GGUF-modelzoo/Qwen3.8-Flash-Next-MTP
+- (2026-11-06 09:47 UTC) ls /sim/eec/shared/AI_workspace/llm-models/MTP-GGUF-modelzoo/Qwen3.8-Flash-Next-MTP/ mtp-inventory.json mtp-inventory.md mtp-manifest.json mtp-q2_0.gguf mtp-q2_0.gguf.report.json rt tensors
+- (2026-11-06 09:50 UTC) 没有量化
+- (2026-11-06 09:50 UTC) bF16和fp32
+- (2026-11-06 09:52 UTC) 不对，应该就是q2
+- (2026-11-06 09:53 UTC) 从大小上推断
+- (2026-11-06 09:55 UTC) 基本等于理论值
+- (2026-11-06 10:08 UTC) usage: qwen38_gguf_box.py [-h] --model-dir MODEL_DIR [--mtp MTP] [--inspect-only] [--frontend FRONTEND | --fetch-frontend] [--operator-target {ppu10,ppu15}] [--blas-library BLAS_LIBRARY] [--output OUTPUT] qwen38_gguf_box.py: error: np.uint32(42) is not a valid GGMLQuantizationType
+- (2026-11-06 12:51 UTC) type_id=42 follows the llama.cpp PPU Q2_0 extension: 64 values/18 bytes; Q2_K is a different format (type_id=10, 256 values/84 bytes). MTP headers inspected; operator compatibility and device execution are not qualified.
+- (2026-11-06 13:38 UTC) q2已经支持了。你看一下最新的quactlize
+- (2026-11-06 13:50 UTC) 下一步干啥？command给我
+- (2026-11-06 13:52 UTC) ModuleNotFoundError: No module named 'quactlize.compat.formats' 应该是box没有安装
+- (2026-11-06 14:00 UTC) 版本: 0.2.1 安装位置: /usr/local/lib/python3.12/site-packages/quactlize/__init__.py 原生库: /usr/local/lib/python3.12/site-packages/quactlize/_native/libncp_quactlize.so Q2_0 接口导入通过
+- (2026-11-06 14:07 UTC) 日志目录：/sim/eec/shared/junfu.qx/flare-q2.j7J90H
+- (2026-11-06 14:07 UTC) FAILED tests/components/test_quactlize_helpers_cuda.py::test_file_lookup_routing_and_rounded_activation_share_one_graph[42-2560-1] FAILED tests/components/test_quactlize_helpers_cuda.py::test_file_lookup_routing_and_rounded_activation_share_one_graph[42-2560-2]
+- (2026-11-06 14:07 UTC) FAILED tests/components/test_quactlize_helpers_cuda.py::test_file_lookup_routing_and_rounded_activation_share_one_graph[42-2560-4] FAILED tests/components/test_quactlize_helpers_cuda.py::test_file_lookup_routing_and_rounded_activation_share_one_graph[42-2560-8] FAILED tests/components/test_quactlize_helpers_cuda.py::test_file_lookup_routing_and_rounded_activation_share_one_graph[42-2560-17]
+- (2026-11-06 14:07 UTC) return PreparedGgufEmbedding(weight, *args, **kwargs) ignition/components/gguf_embedding.py:38: in __init__ raise ValueError('QUactlize serving row lookup requires Q8_0 or IQ4_NL') E ValueError: QUactlize serving row lookup requires Q8_0 or IQ4_NL _0 or IQ4_NL _ test_file_lookup_routing_and_rounded_activation_share_one_graph[42-2560-17] __ tests/components/test_quactlize_helpers_cuda.py:78: in test_file_lookup_routing_and_rounded_activation_share_one_graph lookup = PreparedEmbedding(weight, ids, output, num_rows=count, session=session, name='file.rows') ignition/components/embedding.py:23: in __new__
+- (2026-11-06 14:22 UTC) 过了
+- (2026-11-06 14:22 UTC) 下一步
+- (2026-11-06 14:33 UTC) qwen38_gguf_box.py: error: MTP general.architecture='qwen4exp-mtp'; the current shared-MTP fixture requires 'qwen4exp'
+- (2026-11-07 04:29 UTC) RuntimeError: Task error: File reconstruction error: CAS Client Error: Request middleware error: error sending request for url (https://cas-server.xethub.hf.co/v2/reconstructions/ddca7e708ff0da8902fdcef5209d5eea8bf922715733eb02f93026a37478e426)
+- (2026-11-07 04:30 UTC) 为什么要下载这个
+- (2026-11-07 06:48 UTC) /sim/eec/shared/junfu.qx/spark-local-inference/ignition/components/gdn_recovery.py", line 31, in <module> from b12x.sequence._short_conv import _speculative_decode_short_conv_kernel ModuleNotFoundError: No module named 'b12x'
+- (2026-11-08 03:14 UTC) 17 passed, 5285 warnings in 8.15s
+- (2026-11-08 03:15 UTC) 下一步给我command
+- (2026-11-08 04:57 UTC) 我要在我要在本地本地610上跑是跟810同架构的机器.给我给我prompt让本地本地ai跑
+- (2026-11-09 06:01 UTC) 三个提交已推送到 origin/feat/qwen38-gguf（57e6c9df..33f5bdc9），远端分支与本地一致。610 上 GGUF＋MTP 包还没导出成功：最近一次已经编译并 capture 完全部 forward，在写包阶段失败。该失败已修复，但修复后还没重跑导出，所以原生服务、replay 和性能验证都还没开始。 已推送的提交 提交 内容 d0751f4f Helios 按 cuDriverGetVersion 选批量拷贝入口：≥13000 用 cuMemcpyBatchAsync_v2，更低版本用 CUDA 12.8 的 cuMemcpyBatchAsync 9c1662ac PPU（Torch 2.9 / Triton 3.5）导出路径的 6 处修复，附回归测试和 model-preparation.md 说明 33f5bdc9 仅文档：ppu-box-resume.txt 新增 610 一节（环境差异、输入哈希、结果、重跑命令）；更新 TODO.txt 两条，新增 4 条遗留问题 本机没有配置 git 身份，我没有改 git config，作者用的是命令行指定的 Qoder Agent <qoder-agent@localhost>。仓库 hook 没有通过 core.hooksPath 启用；每条提交信息我都手动跑了 .githooks/commit-msg 并通过（design-review=a38f）。 进度（按原步骤） 文档阅读：已完成。 设备与安装包：已核对，均为 PPU 版本。 设备 2×PPU-ZW610（1ded:6001），驱动 2.3.0。 SDK 2.2.1-184ee6 的 cuda12.9 变体（cuDriverGetVersion=12090）；系统 SDK 是 2.0.0，不匹配本机 Torch。 算子包：QUactlize 0.2.1（ppu10）、actlizeLA 0.2.1（ppu10）、FlashInfer 0.6.18+ppu.flare2、平台 FA3 3.0.0b1、SDK 内的 cuBLAS。 MTP 文件头为 qwen4exp-mtp，31 个张量，其中 2 个 Q2_0 专家共 707788800 字节。 准备入口检查：17 passed。 小模块导出＋Rust replay：8 次原生 replay passed（修复 1 之后）。 外部算子检查：均实际执行、无 skip。 Q2_0：15 passed（含 5 个 lookup 用例）。 GDN/mixing/PLE：14 passed。 QSA 6 + sampling 2：passed。 BLAS：设备 19 + 主机 14 passed。 GGUF＋MTP 导出：未成功，共试了 8 次，每次失败都定位修复后重跑。最近一次（tSjO0Y）： 加载块 44/47 和 Q2_0 MTP。 9 个编译 forward 全部完成，全部图 capture 完成，用时约 18 分钟（Triton/Inductor 缓存已热）。 在 export_model 写包时失败，原因是 Triton 3.5 没有 expand_signature。 原生服务、replay、widths 1/2/4/6、时间线：未执行，因为还没有包。脚本已备好（serve.sh、stop.sh、workload.py、asys_rounds.py），SDK 自带的 asys 已能导出 HGPTI 时间线。 修复的 7 个框架问题 # 现象 原因 修复  …
+- (2026-11-09 08:06 UTC) 拉一下
+
+## `01a1aebf-6413-7471-b589-6b1ed751bc7c` — 适配 Strata 到 PPU
+
+- (2026-11-06 02:46 UTC) https://github.com/DrXuQian/Strata 参考本碟llamacpp的改动适配到ppu，修改strata以适配ppu。
+- (2026-11-06 02:49 UTC) 假设已经有ncp flash lib，接口你可以看到从llamacpp中
+- (2026-11-06 02:50 UTC) Qwen3.8-flash-next
+- (2026-11-06 03:13 UTC) strata的moe offload，是遇到了再去取？没有prefetch？
+- (2026-11-06 03:15 UTC) 预测是怎么预测的？
+- (2026-11-06 03:16 UTC) 了解，继续
+- (2026-11-06 03:41 UTC) 最终给我上box实测
+- (2026-11-06 03:44 UTC) 我们还是以共享ncp flash lib中的几个库为前提，参考llamacpp修改strata
+- (2026-11-06 03:44 UTC) 最后给我command就行，box你没有访问权限
+- (2026-11-06 03:59 UTC) 不要patch，直接推送到我的fork
+- (2026-11-06 04:04 UTC) setup.py if why: (warn if cuda_tk == 13 or str(a.cuda) == "12" else ok)(f"CUDA {cuda_tk}: {why}") min_driver = CUDA12_COMPAT_DRIVER if cuda_tk == 12 else MIN_DRIVER if driver_major(gpu) < min_driver: if driver_major(gpu) < min_driver and os.environ.get("STRATA_SKIP_DRIVER_CHECK") != "1": fail(f"the NVIDIA driver is too old ({gpu['driver']}; {min_driver} or newer is needed)" + ("" if cuda_tk == 12 else f" (the CUDA 12 engine package needs {cuda12_min_driver()[1]} or newer, {cuda12_min_driver()[2]})"), "update it with the NVIDIA App or from https://www.nvidia.com/drivers, restart, and run this again") exl3.cu src/dsv41/vendor/ constexpr int W = 8 * K; __shared__ __align__(16) unsigned char sm[2 * BM * 128 * 4]; // A_g, A_u, then the two F32 tiles __shared__ uint32_t stage[kWarps][64]; __half* A[2] = {reinterpret_cast<__half*>(sm), reinterpret_cast<__half*>(sm) + BM * AP}; float* T[2] = {reinterpret_cast<float*>(sm), reinterpret_cast<float*>(sm) + BM * 128}; // (agent A, PPU:2026-11-04) Wrapped for the PPU backend (sm_80/CUDA-13 SDK): the original // aggregate array-of-pointer initializers // __half* A[2] = {reinterpret_cast<__half*>(sm), reinterpret_cast<__half*>(sm) + BM * AP}; // float* T[2] = {reinterpret_cast<float*>(sm), reinterpret_cast<float*>(sm) + BM * 128}; // forced an addrspacecast of the __shared__ buffer `sm` (shared->generic) into a *static // initializer*, which the PPU LLVM backend cannot lower ("Unsupported expression in static // initializer"). Plain scalar p …
+- (2026-11-06 04:31 UTC) 现在提交了哪些修改了哪些列一个表格
+- (2026-11-06 04:33 UTC) quactlize的加载需要onlineshuffle，这部分逻辑没改吧
+- (2026-11-06 04:34 UTC) 接入quactlize
+- (2026-11-06 06:52 UTC) 为什么还要llamacpp的path
+- (2026-11-06 07:22 UTC) 确定需要吗？原始的strata也需要？
+- (2026-11-06 07:29 UTC) --pack /path/to/strata-pack \ 是什么
+- (2026-11-06 07:33 UTC) 那我们也离线pack好了啊
+- (2026-11-06 08:40 UTC) CMake Error at cmake/ppu_backend.cmake:29 (message): PPU requires an explicit CMAKE_CUDA_ARCHITECTURES supported by the selected SDK; no NVIDIA auto-detection Call Stack (most recent call first): CMakeLists.txt:12 (include)
+- (2026-11-06 09:47 UTC) /sim/eec/shared/AI_workspace/llm-models/Qwen3.8-Flash-Next-GGUF/UD-Q4_K_XL ls /sim/eec/shared/AI_workspace/llm-models/MTP-GGUF-modelzoo/Qwen3.8-Flash-Next-MTP/ mtp-inventory.json mtp-inventory.md mtp-manifest.json mtp-q2_0.gguf mtp-q2_0.gguf.report.json rt tensors root@aiswu52:/sim/eec/shared/junfu.qx/llama.cpp.ncp#
+- (2026-11-06 13:25 UTC) 还是改成都用pip install的里面的so可以嘛？
+- (2026-11-06 13:25 UTC) strata能直接用嘛？
+- (2026-11-06 13:25 UTC) 比如flash attention安装之后的so
+- (2026-11-06 13:26 UTC) 需要怎么适配？这样能够让strata之后我们更新算子，直接pip install就行了
+- (2026-11-06 13:27 UTC) 不要把适配放到算子包里面，可以strata中包含一个ppu的适配层
+- (2026-11-06 13:27 UTC) 算子就是直接安装，不改任何东西
+- (2026-11-06 13:28 UTC) 可以嘛？入口除了原来是torch tensor之外，其他的没有什么区别吧
+- (2026-11-06 13:30 UTC) 源码就是flash-attention-for-sail
+- (2026-11-06 13:30 UTC) 你可以直接看到吧
+- (2026-11-06 13:30 UTC) deepgemm-for-sail同理，
+- (2026-11-06 13:31 UTC) actlizeLA和quactlize也一样
+- (2026-11-06 13:38 UTC) host包+jit就可以了啊
+- (2026-11-06 13:39 UTC) deepgemm也是一回事
+- (2026-11-06 13:42 UTC) 开始适配，去掉之前的C ABI的方法
+- (2026-11-06 13:43 UTC) 要完全适配完
+- (2026-11-08 03:16 UTC) rebsae
+- (2026-11-08 03:16 UTC) rebase到最新的remote
+- (2026-11-08 03:58 UTC) 给我本地的ai一个prompt，如何安装侧视，本地是一个610，48GB的显存
+- (2026-11-08 04:00 UTC) 610也是ppu10
+- (2026-11-09 06:59 UTC) Strata 已经在本机 PPU1（PPU-ZW610，按 ppu10 准入）上装好并跑通，包括 --prepare、全部 host 检查、15 项设备 parity 和 A/B/C 端到端对照，三组输出一致。剩下一个问题：serve 模式用默认参数时，开启 provider 的 B/C 第一个请求就报错，要加 --lookup-max-t 6 才能正常运行（见“未验证项与限制”第 1 条）。完整报告在 REPORT.md，可复制的命令在第 11 节。 代码与提交 分支 ppu/qwen38-ncp，HEAD c2be8594 = 基线 5af755f8 + 5 个本地提交，没有 push： 4b66e9c8：actlizeLA 0.2.2 只认 ZW810/ZW890。actlizeLA 拒绝后，只有真实设备名 PPU-ZW610、cc 8.0、target ppu10 三项都满足才放行。算子包没改，也没伪造设备信息。 af31655c：run_box.sh 判断 pack 是否完成用错了文件，导致每次都重新打包。 6996de6b：parity 通过时也打印误差，判定和容差不变。 adaa572f：修了 box run 的三个问题：调用了不存在的 generate 子命令；--gpu 0 写死，会让模型跑到另一张卡；trace 运行缺 profile。 c2be8594：C 组用离线 K-pack 时，在图捕获前预留 QUactlize 的 scratch。修复前 C 组会 double free 崩溃。 补丁在 reports/patches/，依次应用到 5af755f8 得到的 tree 与 HEAD 相同；bundle 在 reports/strata-ppu610-fixes.bundle。 测试结果 host 检查：bridge、包接口 9/9、离线容器 19/19、fetch admission 全部 PASS（logs/check-full-1）。 --prepare：修复前 FAIL（设备名不匹配）；修复后 PASS，冷缓存 166 s，热缓存 24 s。 设备 parity 15 项（FA、FA-Q8、DeepGEMM MoE、GDN×6、QUactlize×6）：共跑 8 轮，全部 PASS，没有 SKIP/77，容差没动。最后一轮 logs/parity-4-final 是在交付的二进制上跑的。最大误差/容差比为 0.11（fa-q8）。 官方 box run：WITH_MTP=0 和 WITH_MTP=1 都是 exit 0，A/B/C 的 32 token 完全相同；B/C 的目标算子和 C 的 packed expert 都有非零 dispatch。 128 token：cache 6144 下跑 3 次，9 次运行逐 token 相同；serve（--lookup-max-t 6）的 6 次请求也与 A 相同。 256 token：回答本身（位置 0–189）全部相同。差异只出现在 EOS 之后的续写（最早在位置 193），A 自己重复运行时也在这些位置变化。 性能（PPU1，MTP 开启） 配置 A decode B decode C decode 显存峰值 A / B / C cache 256，256 token，3 次中位 21.75 tok/s 20.78 tok/s 9.24 tok/s 8.4 / 9.6 / 9.9 GiB cache 6144，128 token，3 次中位（最终配置） 53. …
+- (2026-11-09 08:05 UTC) 拉一下
+- (2026-11-11 07:30 UTC) 告诉我新的机器上的command，来安装测试strata。810E
+- (2026-11-11 07:30 UTC) 直接给我promtp就行了
+
+## `01a1bdca-a6e0-7cb0-8c9e-02a7301b1b92` — 清理系统盘空间
+
+- (2026-11-09 00:52 UTC) 清理一下系统盘的空间
+- (2026-11-09 00:59 UTC) 继续
+
+## `01a1c54b-781d-72a1-968a-6eac0caa9ca5` — 清理系统磁盘
+
+- (2026-11-10 11:50 UTC) 清理一下系统磁盘，删掉tmp文件

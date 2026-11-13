@@ -1,0 +1,1053 @@
+# Claude Code prompt history
+
+- (2026-07-10 06:38 UTC) `/root` — /model
+- (2026-07-10 06:43 UTC) `/root` — 我在marlin_ppu下面原来有一个claude的工程。帮我resume。skill在skill。md。memory在memory目录，历史信息也在目录下，json文件。
+- (2026-07-10 06:45 UTC) `/root` — 修改默认权限为都不需要权限
+- (2026-07-10 07:00 UTC) `/root` — 这个机器跟BOX不一样。注意
+- (2026-07-10 07:03 UTC) `/root` — 用中文回复
+- (2026-07-10 07:08 UTC) `/root` — 没有root，所以直接vim [Pasted text #1 +16 lines]
+- (2026-07-10 07:10 UTC) `/root` — 代码修改upload到https://github.com/DrXuQian/Kernels/tree/ppu_dev 的branch
+- (2026-07-10 07:12 UTC) `/root` — [Pasted text #1 +48 lines]
+- (2026-07-10 07:14 UTC) `/root` — 写吧
+- (2026-07-10 07:15 UTC) `/root` — ~/.ssh/id_ed25519 给我这个密钥，我贴到github
+- (2026-07-10 08:49 UTC) `/root` — 也就是最优也就是37%？
+- (2026-07-10 08:51 UTC) `/root` — B
+- (2026-07-10 14:05 UTC) `/root` — /goal 下载llama.cpp，然后flash-attn和deepgemm作为thirdparty的submodule，然后编译出so文件，llama内部用着两个module的so来作为调用的cuda kernel。注意只负责fp16/bf16的部分的替换。flash attn需要传入casual 参数。
+- (2026-07-10 14:08 UTC) `/root` — 你先弄完，相同的做法可以迁移到ppu
+- (2026-07-10 14:10 UTC) `/root` — 公版deepgemm支持的kernel有bf16/fp16的版本吗？还是只有fp8的？
+- (2026-07-10 14:13 UTC) `/root` — deepgemm不支持sm80吗？
+- (2026-07-10 14:14 UTC) `/root` — chunk gated delta rule 应该用flashinfer的实现。
+- (2026-07-10 14:19 UTC) `/root` — /resume
+- (2026-07-10 14:19 UTC) `/root` — 继续
+- (2026-07-10 14:20 UTC) `/root` — 继续现在是sm90的平台了
+- (2026-07-10 14:22 UTC) `/root` — /remote-env
+- (2026-07-10 14:23 UTC) `/root` — 可以参考这个patch，[Pasted text #1 +2573 lines]
+- (2026-07-11 00:10 UTC) `/root` — /resume
+- (2026-07-11 01:16 UTC) `/root` — 尝试用flash linear attention的实现
+- (2026-07-11 01:19 UTC) `/root` — chunk_gated_delta_rule_fwd_kernel_h_blockdim64 chunk_fwd_kernel_o recompute_w_u_fwd_kernel chunk_scaled_dot_kkt_fwd_kernel ...这些是flash liner attn里面的吗？
+- (2026-07-11 01:29 UTC) `/root` — 继续
+- (2026-07-11 01:36 UTC) `/root` — 跑一个模型对比一下速度，qwen3的fp16的版本，以及qwen3。5的fp16的版本。对比原始的版本，和我们替换之后的版本。
+- (2026-07-11 01:37 UTC) `/root` — gdb继续完成之后在做这个模型的对比，模型要小，放到autodl-tmp下面。记一个todo。
+- (2026-07-11 02:00 UTC) `/root` — 继续chunked prefill提速。
+- (2026-07-11 02:16 UTC) `/root` — 先跑microbenchmark，怎么会出错呢？太奇怪了。是不是地址不对齐，或者ollama中有非continuous的地址。单独跑flash linear attn肯定没有这个错误
+- (2026-07-11 02:31 UTC) `/root` — 现在是flash linear attn本身的问题，还是什么问题？
+- (2026-07-11 02:33 UTC) `/root` — A
+- (2026-07-11 02:39 UTC) `/root` — 不太可能啊？现在的问题是什么？是flash linear attention本身的triton kernel单独验证通过，，但是用到我们的llamacpp中错了？
+- (2026-07-11 02:41 UTC) `/root` — 我的意思是python triton一样会生成binary或者jit出cu啊？不能用这个吗？
+- (2026-07-11 02:41 UTC) `/root` — 看看网上有没有类似的讨论
+- (2026-07-11 02:47 UTC) `/root` — 网上没有解决吗？
+- (2026-07-11 03:00 UTC) `/root` — 继续
+- (2026-07-11 03:20 UTC) `/root` — 为什么fa不用sm90的编译？dao的repo也有sm90的支持啊
+- (2026-07-11 03:20 UTC) `/root` — flashattn3
+- (2026-07-11 03:37 UTC) `/root` — llamacpp原生的结果作为对比
+- (2026-07-11 03:55 UTC) `/root` — 还有moe-gemm的部分呢？qwen3。5有moe-gemm。另外还有flash linear attn
+- (2026-07-11 03:58 UTC) `/root` — /resume
+- (2026-07-11 03:58 UTC) `/root` — 总结一下目前状态，以及后续计划
+- (2026-07-11 04:07 UTC) `/root` — 我的意思是现在正确的case，的perf是什么样子的。不正确的perf讨论没有意义
+- (2026-07-11 04:11 UTC) `/root` — [Pasted text #1 +7 lines]
+- (2026-07-11 04:12 UTC) `/root` — 还是先做group=128的case的正确性
+- (2026-07-11 04:15 UTC) `/root` — 前面四个mismatch，后面四个match
+- (2026-07-11 04:15 UTC) `/root` — /effort
+- (2026-07-11 04:16 UTC) `/root` — /effort max
+- (2026-07-11 04:16 UTC) `/root` — 需要我测试什么？
+- (2026-07-11 04:18 UTC) `/root` — 思考一下什么方式最好。是直接写cuda c的kernel一个个优化，还是so的方式plugin，基于so的baseline进行优化。最终如果想要upstream，应该怎么做最好。
+- (2026-07-11 04:19 UTC) `/root` — classic Marlin PPU perf (W4A16, random data), 50 iters: M=4096 N=4096 K=4096 : 469.28 us 292.9 TFLOP/s 161 GB/s 6.0% HBM (gs=-1, wset=8 MB) classic Marlin PPU perf (W4A16, random data), 50 iters: M=4096 N=4096 K=4096 : 581.18 us 236.5 TFLOP/s 130 GB/s 4.8% HBM (gs=128, wset=8 MB) classic Marlin PPU perf (W4A16, random data), 50 iters:
+- (2026-07-11 04:20 UTC) `/root` — classic Marlin PPU perf (W4A16, random data), 50 iters: M=4096 N=4096 K=4096 : 469.28 us 292.9 TFLOP/s 161 GB/s 6.0% HBM (gs=-1, wset=8 MB) classic Marlin PPU perf (W4A16, random data), 50 iters: M=4096 N=4096 K=4096 : 581.18 us 236.5 TFLOP/s 130 GB/s 4.8% HBM (gs=128, wset=8 MB) classic Marlin PPU perf (W4A16, random data), 50 iters:[Pasted text #2 +5 lines]classic Marlin PPU perf (W4A16, random data), 50 iters: M=2048 N=14336 K=4096 : 999.07 us 240.7 TFLOP/s 106 GB/s 3.9% HBM (gs=128, wset=28 MB)
+- (2026-07-11 04:21 UTC) `/root` — 需要我给你ncu的report吗？
+- (2026-07-11 04:22 UTC) `/root` — /remote-control
+- (2026-07-11 04:39 UTC) `/root` — 但是后期的moe-gemm到新的架构的移植等等是需要额外的effort的？包括不同的shape 以及格式的支持都会有effort，因为我们是大的团队的一个端侧团队，大团队会维护ppu上的fa3，flashinfer，deepgemm等等，我们能复用也是有优势的。你觉得呢？
+- (2026-07-11 08:08 UTC) `/root` — /resume
+- (2026-07-11 08:08 UTC) `/root` — /remote-control
+- (2026-07-11 11:23 UTC) `/root` — /resume
+- (2026-07-11 11:23 UTC) `/root` — /remote-control
+- (2026-07-12 02:35 UTC) `/root` — /resume
+- (2026-07-12 02:35 UTC) `/root` — /remote-control
+- (2026-07-13 01:30 UTC) `/root` — /resume
+- (2026-07-13 01:31 UTC) `/root` — 当前改动了那些内容
+- (2026-07-13 01:32 UTC) `/root` — push到https://github.com/DrXuQian/llama.cpp
+- (2026-07-13 01:32 UTC) `/root` — /agents
+- (2026-07-13 12:47 UTC) `/root` — 跑了很久了你在跑什么
+- (2026-07-13 23:01 UTC) `/root` — /resume
+- (2026-07-13 23:02 UTC) `/root` — /remote-control
+- (2026-07-13 23:07 UTC) `/root` — /remote-env
+- (2026-07-13 23:08 UTC) `/root` — /remote-control
+- (2026-07-13 23:08 UTC) `/root` — /resume
+- (2026-07-13 23:08 UTC) `/root` — /remote-control
+- (2026-07-14 00:24 UTC) `/root` — /effort
+- (2026-07-14 00:24 UTC) `/root` — [Pasted text #1 +10434 lines]
+- (2026-07-14 00:24 UTC) `/root` — [Pasted text #2 +6 lines]
+- (2026-07-14 00:25 UTC) `/root` — [Pasted text #3 +5141 lines]
+- (2026-07-14 00:25 UTC) `/root` — 应该是如上的diff。
+- (2026-07-14 00:26 UTC) `/root` — 先基于main branch out，main的commit：main: f818065d753700341b5355ce36ca676ecfb5d139
+- (2026-07-14 00:29 UTC) `/root` — 我的diff的其他改动也要apply
+- (2026-07-14 00:29 UTC) `/root` — 还是你需要完整的diff文件？
+- (2026-07-14 00:51 UTC) `/root` — ppu_so/gdn/test_abi_chunk 应该从git中去掉
+- (2026-07-14 01:06 UTC) `/root` — [ppu-gdn] cumsum launch failed: 1 (invalid argument)
+- (2026-07-14 01:34 UTC) `/root` — 现在对了，但是有一些其他的改动要revert掉，比如8-》128的shm
+- (2026-07-14 01:47 UTC) `/root` — 为什么现在只打印了[ppu-gdn] gate H=16 HV=32 S=128 T=1 | common_ok=1 want_chunked=0 want_recur=1 (chunk_on=1 T>=128=0 chunk_avail=1 recur_avail=1 v_contig=1) token=1，应该是decoding的、
+- (2026-07-14 13:34 UTC) `/root` — 现在输出是乱码？如何debug，单独开启fa
+- (2026-07-14 13:40 UTC) `/root` — llama-cli怎么开对话
+- (2026-07-14 13:43 UTC) `/root` — GGML_PPU_GDN_SO=$OFF PPU_GDN_SO=$PWD/ppu_so/gdn/libppu_gdn.so GGML_PPU_GDN_CHUNKED=1 CUDA_VISIBLE_DEVICES=1 ./build-llama/bin/llama-cli -m ./Qwen3.5-35B-A3B-Base-GGUF-fused.gguf -fa 1 这样还是可以的。但是去掉GGML_PPU_GDN_SO之后就乱骂了
+- (2026-07-14 13:51 UTC) `/root` — GGML_PPU_GDN_SO=$OFF PPU_GDN_SO=$PWD/ppu_so/gdn/libppu_gdn.so GGML_PPU_GDN_CHUNKED=1 CUDA_VISIBLE_DEVICES=1 ./build-llama/bin/llama-cli -m ./Qwen3.5-35B-A3B-Base-GGUF-fused.gguf -fa 1 这样还是可以的。但是去掉GGML_PPU_GDN_SO之后就乱骂了
+- (2026-07-14 13:52 UTC) `/root` — 而且GGML_PPU_MOE_SO=$OFF的时候也不太对。不理解为什么。
+- (2026-07-14 13:53 UTC) `/root` — 全关也不太对。
+- (2026-07-14 13:54 UTC) `/root` — GGML_PPU_GDN_CHUNKED=0 GGML_PPU_GDN_SO=$OFF CUDA_VISIBLE_DEVICES=1 ./build-llama/bin/llama-cli -m ./Qwen3.5-35B-A3B-Base-GGUF-fused.gguf -fa 1 这个是对的，也就是chunked出得问题
+- (2026-07-14 13:54 UTC) `/root` — 我们如果没有moe的so，默认路径是没有修改的，对吗？
+- (2026-07-14 13:56 UTC) `/root` — unset 之后跑：GGML_PPU_GDN_SO=$OFF CUDA_VISIBLE_DEVICES=1 ./build-llama/bin/llama-cli -m ./Qwen3.5-35B-A3B-Base-GGUF-fused.gguf -fa 1 echo $GGML_PPU_GDN_CHUNKED
+- (2026-07-14 13:56 UTC) `/root` — unset 之后跑：GGML_PPU_GDN_SO=$OFF CUDA_VISIBLE_DEVICES=1 ./build-llama/bin/llama-cli -m ./Qwen3.5-35B-A3B-Base-GGUF-fused.gguf -fa 1 echo $GGML_PPU_GDN_CHUNKED
+- (2026-07-14 13:56 UTC) `/root` — unset 之后跑：GGML_PPU_GDN_SO=$OFF CUDA_VISIBLE_DEVICES=1 ./build-llama/bin/llama-cli -m ./Qwen3.5-35B-A3B-Base-GGUF-fused.gguf -fa 1 echo $GGML_PPU_GDN_CHUNKED 无输出，这样也是对的。
+- (2026-07-14 13:57 UTC) `/root` — ok, recurrent 的结果也是不对的。
+- (2026-07-14 13:58 UTC) `/root` — 那我如何验证呢？
+- (2026-07-14 13:59 UTC) `/root` — 我不知道什么时候是好的，之前没有验证过精度。
+- (2026-07-14 14:05 UTC) `/root` — ARM T RESULT SHAPE=16,32,128 --------------------------------------------------------------- recurrent 1 rc=0 o rel_rms=0.000e+00 ht rel_rms=0.000e+00 -> PASS chunked 1 n/a (T not a multiple of the 64-token chunk) recurrent 8 rc=0 o rel_rms=0.000e+00 ht rel_rms=0.000e+00 -> PASS chunked 8 n/a (T not a multiple of the 64-token chunk) recurrent 128 rc=0 o rel_rms=0.000e+00 ht rel_rms=0.000e+00 -> PASS chunked 128 rc=0 o rel_rms=0.000e+00 ht rel_rms=0.000e+00 -> PASS recurrent 256 rc=0 o rel_rms=0.000e+00 ht rel_rms=0.000e+00 -> PASS
+- (2026-07-14 14:06 UTC) `/root` — recurrent 2048 rc=0 o rel_rms=0.000e+00 ht rel_rms=0.000e+00 -> PASS chunked 2048 rc=0 o rel_rms=0.000e+00 ht rel_rms=0.000e+00 -> PASS
+- (2026-07-14 14:12 UTC) `/root` — 全ok，但是都是fp32 的输入
+- (2026-07-15 01:45 UTC) `/root` — /resume
+- (2026-07-15 01:46 UTC) `/root` — marljn
+- (2026-07-15 01:46 UTC) `/root` — marlin基本上结束了我们来看别的gguf的格式先4-bit的的gguf
+- (2026-07-15 01:49 UTC) `/root` — /goal 参考我们的w4a16代码实现gguf的其他4bit格式.注意要在5090上验证精度速度,比原始的llamaccpp強.先不用ppu的ptx用nvidia的ptx然后迁移到ppu
+- (2026-07-16 00:20 UTC) `/root` — /resume
+- (2026-07-16 00:21 UTC) `/root` — /remote-control
+- (2026-07-19 09:16 UTC) `/root` — /resume
+- (2026-07-19 09:16 UTC) `/root` — /remote-control
+- (2026-07-20 03:24 UTC) `/root` — /resume
+- (2026-07-20 09:20 UTC) `/root` — ./moe_gemv_persist 1024 2048 128 16 2 这个跑出来的5。32M
+- (2026-07-20 09:21 UTC) `/root` — 之前的其他的好像都是对的
+- (2026-07-21 06:14 UTC) `/root` — /resume
+- (2026-07-21 06:14 UTC) `/root` — /remote-control
+- (2026-07-21 06:20 UTC) `/root` — https://github.com/t-head/actlize/tree/v1.0.0 尝试用这个ppu的cutlass3，看看内部有没有现成的w4a16的group-gemm
+- (2026-07-21 06:27 UTC) `/root` — /resume
+- (2026-07-21 06:27 UTC) `/root` — 编译的命令是不是[Pasted text #1 +8 lines]
+- (2026-07-21 06:28 UTC) `/root` — [Pasted text #2 +8 lines]
+- (2026-07-21 06:28 UTC) `/root` — cd ppu_so cmake -B build -DCMAKE_CUDA_ARCHITECTURES=OFF -DTorch_DIR=$(python3 -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"share/cmake/Torch"))') CUDA_VISIBLE_DEVICES=0 ./build.sh 32,32,128 然后重新编译llama cpp export DG_JIT_CACHE_DIR=$HOME/.deep_gemm_cache export DG_LIBRARY_ROOT=$PWD/ppu_so/third_party/DeepGemm/deep_gemm GGML_PPU_FA_SO=$PWD/ppu_so/build/libppu_fa.so GGML_PPU_GDN_SO=$PWD/ppu_so/gdn/libppu_gdn.so GGML_PPU_GDN_CHUNKED=1 CUDA_VISIBLE_DEVICES=1 ./build-llama/bin/llama-batched-bench -m /sim/eec/shared/AI_workspace/llm-models/Qwen3.5-35B-A3B-Base-GGUF/Qwen3.5-35B-A3B-Base-GGUF.gguf -fa 1 -npp 2048 -ntg 1024 -npl 1 -ngl all -b 2048 -ub 2048 编译的命令是这个吗？
+- (2026-07-21 10:34 UTC) `/root` — hi
+- (2026-07-21 10:36 UTC) `/root` — hi
+- (2026-07-21 10:38 UTC) `/root` — /model
+- (2026-07-21 11:00 UTC) `/root` — hi
+- (2026-07-21 14:43 UTC) `/root` — [Pasted text #1 +568 lines]
+- (2026-07-21 14:43 UTC) `/root` — [Pasted text #2 +568 lines]
+- (2026-07-22 00:54 UTC) `/root/marlin_ppu` — /resume
+- (2026-07-22 01:03 UTC) `/root` — /resume
+- (2026-07-22 01:04 UTC) `/root` — /remote-control
+- (2026-07-22 23:05 UTC) `/root` — /resume
+- (2026-07-22 23:05 UTC) `/root` — 继续
+- (2026-07-23 01:07 UTC) `/root` — 为什么collective没有变化？
+- (2026-07-23 01:09 UTC) `/root` — int8 从列表上划掉。不需要做。
+- (2026-07-23 01:09 UTC) `/root` — 对应的代码删掉。其他的低比特呢？你做了什么修改？2，3bit应该需要修改collective啊？你是padding到了4-bit？
+- (2026-07-23 01:26 UTC) `/root` — 现在开，先思考一下怎么做合适
+- (2026-07-23 01:48 UTC) `/root` — match
+- (2026-07-23 01:52 UTC) `/root` — 但是4-bit也不是1：1的映射啊
+- (2026-07-23 02:38 UTC) `/root` — 应该走B，只有小batch的case走A。我们如果可以offline冲排序，是不是会好很多
+- (2026-07-23 02:52 UTC) `/root` — 大概率是memory bound和compute bound之间，所以还是要注意计算复杂度。
+- (2026-07-23 02:53 UTC) `/root` — 能参考bitnet.cpp 的 I2_S/TL1/TL2 kernel，以及llamacpp中的写法吗？先调研一下，不着急写
+- (2026-07-23 03:03 UTC) `/root` — 我想知道llama cpp如何处理dquant，尤其是3-bit，5-bit这种非align的bit
+- (2026-07-23 03:09 UTC) `/root` — 还是按照计划，先干2-bit。另外，有一个发现，AIU读取数据的时候是可以padding的： stride和stride_mode stride_mode有strided和zfill两种模式. stride表示x和y维度的步长, 支持1和2两种情况: 1) 当stride_mode=strided模式, stride=1时, 表示连续读取并存储数据. 2) 当stride_mode=strided模式, stride=2时, 表示以stride间隔读取数据, 存储时连续存储. 3) 当stride_mode=zfill模式, stride=1时, 表示连续读取并存储数据. 4) 当stride_mode=zfill模式, stride=2时, 表示连续读取数据, 存储数据时以stride存储间隔, 间隔的空隙填0. 所以3-bit可以到4-bit，5，6-bit可以到8-bit。但是如果已经offlien 分解到了2的幂次部分，是不是就不用这样了
+- (2026-07-23 03:12 UTC) `/root` — int2的swizzle搞清楚了吗？
+- (2026-07-23 03:21 UTC) `/root` — 继续
+- (2026-07-23 03:25 UTC) `/root` — 好
+- (2026-07-23 03:39 UTC) `/root` — 写
+- (2026-07-23 03:50 UTC) `/root` — commit，然后写下一步
+- (2026-07-23 04:19 UTC) `/root` — 写吧。
+- (2026-07-23 04:28 UTC) `/root` — test_w2a16_grouped.cu:16:10: fatal error: cutlass/util/device_memory.h: No such file or directory 16 | #include "cutlass/util/device_memory.h" | ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- (2026-07-23 04:32 UTC) `/root` — /effort max
+- (2026-07-23 04:32 UTC) `/root` — 继续
+- (2026-07-23 05:15 UTC) `/root` — 过了
+- (2026-07-23 05:24 UTC) `/root` — 精度没有验证，知识编译过了
+- (2026-07-23 05:39 UTC) `/root` — [w2a16] L=1 M=64 N=256 K=256 gs=32 (scale+zero) scale_k=8 il=true (interleaved) grp vs host golden max_rel=2.539e+03 bad=15766/16384 -> MISMATCH D[m][n] (got | gold), first 4x8: m=0: -3.22|-4.08 -3.86|-4.76 -5.67|0.76 -1.20|-1.92 -4.02|-5.67 -4.82|-4.84 1.03|-0.98 -1.91|1.82 m=1: 6.14|5.46 -0.94|-0.43 -2.51|0.68 -0.92|0.61 0.35|1.82 4.79|5.59 -1.01|-3.23 3.33|2.85 m=2: 0.47|1.11 4.50|3.64 2.05|6.29 3.85|1.02 2.63|3.28 0.17|0.84 0.31|-4.17 2.04|3.99 m=3: -2.09|-3.38 1.33|0.92 1.80|-0.61 -1.25|-0.34 -4.79|-1.32 4.25|1.91 -2.32|-5.96 -0.61|0.68
+- (2026-07-23 05:50 UTC) `/root` — [w2a16-diag] identity A, W[k][n]=(k%4)+10*(n%4); D[m][n] should = (m%4)+10*(n%4) bad=49152/65536 MISMATCH m\n : (got_k4,got_n4 | exp_k4,exp_n4) ... m= 0: 0,0|0,0 1,1|0,1 2,2|0,2 3,3|0,3 0,0|0,0 1,1|0,1 2,2|0,2 3,3|0,3 m= 1: 0,0|1,0 1,1|1,1 2,2|1,2 3,3|1,3 0,0|1,0 1,1|1,1 2,2|1,2 3,3|1,3 m= 2: 0,0|2,0 1,1|2,1 2,2|2,2 3,3|2,3 0,0|2,0 1,1|2,1 2,2|2,2 3,3|2,3 m= 3: 0,0|3,0 1,1|3,1 2,2|3,2 3,3|3,3 0,0|3,0 1,1|3,1 2,2|3,2 3,3|3,3 m= 4: 0,0|0,0 1,1|0,1 2,2|0,2 3,3|0,3 0,0|0,0 1,1|0,1 2,2|0,2 3,3|0,3 m= 5: 0,0|1,0 1,1|1,1 2,2|1,2 3,3|1,3 0,0|1,0 1,1|1,1 2,2|1,2 3,3|1,3 m= 6: 0,0|2,0 1,1|2,1 2,2|2,2 3,3|2,3 0,0|2,0 1,1|2,1 2,2|2,2 3,3|2,3 m= 7: 0,0|3,0 1,1|3,1 2,2|3,2 3,3|3,3 0,0|3,0 1,1|3,1 2,2|3,2 3,3|3,3 m= 8: 0,0|0,0 1,1|0,1 2,2|0,2 3,3|0,3 0,0|0,0 1,1|0,1 2,2|0,2 3,3|0,3 m= 9: 0,0|1,0 1,1|1,1 2,2|1,2 3,3|1,3 0,0|1,0 1,1|1,1 2,2|1,2 3,3|1,3 m=10: 0,0|2,0 1,1|2,1 2,2|2,2 3,3|2,3 0,0|2,0 1,1|2,1 2,2|2,2 3,3|2,3 m=11: 0,0|3,0 1,1|3,1 2,2|3,2 3,3|3,3 0,0|3,0 1,1|3,1 2,2|3,2 3,3|3,3 m=12: 0,0|0,0 1,1|0,1 2,2|0,2 3,3|0,3 0,0|0,0 1,1|0,1 2,2|0,2 3,3|0,3 m=13: 0,0|1,0 1,1|1,1 2,2|1,2 3,3|1,3 0,0|1,0 1,1|1,1 2,2|1,2 3,3|1,3 m=14: 0,0|2,0 1,1|2,1 2,2|2,2 3,3|2,3 0,0|2,0 1,1|2,1 2,2|2,2 3,3|2,3 m=15: 0,0|3,0 1,1|3,1 2,2|3,2 3,3|3,3 0,0|3,0 1,1|3,1 2,2|3,2 3,3|3,3
+- (2026-07-23 06:22 UTC) `/root` — bad=0/65536 MATCH m\n : (got_k4,got_n4 | exp_k4,exp_n4) ... m= 0: 0,0|0,0 0,1|0,1 0,2|0,2 0,3|0,3 0,0|0,0 0,1|0,1 0,2|0,2 0,3|0,3 m= 1: 1,0|1,0 1,1|1,1 1,2|1,2 1,3|1,3 1,0|1,0 1,1|1,1 1,2|1,2 1,3|1,3 m= 2: 2,0|2,0 2,1|2,1 2,2|2,2 2,3|2,3 2,0|2,0 2,1|2,1 2,2|2,2 2,3|2,3 m= 3: 3,0|3,0 3,1|3,1 3,2|3,2 3,3|3,3 3,0|3,0 3,1|3,1 3,2|3,2 3,3|3,3 m= 4: 0,0|0,0 0,1|0,1 0,2|0,2 0,3|0,3 0,0|0,0 0,1|0,1 0,2|0,2 0,3|0,3 m= 5: 1,0|1,0 1,1|1,1 1,2|1,2 1,3|1,3 1,0|1,0 1,1|1,1 1,2|1,2 1,3|1,3 m= 6: 2,0|2,0 2,1|2,1 2,2|2,2 2,3|2,3 2,0|2,0 2,1|2,1 2,2|2,2 2,3|2,3 m= 7: 3,0|3,0 3,1|3,1 3,2|3,2 3,3|3,3 3,0|3,0 3,1|3,1 3,2|3,2 3,3|3,3 m= 8: 0,0|0,0 0,1|0,1 0,2|0,2 0,3|0,3 0,0|0,0 0,1|0,1 0,2|0,2 0,3|0,3 m= 9: 1,0|1,0 1,1|1,1 1,2|1,2 1,3|1,3 1,0|1,0 1,1|1,1 1,2|1,2 1,3|1,3 m=10: 2,0|2,0 2,1|2,1 2,2|2,2 2,3|2,3 2,0|2,0 2,1|2,1 2,2|2,2 2,3|2,3 m=11: 3,0|3,0 3,1|3,1 3,2|3,2 3,3|3,3 3,0|3,0 3,1|3,1 3,2|3,2 3,3|3,3 m=12: 0,0|0,0 0,1|0,1 0,2|0,2 0,3|0,3 0,0|0,0 0,1|0,1 0,2|0,2 0,3|0,3 m=13: 1,0|1,0 1,1|1,1 1,2|1,2 1,3|1,3 1,0|1,0 1,1|1,1 1,2|1,2 1,3|1,3 m=14: 2,0|2,0 2,1|2,1 2,2|2,2 2,3|2,3 2,0|2,0 2,1|2,1 2,2|2,2 2,3|2,3 m=15: 3,0|3,0 3,1|3,1 3,2|3,2 3,3|3,3 3,0|3,0 3,1|3,1 3,2|3,2 3,3|3,3
+- (2026-07-23 06:22 UTC) `/root` — grp vs host golden max_rel=2.775e+03 bad=15453/16384 -> MISMATCH D[m][n] (got | gold), first 4x8: m=0: -3.52|-4.08 -5.38|-4.76 -3.64|0.76 -2.38|-1.92 -4.51|-5.67 -6.16|-4.84 -0.46|-0.98 -0.65|1.82 m=1: 2.75|5.46 1.97|-0.43 1.52|0.68 1.04|0.61 1.67|1.82 3.07|5.59 -0.12|-3.23 0.78|2.85 m=2: 1.08|1.11 2.60|3.64 3.79|6.29 1.12|1.02 2.44|3.28 3.11|0.84 0.67|-4.17 1.79|3.99 m=3: -2.76|-3.38 -0.90|0.92 -1.00|-0.61 -1.66|-0.34 -1.79|-1.32 2.39|1.91 -9.39|-5.96 0.42|0.68
+- (2026-07-23 06:51 UTC) `/root` — [w2a16-diag N-READOUT] W[k][n]=(k%4)+1000+4*n; decode n_read=(D-1000)/4, k4_read=(D-1000)%4 m=0 n : n_read (exp n) [* if n_read!=n] 0:0 1:1 2:2 3:3 4:4 5:5 6:6 7:7 8:8 9:9 10:10 11:11 12:12 13:13 14:14 15:15 16:16 17:17 18:18 19:19 20:20 21:21 22:22 23:23 24:24 25:25 26:26 27:27 28:28 29:29 30:30 31:31 n=0 m : k4_read (exp m%4): m0:0(0) m1:1(1) m2:2(2) m3:3(3) m4:0(0) m5:1(1) m6:2(2) m7:3(3)
+- (2026-07-23 06:59 UTC) `/root` — [w2a16-diag q2-N] q2[k][n]=(n>>(2*(k%4)))&3; reconstruct n' from D[0..3][n] -> sigma_n(n) n : sigma_n(n) [* if != n] 0:0 1:1 2:2 3:3 4:4 5:5 6:6 7:7 8:0* 9:1* 10:2* 11:3* 12:4* 13:5* 14:6* 15:7* 16:16 17:17 18:18 19:19 20:20 21:21 22:22 23:23 24:16* 25:17* 26:18* 27:19* 28:20* 29:21* 30:22* 31:23* 32:32 33:33 34:34 35:35 36:36 37:37 38:38 39:39 40:32* 41:33* 42:34* 43:35* 44:36* 45:37* 46:38* 47:39* 48:48 49:49 50:50 51:51 52:52 53:53 54:54 55:55 56:48* 57:49* 58:50* 59:51* 60:52* 61:53* 62:54* 63:55* (32 of first 64 permuted)
+- (2026-07-23 07:31 UTC) `/root` — [w2a16-diag q2-N] q2[k][n]=(n>>(2*(k%4)))&3; reconstruct n' from D[0..3][n] -> sigma_n(n) n : sigma_n(n) [* if != n] 0:0 1:1 2:2 3:3 4:4 5:5 6:6 7:7 8:0* 9:1* 10:2* 11:3* 12:4* 13:5* 14:6* 15:7* 16:16 17:17 18:18 19:19 20:20 21:21 22:22 23:23 24:16* 25:17* 26:18* 27:19* 28:20* 29:21* 30:22* 31:23* 32:32 33:33 34:34 35:35 36:36 37:37 38:38 39:39 40:32* 41:33* 42:34* 43:35* 44:36* 45:37* 46:38* 47:39* 48:48 49:49 50:50 51:51 52:52 53:53 54:54 55:55 56:48* 57:49* 58:50* 59:51* 60:52* 61:53* 62:54* 63:55* (32 of first 64 permuted)
+- (2026-07-23 07:45 UTC) `/root` — [w2a16-diag q2-N il=FALSE] q2[k][n]=(n>>(2*(k%4)))&3; reconstruct sigma_n(n); expect n n : sigma_n(n) [* if != n] 0:0 1:1 2:2 3:3 4:4 5:5 6:6 7:7 8:0* 9:1* 10:2* 11:3* 12:4* 13:5* 14:6* 15:7* 16:16 17:17 18:18 19:19 20:20 21:21 22:22 23:23 24:16* 25:17* 26:18* 27:19* 28:20* 29:21* 30:22* 31:23* 32:32 33:33 34:34 35:35 36:36 37:37 38:38 39:39 40:32* 41:33* 42:34* 43:35* 44:36* 45:37* 46:38* 47:39* 48:48 49:49 50:50 51:51 52:52 53:53 54:54 55:55 56:48* 57:49* 58:50* 59:51* 60:52* 61:53* 62:54* 63:55* (32 of first 64 permuted)
+- (2026-07-23 07:51 UTC) `/root` — 应该是zfill模式。
+- (2026-07-23 08:03 UTC) `/root` — 应该类似：cp.async.aiu.{cache-opeartion}.bulk.tensor.shared.global{.trans}{.padding}{.memoryMode}{.strideValue}{.strideMode}{.dim}{.datatype} [dstSharedMem], [srcGlobalMem], {tensor_dims_y, tensor_dims_x, tensor_dims_z, y_offset, x_offset, z_offset}, {cube_h, cube_w, cube_z, cube_n}
+- (2026-07-23 08:08 UTC) `/root` — modifier说明 ● .cache-opeartion可设置为.cg，或者不指定（由PPU执行默认cache行为）。 ● .padding = {.padz, .padn}，默认.padz。 ● .trans: 表示b32/b16数据类型在global memory load到TSM过程中X/Y轴做转置，b8数据类型不支持转置。默认不转置。 ● .memoryMode = {.swzl, .linear}，默认.swzl。 ● .strideValue = {.stride1, .stride2}，默认.stride1。 ● .strideMode = {.stride, .zfill}，默认.stride。 ● .dim = {3d, 2d}，默认3d。 ● .datatype = {.b8，.b16，b32}，默认b16。 但是只有stride2的选项，没有我们想要的
+- (2026-07-23 08:16 UTC) `/root` — 0:0 1:1 2:2 3:3 4:4 5:5 6:6 7:7 8:0* 9:1* 10:2* 11:3* 12:4* 13:5* 14:6* 15:7* 16:16 17:17 18:18 19:19 20:20 21:21 22:22 23:23 24:16* 25:17* 26:18* 27:19* 28:20* 29:21* 30:22* 31:23* 32:32 33:33 34:34 35:35 36:36 37:37 38:38 39:39 40:32* 41:33* 42:34* 43:35* 44:36* 45:37* 46:38* 47:39* 48:48 49:49 50:50 51:51 52:52 53:53 54:54 55:55 56:48* 57:49* 58:50* 59:51* 60:52* 61:53* 62:54* 63:55*
+- (2026-07-23 08:17 UTC) `/root` — 我不太理解你的问题，其实不用当成int2处理啊，你当成int4或者int8，然后解包的时候按照int2解包不行吗？
+- (2026-07-23 08:19 UTC) `/root` — 加layout打印吧。
+- (2026-07-23 08:34 UTC) `/root` — W2DBG K_ATOM_PER_COPY=8 W2DBG tCrB_load.layout= ((_16,_1),_2,_2):((_1,_0),_32,_16) W2DBG cvt_in.layout = ((_64,_1),_2):((_1,_0),_128) W2DBG tCrB_mma.layout = ((_2,_2,_2),_2,_16):((_1,_2,_4),_128,_8) W2DBG cvt_out.target = ((_2,_2,_2),_2):((_1,_2,_4),_128) W2DBG K_ATOM_PER_COPY=8 W2DBG tCrB_load.layout= ((_16,_1),_2,_2):((_1,_0),_32,_16) W2DBG cvt_in.layout = ((_64,_1),_2):((_1,_0),_128) W2DBG tCrB_mma.layout = ((_2,_2,_2),_2,_16):((_1,_2,_4),_128,_8) W2DBGcvt_out.target = ((_2,_2,_2),_2):((_1,_2,_4),_128)
+- (2026-07-23 08:48 UTC) `/root` — [w2a16-diag q2-N TK=256] q2[k][n]=(n>>(2*(k%4)))&3; reconstruct sigma_n(n); expect n W2DBG K_ATOM_PER_COPY=8 W2DBG tCrB_load.layout= ((_16,_1),_2,_2):((_1,_0),_32,_16) W2DBG cvt_in.layout = ((_64,_1),_2):((_1,_0),_128) W2DBG tCrB_mma.layout = ((_2,_2,_2),_2,_16):((_1,_2,_4),_128,_8) W2DBG cvt_out.target = ((_2,_2,_2),_2):((_1,_2,_4),_128) W2DBG load m1=0: 0 0 0 0 | m1=1: 0 0 0 0 W2DBG K_ATOM_PER_COPY=8 W2DBG tCrB_load.layout= ((_16,_1),_2,_2):((_1,_0),_32,_16) W2DBG cvt_in.layout = ((_64,_1),_2):((_1,_0),_128) W2DBG tCrB_mma.layout = ((_2,_2,_2),_2,_16):((_1,_2,_4),_128,_8) W2DBG cvt_out.target = ((_2,_2,_2),_2):((_1,_2,_4),_128) W2DBG load m1=0: 0 0 0 0 | m1=1: 0 0 0 0
+- (2026-07-23 08:55 UTC) `/root` — D[0][n] n=0..31 (expect (n>>3)&1 = 0*8,1*8,0*8,1*8): 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+- (2026-07-23 08:55 UTC) `/root` — 还是全0
+- (2026-07-23 09:27 UTC) `/root` — h或者能根据你现在的结果反推我们应该怎么offline处理int2的权重吗？
+- (2026-07-23 13:55 UTC) `/root` — /remote-control
+- (2026-07-23 13:56 UTC) `/root` — bad=43746/65536 MISMATCH mismatches (m,n,g | q2 sc zr | got exp): m= 0 n= 8 g=0 | q2=1 sc=0.04 zr=-0.04 | got=0.040 exp=0.000 m= 0 n= 9 g=0 | q2=3 sc=0.06 zr=0.04 | got=0.160 exp=0.220 m= 0 n= 12 g=0 | q2=1 sc=0.03 zr=0.02 | got=0.110 exp=0.050 m= 0 n= 13 g=0 | q2=2 sc=0.04 zr=0.01 | got=0.010 exp=0.090 m= 0 n= 14 g=0 | q2=1 sc=0.04 zr=0.00 | got=0.080 exp=0.040 m= 0 n= 26 g=0 | q2=2 sc=0.02 zr=0.01 | got=0.070 exp=0.050 m= 0 n= 27 g=0 | q2=1 sc=0.03 zr=-0.03 | got=0.060 exp=0.000 m= 0 n= 28 g=0 | q2=3 sc=0.02 zr=0.00 | got=0.000 exp=0.060 m= 0 n= 30 g=0 | q2=0 sc=0.07 zr=0.00 | got=0.140 exp=0.000 m= 0 n= 31 g=0 | q2=1 sc=0.07 zr=0.04 | got=0.250 exp=0.110 m= 0 n= 40 g=0 | q2=2 sc=0.03 zr=0.04 | got=0.040 exp=0.100 m= 0 n= 41 g=0 | q2=2 sc=0.03 zr=0.01 | got=0.010 exp=0.070
+- (2026-07-23 14:02 UTC) `/root` — 你本地有ptx的文档啊
+- (2026-07-23 14:02 UTC) `/root` — 你还需要别的什么？
+- (2026-07-23 14:07 UTC) `/root` — 事实上你也可以smoke一个小的测试啊
+- (2026-07-23 14:11 UTC) `/root` — 注意，这里的smoke test和cutlass的代码中的没有直接关系。
+- (2026-07-23 14:18 UTC) `/root` — 而且如果你已经一一对应读进去了，可以反推对应的权重的layout啊？现在你有更多ptx的知识了之后应该可以反推了吧。
+- (2026-07-23 14:26 UTC) `/root` — 最简单的策略，参考int4的方法，对于单个thread来说int4读到了自己的register内部，然后我们offline冲排序，让这个int4的数据刚好是mma的ptx的操作数。对于int2，是一样的，就是读了2x的数据，相对于int4，然后第一份跟原来的int4是一致的，都是刚好是mma的ptx的操作数，第二份是下一个mma的ptx的操作数，应该是下一个k上的数据。这方法明白吗
+- (2026-07-23 14:39 UTC) `/root` — bad=23198/65536 MISMATCH mismatches (m,n,g | q2 sc zr | got exp): m= 0 n= 8 g=0 | q2=1 sc=0.04 zr=-0.04 | got=0.040 exp=0.000 m= 0 n= 9 g=0 | q2=3 sc=0.06 zr=0.04 | got=0.040 exp=0.220 m= 0 n= 10 g=0 | q2=3 sc=0.06 zr=0.00 | got=0.000 exp=0.180 m= 0 n= 12 g=0 | q2=1 sc=0.03 zr=0.02 | got=0.020 exp=0.050 m= 0 n= 13 g=0 | q2=2 sc=0.04 zr=0.01 | got=0.010 exp=0.090 m= 0 n= 14 g=0 | q2=1 sc=0.04 zr=0.00 | got=0.120 exp=0.040 m= 0 n= 15 g=0 | q2=0 sc=0.01 zr=0.02 | got=0.040 exp=0.020 m= 0 n= 24 g=0 | q2=3 sc=0.03 zr=-0.03 | got=0.030 exp=0.060 m= 0 n= 25 g=0 | q2=3 sc=0.02 zr=-0.02 | got=-0.020 exp=0.040 m= 0 n= 27 g=0 | q2=1 sc=0.03 zr=-0.03 | got=-0.030 exp=0.000 m= 0 n= 28 g=0 | q2=3 sc=0.02 zr=0.00 | got=0.000 exp=0.060 m= 0 n= 31 g=0 | q2=1 sc=0.07 zr=0.04 | got=0.040 exp=0.110 r
+- (2026-07-23 14:42 UTC) `/root` — W2DBG smem sB(n,0): N0=2 N8=1 N16=0 N24=2 (expect 0 1 0 1) W2DBG K_ATOM_PER_COPY=8 W2DBG tCrB_load.layout= ((_16,_1),_2,_2):((_1,_0),_32,_16) W2DBG cvt_in.layout = ((_64,_1),_2):((_1,_0),_128) W2DBG tCrB_mma.layout = ((_2,_2,_2),_2,_16):((_1,_2,_4),_128,_8) W2DBG cvt_out.target = ((_2,_2,_2),_2):((_1,_2,_4),_128) W2DBG load m1=0: 10 -30 -78 -19 | m1=1: 52 -87 104 55 W2DBG K_ATOM_PER_COPY=8 W2DBG tCrB_load.layout= ((_16,_1),_2,_2):((_1,_0),_32,_16) W2DBG cvt_in.layout = ((_64,_1),_2):((_1,_0),_128) W2DBG tCrB_mma.layout = ((_2,_2,_2),_2,_16):((_1,_2,_4),_128,_8) W2DBG cvt_out.target = ((_2,_2,_2),_2):((_1,_2,_4),_128) W2DBG load m1=0: 10 -30 -78 -19 | m1=1: 52 -87 104 55
+- (2026-07-23 14:54 UTC) `/root` — 注意顺序不光是对齐int4，注意你int2读取的数据是int4的两倍的数量，所以interleve的时候第一份和第二份注意。这是一个复杂的交织。你确认明白我的意思了吗？
+- (2026-07-23 14:57 UTC) `/root` — 来吧
+- (2026-07-23 15:03 UTC) `/root` — 我没有理解的是，现在的gguf的q4的转换的代码已经有了，其实q2的转换代码也比较好写，按照我们刚才的逻辑，甚至只需要看一下转完之后的权重对比q4就可以了，你这边完全可以做。
+- (2026-07-23 15:05 UTC) `/root` — 下一个q2的模型到本地
+- (2026-07-23 22:52 UTC) `/root` — offline输出的布局现在正确了吗啊
+- (2026-07-23 22:56 UTC) `/root` — transformerB kblock的路由是什么意思？现在的行为是什么？为什么要改，原来的是bug还是设计
+- (2026-07-23 23:01 UTC) `/root` — 所以原来的逻辑问题是offline conversion出错，我记得你之前的结论是这个，如果是这样，你offline的结果应该就能说明问题，原来和现在的offline结果应该是不同的。
+- (2026-07-23 23:05 UTC) `/root` — 现在的问题是offline的转换，根最终的cute layout是否能够对应。cute layout是否是mma需要的layout。int4的W2DBG和int2对比吧。。然后我们考虑AIU+swzl用host建模
+- (2026-07-24 01:59 UTC) `/root` — bad=32768/65536 MISMATCH D[0][0..31] (round) = | 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 | 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 D[1][0..31] (round) = | 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 | 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+- (2026-07-24 11:14 UTC) `/root` — /resume
+- (2026-07-24 11:14 UTC) `/root` — 继续
+- (2026-07-24 11:16 UTC) `/root` — 可能还可以更小的tile，因为是int1
+- (2026-07-24 12:46 UTC) `/root` — 测试一下吧，确认
+- (2026-07-24 15:45 UTC) `/root` — 我要睡觉了，你先静态本box分析，直到分析出问题，或者必须要上box验证为止
+- (2026-07-24 23:42 UTC) `/root` — 试试吧，多上几种不同的config的取向。多测试几组。另外A的concat时间显然不应该这么长，因为单独的测试之前测试过了，直接累加就是最准的。你现在是怎么搜索config for A的。
+- (2026-07-24 23:45 UTC) `/root` — OK，之前没跑过int2 和int1的gs16的profiling？
+- (2026-07-25 03:18 UTC) `/root` — /model
+- (2026-07-25 03:18 UTC) `/root` — /effort max
+- (2026-07-25 03:22 UTC) `/root` — 写吧
+- (2026-07-25 13:38 UTC) `/root` — 要做plan A
+- (2026-07-25 14:16 UTC) `/root` — 最优的case其实就是改B。
+- (2026-07-25 14:17 UTC) `/root` — 只给B
+- (2026-07-25 14:19 UTC) `/root` — 所以如果把aiu的layout问题解决了，这个问题也就解决了？
+- (2026-07-25 14:21 UTC) `/root` — swzl的寄存器投递也应该建模，对于nvidia的cute就是建模的啊
+- (2026-07-25 14:22 UTC) `/root` — 你可以不用上box，自己验证吗？我希望你能够验证这个一整套的逻辑，关键是这个修改会影响全部的代码吧，包括其他的数据格式，其他的数据格式现在怎么能对呢？
+- (2026-07-25 14:26 UTC) `/root` — 不不不，原来能对，不意味着我们就要这么做，事实上最本质的做法还是都改成cute，对吗
+- (2026-07-25 14:28 UTC) `/root` — 可以尝试step1，但是我理解的cute的表达能力一定是可以涵盖的。cute是数学上的全集。
+- (2026-07-25 14:34 UTC) `/root` — 不谈int4这些， fp16的weight怎么对的？这个没有相互抵消之类的。
+- (2026-07-25 14:37 UTC) `/root` — 额，也就是我们的srclayout改掉，按照我们之前的约定foldN offline。然后读取的时候aiu会自动推导出低位的连续32B的读取吗？还是不行？这才是我们做这个事情的block和目的
+- (2026-07-25 14:40 UTC) `/root` — 或者说我们修改添加cute的完备有什么好处吗？
+- (2026-07-25 14:42 UTC) `/root` — 建模是什么意思？只是offline计算？cute的好处在于online的编译时计算。我说的是大改
+- (2026-07-25 14:44 UTC) `/root` — 为什么不碰copy
+- (2026-07-25 14:47 UTC) `/root` — 其实也就是原来的aiu ld和ldmatrix必然配合，必然identity，所以不需要cute 完整表达？对吗？然后按照fp16做
+- (2026-07-25 14:48 UTC) `/root` — 继续
+- (2026-07-25 14:56 UTC) `/root` — 也就是我们还是按照传递TK让aiu直接读取的方法，而不是让aiu自动推导layout。也就是不那么优雅的做法
+- (2026-07-25 14:58 UTC) `/root` — 先1
+- (2026-07-25 15:00 UTC) `/root` — 另外我想说aiu swzl和ldmatrix swzl现在必需要配套这个是正确但有毒的做法，因为并不是必须配套，一旦我想要用其他ldmatrix不swzl，layout就不对了
+- (2026-07-25 15:02 UTC) `/root` — 如果需要修改，列一个表格，说明难度。
+- (2026-07-25 15:03 UTC) `/root` — 有哪些需要上box
+- (2026-07-26 12:51 UTC) `/root` — 欠交付和过交付是什么意思？
+- (2026-07-26 14:15 UTC) `/root/marlin_ppu` — 更新claude的npm
+- (2026-07-26 14:16 UTC) `/root` — /resume
+- (2026-07-26 14:16 UTC) `/root` — /effort max
+- (2026-07-26 14:16 UTC) `/root` — /remote-control
+- (2026-07-26 14:16 UTC) `/root` — /model
+- (2026-07-26 14:16 UTC) `/root` — /remote-control
+- (2026-07-26 14:16 UTC) `/root` — 继续
+- (2026-07-26 14:17 UTC) `/root` — /remote-control
+- (2026-07-26 14:17 UTC) `/root/marlin_ppu` — hi
+- (2026-07-26 14:17 UTC) `/root` — hi
+- (2026-07-26 14:17 UTC) `/root` — hi
+- (2026-07-26 14:19 UTC) `/root` — hi
+- (2026-07-26 14:22 UTC) `/root` — hi
+- (2026-07-26 14:25 UTC) `/root` — hi
+- (2026-07-26 14:25 UTC) `/root` — /login
+- (2026-07-26 14:30 UTC) `/root` — hi
+- (2026-07-26 14:30 UTC) `/root` — /resume
+- (2026-07-26 14:30 UTC) `/root` — /resume
+- (2026-07-26 14:31 UTC) `/` — /resume
+- (2026-07-26 14:33 UTC) `/root` — 继续
+- (2026-07-26 14:49 UTC) `/root` — 先继续把L2-7的几个cute的简单映射做掉。
+- (2026-07-27 01:50 UTC) `/root` — 考虑，这个过程，original weight ----> offline shuffle ----> shuffled weight ----> aiu ld ----> shm ----> ldmatrix ---> reg ---> convert ---> reg ----> ppu.mma ptx ---> 。这里的过程哪些可以用cute建模？现在现状是什么，还需要做什么工作，难度如何。
+- (2026-07-27 02:14 UTC) `/root` — 如果aiu和ldmatrix配对其实用identity的layout transform就OK。对吗？
+- (2026-07-27 02:15 UTC) `/root` — 我的意思只是aiu ld+ldmatrix可以抵消，两个乘上之后是identity的转换矩阵，所以这两个可以认为都是identity的转换，因为identity*identity=identity
+- (2026-07-27 02:19 UTC) `/root` — 先把4-slice补齐
+- (2026-07-27 02:27 UTC) `/root` — l17合并到l19之后就直接做1
+- (2026-07-27 02:44 UTC) `/root` — 或者说位置宽度的记账对于我们价值是什么？
+- (2026-07-27 02:54 UTC) `/root` — 所以现在可以支持K上int1只读取64个数吗？通过foldN=4
+- (2026-07-27 05:53 UTC) `/root` — 改吧。现在的todo变成了什么？
+- (2026-07-27 06:18 UTC) `/root` — 对于int1，可以用什么方法节约寄存器吗？你的意思是int1加载到register中的数据要转成fp16，因为一次加载的数据的element数量变多了，所以fp16的寄存器要求变多了？可以考虑复用寄存器吗？比如后几次的N上复用同一份寄存器？
+- (2026-07-27 06:22 UTC) `/root` — 给我一个6的command，你同时做1
+- (2026-07-27 06:58 UTC) `/root` — 第一轮zero mismatch
+- (2026-07-27 07:21 UTC) `/root` — [Pasted text #1 +5 lines]
+- (2026-07-27 07:49 UTC) `/root` — /remote-control
+- (2026-07-27 08:03 UTC) `/root` — scalezero的省了什么？也要看到。
+- (2026-07-27 08:16 UTC) `/root` — 你的建议呢？还有别的todo可以做的吗？
+- (2026-07-27 08:42 UTC) `/root` — 额。。。为什么bc zero和bc only的register和刚才没有变化。
+- (2026-07-27 08:44 UTC) `/root` — cute层面的冗余编译会优化，你现在改了什么？不能让原来的cute layout变成非cute
+- (2026-07-27 08:45 UTC) `/root` — 还有别的类似的修改吗？check一下
+- (2026-07-27 09:09 UTC) `/root` — int4的bench --xcheck也是zero mismatch
+- (2026-07-27 09:19 UTC) `/root` — 继续迭代直到解决这个问题。
+- (2026-07-27 09:23 UTC) `/root` — 9现在还有什么blocker吗
+- (2026-07-27 09:28 UTC) `/root` — 不对啊，每个warp计算的N如果大于4个block，就可以覆盖，现在是每个warp计算的N小于4个block？
+- (2026-07-27 09:31 UTC) `/root` — 我先理解一下，ascii图，改之前和之后，为什么能够减少寄存器使用
+- (2026-07-27 09:33 UTC) `/root` — 改完看看acu
+- (2026-07-27 09:41 UTC) `/root` — 没太理解。in the end，我们是读了一次，算N上的num block次，int2是读了一次，算N上的num block/2次。我们读取的次数更少。根据这个推导胰腺癌
+- (2026-07-27 09:43 UTC) `/root` — 继续做。到context慢了就保留下一轮需要的context继续。loop到完成这个改动。
+- (2026-07-27 09:59 UTC) `/root` — 假设不一定成立啊，你直接写成static assert，然后写后续的代码不危险吗？
+- (2026-07-27 12:07 UTC) `/root` — /resume
+- (2026-07-27 12:07 UTC) `/root` — /effort max
+- (2026-07-27 12:07 UTC) `/root` — /model
+- (2026-07-27 13:15 UTC) `/root` — 现在的写法是不是不优雅和可维护。另外为什么B只省了44，照理说可对标int
+- (2026-07-27 13:15 UTC) `/root` — 现在的写法是不是不优雅和可维护。另外为什么B只省了44，照理说可对标int2
+- (2026-07-27 13:21 UTC) `/root` — 这两个都要做。
+- (2026-07-27 13:26 UTC) `/root` — int4的emitter需要吗
+- (2026-07-27 13:31 UTC) `/root` — 还需要reuse reg的case上sweep一下吗？
+- (2026-07-27 14:12 UTC) `/root` — 先做8，做完8，是不是五轮推导可以删掉了？context快满了，可以先压缩一波，去掉一些无用的信息，一些bug相关的可以记录下来作为skill查阅。
+- (2026-07-27 14:19 UTC) `/root` — 继续做12
+- (2026-07-27 14:27 UTC) `/root` — /ppu-ptx
+- (2026-07-27 14:27 UTC) `/root` — /compact
+- (2026-07-27 14:28 UTC) `/root` — 从Handoff_task12.md开始做task12。
+- (2026-07-27 14:34 UTC) `/root` — 之前acu抓的是最优的配置吗？我抓出来50%的mfu啊。最优的配置应该是[Pasted text #2 +3 lines]
+- (2026-07-28 02:14 UTC) `/root` — 写完告诉我，我去box上测试精度和速度。另外[Pasted text #3 +6 lines]可行吗？[Pasted text #4 +8 lines]可以吗？
+- (2026-07-28 06:08 UTC) `/root` — /resume
+- (2026-07-28 06:08 UTC) `/root` — /effort max
+- (2026-07-28 06:08 UTC) `/root` — /model
+- (2026-07-28 06:08 UTC) `/root` — 继续
+- (2026-07-28 09:11 UTC) `/root` — 2-plane可以也cute化吗？
+- (2026-07-29 00:53 UTC) `/root` — /resume
+- (2026-07-29 00:53 UTC) `/root` — /effort max
+- (2026-07-29 06:35 UTC) `/root` — [Pasted text #1 +4 lines] 合理吗？我知道我们现在是转成bf16/fp16了。
+- (2026-07-29 06:50 UTC) `/root` — 等一下，9还没做吗？我理解dense的已经做了啊，group应该复用了吧，还是group要重新做？
+- (2026-07-29 07:17 UTC) `/root` — moe部分的性能还在调试。等你做完13我们继续看moe的性能问题。
+- (2026-07-29 07:33 UTC) `/root` — 现在的编译速度有点慢，有办法提高吗？但是我都要实例化。
+- (2026-07-29 08:50 UTC) `/root` — 拉出来下一个todo
+- (2026-07-29 08:55 UTC) `/root` — 先做22，perf先等这个结果再说。还有foldN的系数有没有放进去？
+- (2026-07-29 09:01 UTC) `/root` — 然后最后的程序应该按每个数值精度报最优的配置，而不是按照1-plane，2-plane。
+- (2026-07-29 09:07 UTC) `/root` — moe tk 128的结果不好。
+- (2026-07-29 09:13 UTC) `/root` — 这些坑记录到skill
+- (2026-07-29 09:20 UTC) `/root` — 思考一下如何做#20。注意新的scale格式也要用cute表征。这样也就意味着我们加载就是原始的gguf的格式。先给我计划。
+- (2026-07-29 09:21 UTC) `/root` — [Pasted text #1 +6 lines]
+- (2026-07-29 09:35 UTC) `/root` — 如果我不希望模型的大小变大呢？
+- (2026-07-29 09:38 UTC) `/root` — 难度如何，perf相对于online dequnantize scale在prefill和decode的表现。
+- (2026-07-29 09:43 UTC) `/root` — 先测试一个decode only，batch=1的HBM利用率。
+- (2026-07-29 09:45 UTC) `/root` — 可以看一下目前llama cpp内部的scale和权重在非align的时候的处理。
+- (2026-07-29 12:10 UTC) `/root` — 有很多[moe_grouped] init failed q5 q5 128x128:256 w32x64 s3 3.17 us | 21.2 TF/s ( 4.2% MFU) <-- fastest q6 q6 32x128:256 w32x64 s6 3.75 us | 17.9 TF/s ( 3.6% MFU) i2 i2 64x128:256 w32x64 s6 4.96 us | 13.5 TF/s ( 2.7% MFU) i4 i4 32x128:256 w32x64 s8 5.13 us | 13.1 TF/s ( 2.6% MFU) q3 q3 32x128:256 w32x64 s3 60.47 us | 1.1 TF/s ( 0.2% MFU)
+- (2026-07-29 12:48 UTC) `/root` — 或者说小m block在我们这里支持吗？比如m就是8之类的。
+- (2026-07-29 13:50 UTC) `/root` — i4 i4 16x64:256 w16x32 s2 23.54 us | 2.9 TF/s ( 0.6% MFU) <-- fastest
+- (2026-07-29 13:51 UTC) `/root` — acu来看看
+- (2026-07-29 22:58 UTC) `/root` — /resume
+- (2026-07-29 22:59 UTC) `/root` — /effort max
+- (2026-07-29 22:59 UTC) `/root` — /remote-control
+- (2026-07-29 23:07 UTC) `/root` — 不对啊，splitk可以在另外一个kernel轻量reduce
+- (2026-07-29 23:10 UTC) `/root` — 不要推理，要从auc上看
+- (2026-07-29 23:23 UTC) `/root` — 之前为什么是正常的，和你的测似的区别是？
+- (2026-07-29 23:28 UTC) `/root` — 还是这个问题规模太小了。没办法测试出来真正的问题。直接支持grouped gemm。另外也要写一个通用的gemv的方法，参考[Pasted text #1 +448 lines] [Pasted text #2 +472 lines] [Pasted text #3 +178 lines]
+- (2026-07-30 02:45 UTC) `/root` — 你在跑什么，最近迭代变慢很多
+- (2026-07-30 02:56 UTC) `/root` — 我不是说不能慢，如果为了成功率可以慢
+- (2026-07-30 03:06 UTC) `/root` — 编译还挺慢的，没有用我们原来的方法加速吗？
+- (2026-07-30 04:01 UTC) `/root` — 我刚才给你的事gemv的cuda coreonly的图。你继续做完split-k
+- (2026-07-30 04:16 UTC) `/root` — split-k的acu report看看，对比一下非split-k
+- (2026-07-30 05:32 UTC) `/root` — 逻辑上应该是可以的啊，思考一下为什么出错
+- (2026-07-30 05:49 UTC) `/root` — 你确认一下吧。但是我理解，肯定是可以修改的。
+- (2026-07-30 05:52 UTC) `/root` — 做吧。
+- (2026-07-30 07:03 UTC) `/root` — /compact
+- (2026-07-30 07:15 UTC) `/root` — 继续
+- (2026-07-30 07:51 UTC) `/root` — grouped-L=8(contiguous D[total][N]) vs grouped-L=1 oracle: max_rel=0.000e+00 (worst e=-1) bad=0 -> MATCH |gold|max=21.72 |got|max=21.72 non-finite: gold=0 got=0 gold[0..3]=1.5752 2.87695 2.33789 -4.1875 got[0..3]=1.5752 2.87695 2.33789 -4.1875 MOEG_DUMP: 8192 halfs -> /tmp/d_off.bin
+- (2026-07-30 07:51 UTC) `/root` — grouped-L=8(contiguous D[total][N]) vs grouped-L=1 oracle: max_rel=0.000e+00 (worst e=-1) bad=0 -> MATCH |gold|max=21.72 |got|max=21.72 non-finite: gold=0 got=0 gold[0..3]=1.5752 2.87695 2.33789 -4.1875 got[0..3]=1.5752 2.87695 2.33789 -4.1875 MOEG_DUMP: 8192 halfs -> /tmp/d_off.bin 打开的情况是对的。
+- (2026-07-30 09:34 UTC) `/root` — 不不不，但是这个从原理上一定不会变差，所以我一定要这个feature，把精度搞对
+- (2026-07-30 10:22 UTC) `/root` — 按照到底不需要四行，只是现在是纯手算，不是cute化的，所以先要cute化AIU的ldmatrix和swl读，这样就可以读取一行了？这个判断对吗？可以写一个microbenchmark测试一下能不能读取一行。
+- (2026-07-30 10:32 UTC) `/root` — 理解了，那你cp async吧。
+- (2026-07-30 11:34 UTC) `/root` — 理论上应该多这么多的int计算吗？照理说是共享的同一份reg里面的数据吧。m上的数据一直是共享的。
+- (2026-07-30 11:35 UTC) `/root` — 应该先对于同一个m的所有的N算完之后加载下一份K，所以m上的数据只加载一次。
+- (2026-07-30 11:38 UTC) `/root` — 现在处理相当于mma的冗余计算量。你分析一下如何做
+- (2026-07-30 14:06 UTC) `/root` — 但是我不希望epilogue算reduce，可以是单独的kernel计算嘛？
+- (2026-07-30 14:38 UTC) `/root` — 查吧
+- (2026-07-30 14:53 UTC) `/root` — cd /sim/eec/shared/junfu.qx/Kernels && git pull && git submodule update --init third_party/actlize cd general/w4a16_gemm/cutlass_w4a16 A="64 8 2048 2048 32 3"; SEL='SPLITK_CFG=16x64:256 w16x16 s2' PPU_DEFS=PPU_SCALE_PREFETCH=1 TARGET=test_moe_grouped_verify ./build.sh && \ MOEG_CHECK=/tmp/d_off.bin $BIN/test_moe_grouped_verify 8 1 for p in "" "PPU_SCALE_PREFETCH=1"; do PPU_DEFS=$p TARGET=test_moe_splitk_bench ./build.sh | tail -2 echo "== ${p:-baseline}"; env "$SEL" SPLITK_S=1 $BIN/test_moe_splitk_bench $A | grep "^ i4" done
+- (2026-07-30 14:58 UTC) `/root` — 看一下acu，我没说是gptq啊，我说的是q4k。
+- (2026-07-30 23:10 UTC) `/root` — /resume
+- (2026-07-30 23:11 UTC) `/root` — /effort max
+- (2026-07-30 23:11 UTC) `/root` — 什么八倍的矛盾
+- (2026-07-31 06:06 UTC) `/root` — 你本地是什么q4模型
+- (2026-07-31 06:07 UTC) `/root` — 你本地把这个bin上传吧
+- (2026-07-31 06:08 UTC) `/root` — 验证精度之后用之前的shape测试性能，主要先看decode
+- (2026-07-31 06:10 UTC) `/root` — 如果bin已经上传，你为什么之前要让我自己point我box上的模型来转换
+- (2026-07-31 06:41 UTC) `/root` — 都match
+- (2026-07-31 08:37 UTC) `/root` — llama cpp怎么做的
+- (2026-07-31 08:39 UTC) `/root` — 按照F重写
+- (2026-07-31 09:15 UTC) `/root` — 1
+- (2026-07-31 09:40 UTC) `/root` — 是不是理论上不如另外一个kernel来做scale的online conversion
+- (2026-07-31 09:47 UTC) `/root` — 两边抓的对比的kernel好像不一致，没办法直接对比
+- (2026-07-31 09:50 UTC) `/root` — 写出去的流量怎么会有3。49M，即使是splitk也不可能
+- (2026-07-31 09:52 UTC) `/root` — 补齐行不用写啊。
+- (2026-07-31 09:57 UTC) `/root` — 首先最后实际写出去的流量就是44B
+- (2026-07-31 09:58 UTC) `/root` — 首先最后实际写出去的流量就是44B，但是写LLC的流量是3.49M，怎么也对不上啊
+- (2026-07-31 13:10 UTC) `/root` — ! codex login
+- (2026-07-31 13:13 UTC) `/root` — /code-review
+- (2026-07-31 13:15 UTC) `/root` — 让他review一下我们的decoding上的优化思路，以及现在为什么scale 用原始格式之后没有好处。还变差了。
+- (2026-07-31 13:16 UTC) `/root` — 现在还是[Pasted text #1 +3 lines][Pasted text #2 +3 lines]
+- (2026-07-31 13:35 UTC) `/root` — 但是我希望你来调用
+- (2026-07-31 14:25 UTC) `/root` — 综合一下我们后续的可能的优化方向。
+- (2026-08-01 10:56 UTC) `/root` — 你在5090上编译吗？
+- (2026-08-01 11:46 UTC) `/root` — /resume
+- (2026-08-01 11:46 UTC) `/root` — /effort max
+- (2026-08-01 11:48 UTC) `/root` — [Pasted text #1 +6 lines]
+- (2026-08-01 14:23 UTC) `/root` — 现在的数据格式的表格有哪些？对于我们预定的dequant first + FP16的gemm/moe-gemm，还有dequant scale first + quantized gemm/moe-gemm，还有fully quantized gemm/moe-gemm。以及不同的数据格式的矩阵，现在的实现情况。
+- (2026-08-02 02:05 UTC) `/root` — 回到Q4K的原始格式的精度和速度测试，给我command
+- (2026-08-02 02:15 UTC) `/root` — 你怎么还是报错呢？这个问题解决了多少次了。我不希望下一次还出错。
+- (2026-08-02 09:28 UTC) `/root` — /resume
+- (2026-08-02 09:28 UTC) `/root` — /effort max
+- (2026-08-02 09:29 UTC) `/root` — 还是一样：[Pasted text #1 +5 lines]
+- (2026-08-02 10:58 UTC) `/root` — 还没有好吗
+- (2026-08-02 11:20 UTC) `/root` — If you execute __syncthreads() to synchronize the threads of a block, it is recommended to have at least two blocks per CU (compared to the currently executed 1.8 blocks) This way, blocks that aren't waiting for __syncthreads() can keep the hardware busy.
+- (2026-08-02 13:15 UTC) `/root` — 下一次上box只编译有变化的bin
+- (2026-08-02 13:28 UTC) `/root` — [Pasted text #1 +5 lines]-- assert attribution: default build (no macros) vs swizzle-only build, same verifier default: /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/gemm/collective/ppu_mma_aiu_multistage_mixed_input.hpp:1693 :void ::cutlass::gemm::collective::CollectiveMma< ::cutlass::arch::PPU0010, ::cutlass::gemm::MainloopPPUAiuMixedInput<(int)3, ::cute::C<(int)256>, ::cutlass::gemm::KernelAiuMultistageMixedInputFinegrainedGs128>, ::cu
+- (2026-08-02 14:28 UTC) `/root` — 中间不要问我任何问题，有问题找codex讨论，最后总结晚上这三件事情做的如何，有什么问题，有什么关键决策。
+- (2026-08-02 14:29 UTC) `/root` — 第一件事和第二件事都是你本地完全可以自测的。所以要本地验证正确性。第三件事可以验证编译和简单的正确性。
+- (2026-08-02 14:30 UTC) `/root` — 你是否可以用loop的harness还是plan之类的方法确保你的执行能完成。
+- (2026-08-02 14:31 UTC) `/root` — 注意cuda core only的实现也要接到python端口测试正确性，最后一种packed也是一样。这样我们就有好几种方法，可以按需选择。
+- (2026-08-02 14:39 UTC) `/root` — dequantize scale你是怎么和官方对比的，官方实现有dequant scale的实现？
+- (2026-08-02 14:44 UTC) `/root` — 看cau没有bc的变化。
+- (2026-08-02 14:48 UTC) `/root` — 让codex参与分析一下为什么
+- (2026-08-02 14:48 UTC) `/root` — 最终目的是解决bc的问题，所以这个相同我就认为你没有解决
+- (2026-08-03 01:45 UTC) `/root` — gemv的性能没有codex压榨过吗？
+- (2026-08-03 01:47 UTC) `/root` — 现在的gguf的格式的状态表格，和精度/速度的优化情况现状。注意我们有多种实现。
+- (2026-08-03 01:56 UTC) `/root` — ~~~ 的host端为什么不接起来测试。
+- (2026-08-03 02:26 UTC) `/root` — 但是现在看起来还不如我之前的ppu上的tensorcore的版本，那个最高可以到40%的带宽利用率。
+- (2026-08-03 02:26 UTC) `/root` — 继续让codex优化gemv cuda only的性能。
+- (2026-08-03 02:49 UTC) `/root` — 让codex判断一下为什么没有生效。
+- (2026-08-03 02:59 UTC) `/root` — grep -c kFusedScaleZero third_party/actlize/include/cutlass/gemm/collective/ppu_mma_aiu_multistage_mixed_input.hpp 6bf872d2 11
+- (2026-08-03 03:37 UTC) `/root` — 增加的这个事shared store from global load
+- (2026-08-03 03:38 UTC) `/root` — scale和min现在不是cute
+- (2026-08-03 03:40 UTC) `/root` — 但是为什么你swzl之后的消除bc的acu会有更多的运算，照理说应该都是编译期固化了
+- (2026-08-03 03:42 UTC) `/root` — codex回复了吗？
+- (2026-08-03 03:47 UTC) `/root` — 让codex回复一下为什么simt可以到这么高的利用率，而packed tensrocore的结果不行。是grid太少？
+- (2026-08-03 04:24 UTC) `/root` — 那真实shape上还是不如我们的tensorcore的版本带宽的利用率
+- (2026-08-03 04:36 UTC) `/root` — 需要重新测试真实shape的moe-gemv。simt only的版本。这样才能和tensorcore进行fair的对比，虽然一个是ppu，一个是5090
+- (2026-08-03 04:55 UTC) `/root` — comand给我
+- (2026-08-03 04:56 UTC) `/root` — 现在表格什么状态了。support matrix
+- (2026-08-03 06:00 UTC) `/root` — 不对啊，scale first，之前测试过，肯定是支持这些格式的
+- (2026-08-03 06:02 UTC) `/root` — 你查一下历史，或者找一下Kernels目录下，是不是当时迁移的时候没有挪过来
+- (2026-08-03 06:04 UTC) `/root` — 不对啊，之前我记得测试过性能，没有wire的话如何测似的性能呢？
+- (2026-08-03 06:09 UTC) `/root` — 让codex或者你自己添加这部分的支持，其实应该就是从group的launcher把这些脚手架挪到dense的launcher中。
+- (2026-08-03 06:16 UTC) `/root` — dense的支持在L=1的group上已经有了， 所以只要做到比L=1的group的perf 更好或者持平就可以。
+- (2026-08-03 06:16 UTC) `/root` — 你的表格中的全部都可以从group的launcher中找到对应实现。
+- (2026-08-03 06:17 UTC) `/root` — 我的意思是可以参考group的launcher的全部实现。不要自己闭门造车。大部分代码应该是拷贝的，如果要新的实现，要和我们align
+- (2026-08-03 06:43 UTC) `/root` — scale first的支持，需要每一个都有对应的dequant scale的kernel，你确定有吗？
+- (2026-08-03 06:46 UTC) `/root` — 不是这个意思，我的意思是想知道如果现在的这些kernel接入llamacpp替换原来实现，还差什么kernel，明显sf的kernel差了dequant原来的scale到期望的fp16的格式的kernel
+- (2026-08-03 06:52 UTC) `/root` — 啥意思，没懂，gguf的码是权重？权重要处理，这部分为什么不能offline？
+- (2026-08-03 06:54 UTC) `/root` — Fully quantized如果我们离线shuffle的格式，应该也会遇到落盘格式问题。以及loader的问题？
+- (2026-08-03 07:02 UTC) `/root` — run: /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/build_w4a16_compare/examples/99_kernels_w4a16_compare/test_gemv_perf [shape] # GEMV_FMT=/GEMV_CFG= select rows bash: /sim/eec/shared/junfu.qx/Kernels/third_party/actlize/build_w4a16_compare/examples/99_kernels_w4a16_compare/test_gemv_perf: No such file or directory 目录错了，怎么会还出现Kernels呢？
+- (2026-08-03 07:16 UTC) `/root` — 什么意思。scale first的dense根group应该是一样的。所以codex没有新加的逻辑，都是copy，对吗？另外现在缺的这一步影响不影响精度的测试。我们现在可以接入python的ci测试了吗？我想在ppu上ci测试，看看support matrix
+- (2026-08-03 07:20 UTC) `/root` — 下一轮的任务让codex开始了吗
+- (2026-08-03 07:33 UTC) `/root` — 不对啊， 我记得trtllm miss的话有online profile的逻辑的。
+- (2026-08-03 07:38 UTC) `/root` — 不可能重新打包。所以要判断一下是不是大部分的case都是相似的warp和tile。或者不同的warp和tile能不能共享一个layout，perf影响较小。
+- (2026-08-03 07:38 UTC) `/root` — 看一下trtllm的版本的做法，因为这个也是有offline重排的
+- (2026-08-03 07:43 UTC) `/root` — 我理解offline应该只是跟F有关系
+- (2026-08-03 07:45 UTC) `/root` — 你这里的字节相同，我是对的，是什么字节？
+- (2026-08-03 08:00 UTC) `/root` — 主意保持scale的cute化
+- (2026-08-03 08:03 UTC) `/root` — 你自己接受这个17个修改。
+- (2026-08-03 08:03 UTC) `/root` — codex只负责kernel的编写，周边脚手架你来
+- (2026-08-03 08:22 UTC) `/root` — = FAILED tests/test_gguf_golden.py::test_device_vecdot_agrees_with_its_own_cpu_reference_arm - AssertionError: the device arm and its own CPU reference arm compute different functions on identical bytes (backend ppu (loaded third_party/actlize/build_w4a16_compare/examples/99_kernels_w4a16_compare/l... 1 failed, 202 passed, 2 skipped, 7693 warnings, 18 errors in 55.41s 有18个error我怎么看呢
+- (2026-08-03 08:26 UTC) `/root` — codex开始了吗？
+- (2026-08-03 08:30 UTC) `/root` — FAILED tests/test_gguf_golden.py::test_device_vecdot_agrees_with_its_own_cpu_reference_arm - AssertionError: the device arm and its own CPU reference arm compute different functions on identical bytes (backend ppu (loaded third_party/actlize/build_w4a16_compare/examples/99_kernels_w4a16_compare/l... ERROR tests/test_gguf_golden.py::test_cuda_vecdot_cooperative_matches_cpu_reference - Failed: this test needs gguf_vecdot's CPU REFERENCE ARM, but the backend is 'ppu (loaded third_party/actlize/build_w4a16_compare/examples/99_kernels_w4a16_compare/libquactlize_ppu.so)'. ERROR tests/test_gguf_routes.py::test_device_decode_routes_match_official_oracle_and_reject_planted_faults - AssertionError: In file included from /sim/eec/shared/junfu.qx/quactlize/quactlize/include/gemv_lowbit/gemv_wformat.hpp:35, ERROR tests/test_gguf_routes.py::test_dense_artifact_affine_chain_matches_official_oracle_and_rejects_faults - AssertionError: In file included from /sim/eec/shared/junfu.qx/quactlize/quactlize/include/gemv_lowbit/gemv_wformat.hpp:35,
+- (2026-08-03 08:33 UTC) `/root` — 在ppu上不是cutlass，是actlize啊
+- (2026-08-03 08:39 UTC) `/root` — codex干的怎么样了。之前的scale first和fully quantize的支持怎么样了
+- (2026-08-03 08:41 UTC) `/root` — 思考一下，怎么和codex合作，要不然一直来回来去的看。
+- (2026-08-03 08:45 UTC) `/root` — 为什么还没有开始呢？fully quantized
+- (2026-08-03 08:46 UTC) `/root` — ________ ERROR at setup of test_op_accepts_every_registered_int4_layout ________ tests/test_layouts.py:386: in Q assert not newer, ("the built extension is older than " + ", ".join(p.name for p in newer[:4]) E AssertionError: the built extension is older than gguf_prepass_ops.cpp, ppu_backend.cpp, ppu_backend.h -- rebuild before trusting these results: python setup.py build_ext --inplace E assert not [PosixPath('/sim/eec/shared/junfu.qx/quactlize/quactlize/csrc/preprocess/thop/gguf_prepass_ops.cpp'), PosixPath('/sim/...s/thop/ppu_backend.cpp'), PosixPath('/sim/eec/shared/junfu.qx/quactlize/quactlize/csrc/preprocess/thop/ppu_backend.h')] __ test_device_decode_routes_match_official_oracle_and_reject_planted_faults ___ tests/test_gguf_routes.py:236: in test_device_decode_routes_match_official_oracle_and_reject_planted_faults assert run.returncode == 0, run.stdout + run.stderr E AssertionError: Traceback (most recent call last): E File "<string>", line 58, in <module> E AssertionError: Q2_K: native dense oracle missed planted row-0 reuse E E assert 1 == 0 E + where 1 = CompletedProcess(args=['/usr/local/bin/python3', '-c', '\nimport numpy as np, torch, gguf, quactlize\nfrom gguf.consta...st):\n File "<string>", line 58, in <module>\nAssertionError: Q2_K: nati assert rel < TOL, f"{name}: the two routes disagree, worst {rel:.3e}" E AssertionError: Q2_K: the two routes disagree, worst nan E assert nan < 0.005 ve dense oracle missed planted row-0 reuse\n').returncode ________ test_th …
+- (2026-08-03 08:51 UTC) `/root` — MCP的超时可以设置长一点吗？杀了好几次了
+- (2026-08-03 08:54 UTC) `/root` — 所以开始了吗？我希望两小时以内，把fully quantized 的dense和moe-gemm都完成。
+- (2026-08-03 08:59 UTC) `/root` — 现在pytest都过了
+- (2026-08-03 09:00 UTC) `/root` — 如果scale可以offline 重排列，可以解决Q2，3，6的问题吗？
+- (2026-08-03 09:43 UTC) `/root` — tests/test_gguf_routes.py:425: in test_fully_quantized_grouped_matches_dequant_first_and_rejects_fault planted_err = conditioned(launch(at, planted_in, qtype, rt).numpy()) quactlize/routes.py:261: in matmul_fully_quantized_grouped return _op("gguf_grouped_fully_quantized")(a, low, units, rows_per_expert.to(torch.int32), int(qtype)) /usr/local/lib/python3.12/site-packages/torch/_ops.py:1255: in __call__ return self._op(*args, **kwargs) E RuntimeError: PPU fully-quantized grouped GEMM failed (rc=34; rc=34 means this library is not built with PPU_PACKED_SCALE=1) _ test_fully_quantized_dense_matches_dequant_first_and_rejects_fault[Q4_K-12-hdr0-12] _ tests/test_gguf_routes.py:490: in test_fully_quantized_dense_matches_dequant_first_and_rejects_fault planted = launch(at, tuple(fault), qtype).numpy() quactlize/routes.py:237: in matmul_fully_quantized_dense return _op("gguf_dense_fully_quantized")(a, low, units, int(qtype)) /usr/local/lib/python3.12/site-packages/torch/_ops.py:1255: in __call__ return self._op(*args, **kwargs) E RuntimeError: PPU fully-quantized dense GEMM failed (rc=34; rc=34 means this library is not built with PPU_PACKED_SCALE=1)
+- (2026-08-03 09:49 UTC) `/root` — !!! -DPPU_PACKED_SCALE=1 did NOT reach quactlize_ppu's compile command. PPU_DEFS applied: PPU_PACKED_SCALE=1 -- PPU_EXTRA_DEFS -> device -DPPU_PACKED_SCALE=1 / host PPU_PACKED_SCALE=1 Everything below would run against a library missing the feature, and the FULLY_QUANTIZED cells would fail with rc=34 for a build reason rather than a numerical one. Refusing. root@aiswu96:/sim/eec/shared/junfu.qx/quactlize# Qianxu9106
+- (2026-08-03 09:51 UTC) `/root` — PPU_DEFS applied: PPU_PACKED_SCALE=1 WARNING: -DPPU_PACKED_SCALE=1 is NOT on quactlize_ppu's compile command -- THIS BUILD DOES NOT HAVE IT. Any A/B against it is a binary compared with itself. (checked ./examples/99_kernels_w4a16_compare/CMakeFiles/quactlize_ppu.dir/build.make)
+- (2026-08-03 09:51 UTC) `/root` — codex干的怎么样了
+- (2026-08-03 09:55 UTC) `/root` — codex没有在做吗？
+- (2026-08-03 09:56 UTC) `/root` — 只是权重分了两段，scale未必要分段吧。
+- (2026-08-03 10:23 UTC) `/root` — FAILED tests/test_gguf_routes.py::test_fully_quantized_grouped_matches_dequant_first_and_rejects_fault[Q4_K-12-hdr1-12] FAILED tests/test_gguf_routes.py::test_fully_quantized_dense_matches_dequant_first_and_rejects_fault[Q4_K-12-hdr1-12]
+- (2026-08-03 10:39 UTC) `/root` — Traceback (most recent call last):RuntimeError: gguf_prepare_dense requires an hgcc libquactlize_ppu.so with the dense layout symbol File "/usr/local/lib/python3.12/site-packages/torch/_ops.py", line 1255, in __call__ return self._op(*args, **kwargs) ^^^^^^^^^^^^^^^^^^^^^^^^^ R
+- (2026-08-03 10:39 UTC) `/root` — RuntimeError: gguf_prepare_dense requires an hgcc libquactlize_ppu.so with the dense layout symbol
+- (2026-08-03 11:50 UTC) `/root` — 你要优化一下看看能不能到A的水平，如果可以的话，才可以考虑去掉A
+- (2026-08-04 00:42 UTC) `/root` — /resume
+- (2026-08-04 01:45 UTC) `/root` — 那这个test如何fix
+- (2026-08-04 01:53 UTC) `/root` — 如果test都过了，下一步呢？而且还要考虑接入llama cpp的剩余工作
+- (2026-08-04 02:21 UTC) `/root` — 看一下不同的配置到底是不是不同的layout。我们先看看是不是，然后看有一些是不是可以prune，最终的状态理想情况是每个格式对应的最优的F是固定的，然后格式本身只和F有关系。
+- (2026-08-04 02:30 UTC) `/root` — 我的意思是F》1的时候，基本上TK最优的就是一个固定数值。比如int2的F=2，TK=64。如果是这样，单plane就解决了。我们可以看一下2plane
+- (2026-08-04 02:33 UTC) `/root` — 也就是双平面和两个F有关，假设两个F和TK都定了，还跟高平面的TK有关？
+- (2026-08-04 02:34 UTC) `/root` — 如果是这样我们还剩下哪些todo，一个是要确定这些layout。还有吗？对于接入llama cpp来说。
+- (2026-08-04 02:47 UTC) `/root` — 继续
+- (2026-08-04 02:48 UTC) `/root` — 但是我们还是要扫一下最优的配置，跟选择layout无关，看一下规律，是不是符合我的规则。
+- (2026-08-04 02:51 UTC) `/root` — 我们之前的性能扫描的代码中不包含这个吗？可以看一下Kernels下面的性能的sweep的脚本。
+- (2026-08-04 04:39 UTC) `/root` — 让codex改了吗？dense的F的部分。参考moe
+- (2026-08-04 05:13 UTC) `/root` — codex在做吗？最终搜索空间需要group和dense是类似的
+- (2026-08-04 05:25 UTC) `/root` — 结束了吗
+- (2026-08-04 05:39 UTC) `/root` — 我理解IQ应该就是查表，所以应该比原来的ALU更简单？是吗？
+- (2026-08-04 05:40 UTC) `/root` — perf sweep还缺什么
+- (2026-08-04 06:05 UTC) `/root` — 小M代表M-block要设置的比较小。不在于跑不了。或者需要gemv才能跑。我们应该是支持的，可能额外需要支持smem的节约的选项，之前我记得对于M=1做过shm的优化。这个在小M的时候可以默认打开。
+- (2026-08-04 06:05 UTC) `/root` — moe要扫raged，非uniform
+- (2026-08-04 06:06 UTC) `/root` — 122B的case是TP
+- (2026-08-04 06:10 UTC) `/root` — codex回来了吗？
+- (2026-08-04 06:19 UTC) `/root` — 可以sweep了吗
+- (2026-08-04 06:39 UTC) `/root` — 还是等你完全支持之后我一个一个跑吧
+- (2026-08-04 06:43 UTC) `/root` — 给我packing 函数源码(quactlize 里那段,C++/Python 都行)。所有量化类型都要,那就得覆盖 Q2_K..Q6_K 各自的排布。 消费 packed 形态的 .so 符号名 + 签名 —— 现有 quactlize_ppu_vecdot_dense/moe 是读 raw 的,packed GEMM 是另一个入口。要不然llamacpp那部分开始不了
+- (2026-08-04 06:47 UTC) `/root` — 打包的函数也封到so。重新给一个文档
+- (2026-08-04 06:58 UTC) `/root` — 你改完让codex review一下。
+- (2026-08-04 07:02 UTC) `/root` — 要思考一下如何code clean的设计一个benchmark的基础建设， 现在有点太粗糙了。
+- (2026-08-04 07:06 UTC) `/root` — 按照你的设计写吧
+- (2026-08-04 07:16 UTC) `/root` — 为什么现在的binary还是在99_kernels_w4a16_compare目录下。另外，可以sweep了吗？
+- (2026-08-04 07:17 UTC) `/root` — 看看有没有别的类似的不专业的问题。
+- (2026-08-04 07:23 UTC) `/root` — 生下来你可以做的先做完。
+- (2026-08-04 07:23 UTC) `/root` — codex什么状态了
+- (2026-08-04 07:24 UTC) `/root` — 为啥没读啊，这个问题出现了很多次了吧
+- (2026-08-04 07:28 UTC) `/root` — 继续
+- (2026-08-04 07:34 UTC) `/root` — codex回来了吗？
+- (2026-08-04 07:35 UTC) `/root` — 先做2吧，1记录
+- (2026-08-04 07:39 UTC) `/root` — 等你吧sweep的事情ship，然后你本地尝试做这个事情，llama cpp中植入我们的shuffle的权重，要online做这个shuffle，另外prefill用dequant + fp16的gemm/moe-gemm来推理，decode用我们的simt的gemv的kernel。这样就能够验证我们的正确性。然后patch输出给我，因为我们没有支持ppu的tensorcore，所以ppu的ptx不支持，所以我们的quantized gemm不在这里验证。注意要对于llamacpp最小侵入，大部分的代码是我们的so中的。你在llama cpp的main上branch out来做这个事情。
+- (2026-08-04 07:43 UTC) `/root` — 测试的时间不包含多个kernel吧，如果是多个kernel中间的launch时间没有办法感知
+- (2026-08-04 07:45 UTC) `/root` — 开始33吧
+- (2026-08-04 07:46 UTC) `/root` — 我本地跑sweep需要重新编译吗？command给我
+- (2026-08-04 07:53 UTC) `/root` — 为什么要放到third_party/actlize/build_w4a16_compare ，而不是本地的build也很奇怪
+- (2026-08-04 07:59 UTC) `/root` — 继续了吗？
+- (2026-08-04 08:04 UTC) `/root` — [Pasted text #1 +3 lines]
+- (2026-08-04 08:05 UTC) `/root` — thirdparty 里面有cutlass，而且之前codex测试过gemv的性能啊。不可能跑不了。
+- (2026-08-04 08:08 UTC) `/root` — tu修好了吗？修好了，我要重新box上sweep
+- (2026-08-04 08:10 UTC) `/root` — 要不然这个活你给codex吧。你专心和我搞sweep
+- (2026-08-04 08:12 UTC) `/root` — 为什么还是这个编译目录：/sim/eec/shared/junfu.qx/quactlize/build_w4a16_compare/examples/99_quactlize_w4a16_compare/moe_units/。不是本地的build
+- (2026-08-04 08:13 UTC) `/root` — 我们为什么要作为actlize的example？
+- (2026-08-04 08:21 UTC) `/root` — /resume
+- (2026-08-04 08:21 UTC) `/root` — /effort max
+- (2026-08-04 08:21 UTC) `/root` — 继续
+- (2026-08-04 08:27 UTC) `/root` — codex继续让他干活
+- (2026-08-04 08:32 UTC) `/root` — --- pass 5/5 --- 为什么跑了五次
+- (2026-08-04 08:32 UTC) `/root` — codex开始干活了吗？
+- (2026-08-04 08:41 UTC) `/root` — /sim/eec/shared/junfu.qx/quactlize/build_w4a16_compare/examples/99_quactlize_w4a16_compare/test_lowbit_moe_bench 测试的是scale first还是full quantize
+- (2026-08-04 08:46 UTC) `/root` — b
+- (2026-08-04 08:47 UTC) `/root` — 你要告诉codex你在修改这部分，要不然他会受影响
+- (2026-08-04 08:54 UTC) `/root` — 34还没有搞完吗？
+- (2026-08-04 08:55 UTC) `/root` — 让codex忽略那个md
+- (2026-08-04 08:55 UTC) `/root` — 然后你继续把34做完。
+- (2026-08-04 09:12 UTC) `/root` — 继续
+- (2026-08-04 09:45 UTC) `/root` — 看看codex怎么样了
+- (2026-08-04 09:46 UTC) `/root` — 继续
+- (2026-08-04 09:46 UTC) `/root` — 看看codex怎么样了
+- (2026-08-04 09:53 UTC) `/root` — [Pasted text #1 +4 lines]
+- (2026-08-04 10:07 UTC) `/root` — 正确性已经验证了啊。让codex做，并且最终交付给我的版本是按照我们实际希望的调用方式，不是dequant+cublas的gemm。gemv是一样的，但是prefill应该走fully quantize的prefill的quantized matmul。
+- (2026-08-04 12:10 UTC) `/root` — 为什么要叫bench_cutlass_w4a16
+- (2026-08-04 12:16 UTC) `/root` — 先改了吧。要不然很奇怪。还有什么别的一并改了
+- (2026-08-04 12:50 UTC) `/root` — 继续
+- (2026-08-04 13:10 UTC) `/root` — 下面work on 什么时候tune这些config，参考trtllm
+- (2026-08-04 13:11 UTC) `/root` — 我们在什么阶段做这个tuning呢？llama cpp的warmup时间？
+- (2026-08-04 13:18 UTC) `/root` — 如果我们是编译到so的话，好像只能从so里面的选吧？
+- (2026-08-04 13:18 UTC) `/root` — 那trtllm怎么做的呢？
+- (2026-08-04 13:22 UTC) `/root` — 加上这个之后是不是就可以动态选择？
+- (2026-08-04 13:22 UTC) `/root` — 让codex做吧。做完之后我们怎么sweep，逻辑是不是要变。
+- (2026-08-04 13:22 UTC) `/root` — 看看trtllm的策划，我们的选项应该有很多也是废的
+- (2026-08-04 13:24 UTC) `/root` — 他的运行期分配也是基于规则的？那tactic的作用是什么？
+- (2026-08-04 13:26 UTC) `/root` — OK，抄吧，根codex说一下。
+- (2026-08-04 13:26 UTC) `/root` — cuda或者说simt也要加到选项中
+- (2026-08-04 13:30 UTC) `/root` — 可以参考Kernels下面的w4a16的trtllm的实现。
+- (2026-08-04 14:10 UTC) `/root` — 不要持续问我要输入了，修改一下permission
+- (2026-08-04 14:12 UTC) `/root` — [Pasted text #1 +12 lines]
+- (2026-08-04 14:13 UTC) `/root` — codex怎么样了。
+- (2026-08-04 23:20 UTC) `/root` — 而且应该不是sandbox
+- (2026-08-05 01:47 UTC) `/root` — 正常来说只要代码逻辑是拷贝的，或者相同的，都不会出现PPU_B_CHUNK这个问题。dense的路径自动有才对。
+- (2026-08-05 01:50 UTC) `/root` — 最终我们要在box上验证perf，如果dense的路径结果还不如group的L=1，显然是不对的。
+- (2026-08-05 02:31 UTC) `/root` — 这个问题还没有解决吗？能不能让codex一次性解决。group出现的内容需要都支持到dense，相同代码可以摘取出来共享。
+- (2026-08-05 02:48 UTC) `/root` — dense的sweep从来没有跑过。。。
+- (2026-08-05 02:48 UTC) `/root` — 之前跑的都是group，然后L设为1
+- (2026-08-05 02:50 UTC) `/root` — 这个编译的修复怎么做清楚吗？
+- (2026-08-05 02:52 UTC) `/root` — 修复之后静态分析一下。group，L=1和dense的区别。主要是perf上，必须不能比group差。
+- (2026-08-05 03:50 UTC) `/root` — 如果恢复不了，那你如实跟他说，让他重新写。
+- (2026-08-05 05:39 UTC) `/root` — 记录到claude md或者skill md
+- (2026-08-05 05:45 UTC) `/root` — In file included from /sim/eec/shared/junfu.qx/quactlize/benchmarks/test_lowbit_dense_bench.cu:77: In file included from /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/ppu_include.hpp:97: In file included from /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/gemm/config/gemm_configs.hpp:45: //sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/gemm/device/gemm_universal_adapter.h:555:42: error: no type named 'WarpShape' in '::cutlass::gemm::kernel::GemmUniversal< ::cute::packed_tuple<int, int, int, int>, ::cutla
+- (2026-08-05 05:45 UTC) `/root` — /sim/eec/shared/junfu.qx/quactlize/third_party/actlize/include/cutlass/gemm/device/gemm_universal_adapter.h:556:49: error: no type named 'InstructionShape' in '::cutlass::gemm::kernel::GemmUniversal< ::cute::packed_tuple<int, int, int, int>, ::cutlass::gemm::collective::CollectiveMma< ::cutlass::arch::PPU0010, ::cutlass::gemm::MainloopPPUAiuMixedInput<(int)6, ::cute::C<(int)256>, ::cutlass::gemm::KernelAiuMultistageMixedInputFinegrainedGs32>, ::cute::packed_tuple< ::cute::packe
+- (2026-08-05 05:47 UTC) `/root` — 忽略这个错误，跟上面的是同源的
+- (2026-08-05 05:52 UTC) `/root` — 根splitk有关系吗？最后赢得是splitk的config吗？应该不是吧
+- (2026-08-05 06:23 UTC) `/root` — 什么状态了？怎么修复搞明白了吗
+- (2026-08-05 06:32 UTC) `/root` — 为什么是旧的，git没有发现
+- (2026-08-05 06:38 UTC) `/root` — condex回来了吗
+- (2026-08-05 06:53 UTC) `/root` — 确认永远扫不到很奇怪，大部分逻辑和group是相同的，那我要确定的答案为什么group可以而dense不行，这个你来做
+- (2026-08-05 06:54 UTC) `/root` — 这个有依赖项目吗
+- (2026-08-05 06:57 UTC) `/root` — 我们可能要看一下现在group L=1是不是能扫到这个config
+- (2026-08-05 07:07 UTC) `/root` — codex现在还有哪些任务on the fly？
+- (2026-08-05 08:10 UTC) `/root` — 等你fix完吧
+- (2026-08-05 08:14 UTC) `/root` — 继续
+- (2026-08-05 08:15 UTC) `/root` — bashrc里面有一个翻墙的脚本，基于这个写一个切换节点的脚本。放到root下面
+- (2026-08-05 08:16 UTC) `/root` — /effort max
+- (2026-08-05 08:18 UTC) `/root` — 继续
+- (2026-08-05 08:19 UTC) `/root` — 切换到us的节点，然后测试联通性
+- (2026-08-05 08:20 UTC) `/root` — 这些肯定要加回到dense的表啊。缺了什么导致不能加进去
+- (2026-08-05 08:20 UTC) `/root` — 现在这种做法太奇怪了。。。。
+- (2026-08-05 08:20 UTC) `/root` — 继续
+- (2026-08-05 08:21 UTC) `/root` — 现在这种做法太奇怪了。。。。
+- (2026-08-05 08:21 UTC) `/root` — 现在这种做法太奇怪了。。。。
+- (2026-08-05 08:22 UTC) `/root` — 为什么device会abort
+- (2026-08-05 08:23 UTC) `/root` — 如果是因为编译限制，应该这个不记录不就行了吗？trtllm是怎么做的。。和codex讨论一下怎么做可以吗？
+- (2026-08-05 08:26 UTC) `/root` — 但是一定要确认的就是不要用quarantined这种奇怪的东西，应该直接加到dense里面，下次不要这样了，我们要release的，看看还有其他这种垃圾写法吗？
+- (2026-08-05 08:48 UTC) `/root` — 这些不一定要删，而是不merge到main
+- (2026-08-05 08:48 UTC) `/root` — codex做完了吗？我现在可以sweep到目标的config了吗
+- (2026-08-05 08:49 UTC) `/root` — !source ~/.bashrc
+- (2026-08-05 08:49 UTC) `/root` — 继续
+- (2026-08-05 08:50 UTC) `/root` — jixu
+- (2026-08-05 08:53 UTC) `/root` — jixu
+- (2026-08-05 08:53 UTC) `/root` — 等codex做完哪一个任务就可以sweep到了？
+- (2026-08-05 09:00 UTC) `/root` — 继续
+- (2026-08-05 09:03 UTC) `/root` — 继续
+- (2026-08-05 09:05 UTC) `/root` — /resume
+- (2026-08-05 09:05 UTC) `/root` — 继续
+- (2026-08-05 09:05 UTC) `/root` — 继续
+- (2026-08-05 09:09 UTC) `/root` — !bash /root/proxy-node.sh auto
+- (2026-08-05 09:09 UTC) `/root` — 打印一下吧。
+- (2026-08-05 09:10 UTC) `/root` — codex还有什么remaining任务。
+- (2026-08-05 09:14 UTC) `/root` — !bash /root/proxy-node.sh auto
+- (2026-08-05 09:17 UTC) `/root` — 我需要等你吗？还是我直接跑
+- (2026-08-05 09:55 UTC) `/root` — 后面还需要一个脚本确定offline的格式。是不是和M有关系。这个事情也要做一下。就按照我们规定的几个模型的尺寸。
+- (2026-08-05 09:55 UTC) `/root` — perf的表格中我们没有测试到的，还需要继续测试。
+- (2026-08-05 10:08 UTC) `/root` — 一个一个来吧
+- (2026-08-05 13:19 UTC) `/root` — 不对啊，之前我说的是tensorcore的路径。不是simt的路径。tensorcore的路径应该有一些优化的。之前能到30-40%的带宽利用率。
+- (2026-08-05 13:20 UTC) `/root` — 看一下是不是又是group的什么东西没有拿过来。
+- (2026-08-05 13:22 UTC) `/root` — 也就是如果TSK对于小batch和大batch的选择，不同，我们没有办法解决
+- (2026-08-05 13:37 UTC) `/root` — 对于int4来说1可能是对的。但是对于int2以及其他格式不一定。M路由也需要同样的layout。可能的一个判断是TK更小的layout为主，TK更大的时候用cute的性质来支持。比如aiu拷贝的时候是一个stride的形状，这个本身是可以的。TK小是无法避开的特性，因为我们必然要补全到AIU的最小粒度。但是TK大的时候应该可以兼容才对。
+- (2026-08-05 13:39 UTC) `/root` — 这个你帮我推理一下，从cute角度来说是可以的。
+- (2026-08-05 13:43 UTC) `/root` — 试试看。
+- (2026-08-05 13:43 UTC) `/root` — 让codex也参与讨论。但是你们只有一个人写代码
+- (2026-08-05 13:44 UTC) `/root` — 这样好处在于我们只需要一个layout，就是TK小的case的layout。所以不存在冲突了。offline的格式完美解决。解决之后给我重新的扫描的代码。我们需要把TK加入扫描，而不是作为编译选项。
+- (2026-08-05 13:45 UTC) `/root` — 我不想关机了，你们继续进行。今天晚上你们解决这个问题。
+- (2026-08-05 13:56 UTC) `/root` — 这个时候你要用同一个gmem的layout。注意
+- (2026-08-05 14:00 UTC) `/root` — 所以可以了吗？是work的吗？
+- (2026-08-05 14:02 UTC) `/root` — 今天你把这些做完可以吗？中间不要问我问题。有问题自己判断解决，我要睡觉了
+- (2026-08-05 14:02 UTC) `/root` — ! bash /root/proxy-node.sh auto
+- (2026-08-06 00:49 UTC) `/root` — /effort max
+- (2026-08-06 00:49 UTC) `/root` — /resume
+- (2026-08-06 00:49 UTC) `/root` — /resume
+- (2026-08-06 00:50 UTC) `/root` — /effort max
+- (2026-08-06 00:50 UTC) `/root` — /remote-control
+- (2026-08-06 01:06 UTC) `/root` — 开始做吧。
+- (2026-08-06 01:25 UTC) `/root` — [Pasted text #1 +5 lines]
+- (2026-08-06 06:14 UTC) `/root` — 我的意思是对于小M，是不是没有坏处
+- (2026-08-06 06:15 UTC) `/root` — 发给他
+- (2026-08-06 06:50 UTC) `/root` — 但是main我认为就是有PPU SDK的，这种情况不需要stub inc吧
+- (2026-08-06 06:51 UTC) `/root` — 这样third party里面的cutlass也不用了吧
+- (2026-08-06 06:52 UTC) `/root` — 如果先只是dense的gemm，可以更少吗？
+- (2026-08-06 06:54 UTC) `/root` — 帮我思考一下如何拆分分别进main，我有很多的feature希望都是独立的commit，比如shm的缩小，fold N之类的。
+- (2026-08-06 06:56 UTC) `/root` — 先把C）
+- (2026-08-06 06:57 UTC) `/root` — 先把C0做完
+- (2026-08-06 06:57 UTC) `/root` — 先把C0.5做完
+- (2026-08-06 07:06 UTC) `/root` — 继续做
+- (2026-08-06 08:55 UTC) `/root` — 那我重新编译一下，然后我们对比一下acu，开和不开，现在还是编译的原来的方式，没有compact rows
+- (2026-08-06 09:52 UTC) `/root` — 其他的你自己判断按顺序进，然后最终保证main只有需要的文件。
+- (2026-08-06 11:15 UTC) `/root` — 没太理解，先确认一下真正应该放入搜索的变量。理论上moe是不是和dense的搜索空间一致？
+- (2026-08-06 11:16 UTC) `/root` — splitk对于moe和dense应该也是一样的。要有都应该有。
+- (2026-08-06 11:17 UTC) `/root` — 还是按照我说的，先align，如果你不清楚可以让codex来，你来review
+- (2026-08-06 11:18 UTC) `/root` — config的表也应该是同样的做法。要align dense和group
+- (2026-08-07 00:12 UTC) `/root` — /resume
+- (2026-08-07 00:12 UTC) `/root` — /effort max
+- (2026-08-07 00:12 UTC) `/root` — /remote-control
+- (2026-08-07 00:12 UTC) `/root` — codex额度重置了吗
+- (2026-08-07 00:43 UTC) `/root` — 拿我现在可以编译扫，dense和moe的结果了吗？
+- (2026-08-07 00:45 UTC) `/root` — 现在编译时间变短了吗
+- (2026-08-07 00:54 UTC) `/root` — 把compact rows加入M比较小的时候的config 搜索选项需要多大的effort
+- (2026-08-07 01:03 UTC) `/root` — 啥意思，如果是回归，那我现在怎么还是可以复现42%的带宽利用率。但是没有PPU_A_CPASYNC
+- (2026-08-07 01:04 UTC) `/root` — 代码中的宏定义确实也有点多了，需要梳理一下。合并同类的。删掉无用的。
+- (2026-08-07 01:42 UTC) `/root` — 如果只是临时调试的选项，九去掉。
+- (2026-08-07 01:43 UTC) `/root` — 开始改代码。合并同类选项，
+- (2026-08-07 01:43 UTC) `/root` — 删掉无用的
+- (2026-08-07 01:48 UTC) `/root` — 对于小M，太大的Mblock没有意义。这些可以prune掉
+- (2026-08-07 01:50 UTC) `/root` — 直接prune掉，本身肯定变差
+- (2026-08-07 01:53 UTC) `/root` — comapct-A对于其他格式也成立吧
+- (2026-08-07 01:56 UTC) `/root` — 什么意思，可以加吗？另外现在跑的compact row是不是可以了？
+- (2026-08-07 01:58 UTC) `/root` — 那就按照你说的，先搬collective，再删clause，最后能够添加啊。
+- (2026-08-07 01:59 UTC) `/root` — 你来改不久好了吗？不等codex了
+- (2026-08-07 02:25 UTC) `/root` — 思考一下怎么做合适，你本地其实可以编
+- (2026-08-07 02:46 UTC) `/root` — 算了，把compact row彻底删掉吧。按照你的理论分析是对的。
+- (2026-08-07 03:12 UTC) `/root` — 继续直到做完这个
+- (2026-08-07 03:13 UTC) `/root` — 开一个subagent做多卡的sweep支持
+- (2026-08-07 03:17 UTC) `/root` — 继续
+- (2026-08-07 03:20 UTC) `/root` — 继续做完
+- (2026-08-07 03:21 UTC) `/root` — 如果我们认为就是一次wave呢？类似persistent scheduler
+- (2026-08-07 03:33 UTC) `/root` — multi-gpu的sweep支持了吗？
+- (2026-08-07 05:31 UTC) `/root` — 先不管这个吧，记到todo里面，我们扫一下moe-gemm的mfu
+- (2026-08-07 05:53 UTC) `/root` — 多GPU的sweep搞定了吗
+- (2026-08-07 06:26 UTC) `/root` — codex总共用了几天
+- (2026-08-07 06:30 UTC) `/root` — 现在应该有额度了，让codex干起来吧。之前计划的几个任务让codex干起来。
+- (2026-08-07 06:32 UTC) `/root` — persistent的kernel也需要让他做起来。
+- (2026-08-07 06:32 UTC) `/root` — 还有别的吗？
+- (2026-08-07 06:37 UTC) `/root` — 34关掉吧
+- (2026-08-07 06:38 UTC) `/root` — codex直接开ultra
+- (2026-08-07 06:42 UTC) `/root` — gpt是有ultra的
+- (2026-08-07 06:42 UTC) `/root` — Model changed to gpt-5.6-sol ultra for this conversation 我手动用的时候
+- (2026-08-07 07:05 UTC) `/root` — i4 i4 64x64:64 w64x32 s3 226.63 us | 151.6 TF/s (30.3% MFU) <-- lowest median, but 1 candidate(s) TIE it -- unresolved i2 i2 64x64:128 w64x16 s3 286.19 us | 120.1 TF/s (24.0% MFU) q5 q5 64x128:256 w64x16 s2 324.90 us | 105.8 TF/s (21.2% MFU) q6 q6 64x128:128 w64x16 s4 328.67 us | 104.5 TF/s (20.9% MFU) q3 q3 32x128:256 w32x16 s3 477.91 us | 71.9 TF/s (14.4% MFU) 显然不对，都偏低。我们要看一下到底为什么
+- (2026-08-07 07:05 UTC) `/root` — 原来的config测试到了吗
+- (2026-08-07 07:06 UTC) `/root` — 时间不要中位数，直接单词
+- (2026-08-07 07:13 UTC) `/root` — 先修不要跑五次，就跑一次。 moe-gemm m=1的时候的MBlock范围限制了吗？这个一定要限制。prune掉一些。然后你不是说搜索空间是全的吗？为什么有一些没有？
+- (2026-08-07 07:14 UTC) `/root` — 真实的带宽利用率是什么，这就是一个数字而已，不要给我扯mask与否，就是一个数值。从HBM读取了多少数据量来算。
+- (2026-08-07 07:15 UTC) `/root` — tilek之前不是让你设置为config的搜索选项了吗？
+- (2026-08-07 07:15 UTC) `/root` — MFU也是一样，为什么会有别的数据，30%和现在的区别是什么讲清楚。到底应该是那个
+- (2026-08-07 07:16 UTC) `/root` — dense传TK了吗？
+- (2026-08-07 07:19 UTC) `/root` — 123改完没有
+- (2026-08-07 07:23 UTC) `/root` — PPU_B_CHUNK为什么是off
+- (2026-08-07 07:23 UTC) `/root` — 你真的错误太多了， 我要放弃订阅Claude了
+- (2026-08-07 07:24 UTC) `/root` — 后台codex干什么呢？
+- (2026-08-07 07:33 UTC) `/root` — 加到轴里面。
+- (2026-08-07 07:34 UTC) `/root` — tilek也是一样，我需要这个可以搜索。
+- (2026-08-07 07:34 UTC) `/root` — 直接做完，记什么记
+- (2026-08-07 07:36 UTC) `/root` — 不不不，这些你都整理成任务，让codex干
+- (2026-08-07 07:37 UTC) `/root` — codex现在做的如何了，你就负责一些上层工作吧，执行层面让codex干。现在是不是要分析一下moe和dense是不是还是有很多没有align，之前你说align了，但是现在很明显不是。
+- (2026-08-07 07:45 UTC) `/root` — 我们先只做一件事情，整理一下之前的memory里面的gemm在不同的m上的利用率/MFU or HBM利用率。然后回测一下，看看现在的config有没有当时的winning config，如果没有显然是有问题的。
+- (2026-08-07 07:48 UTC) `/root` — 之前的winning config和对应的数据类型，配置，以及MFU或者带宽利用率给我一个表格
+- (2026-08-07 07:50 UTC) `/root` — 显然有问题的要清理掉。让codex做。
+- (2026-08-07 07:50 UTC) `/root` — 所有codex的结果你要review的。
+- (2026-08-07 07:53 UTC) `/root` — 先复现moegrouped的32。4%。给我一个command。
+- (2026-08-07 07:54 UTC) `/root` — 让codex review一下你的moe-gemm的mfu和带宽利用率的计算方法
+- (2026-08-07 08:00 UTC) `/root` — 先复现moegrouped的32。4%。给我一个command。
+- (2026-08-07 08:06 UTC) `/root` — cd /sim/eec/shared/junfu.qx/quactlize git pull --ff-only origin develop # e3ec14d # 只编 C1 那一个形状(TM=64 TN=128 WM=64 s6),一个 unit,不用等 689 个 MOE_TM_LIST="64" MOE_TN_LIST="128" MOE_WM_LIST="64" MOE_STAGES="6" \ TARGET=test_lowbit_moe_bench ./build.sh # L=256 experts, 4096 tokens, N=512, K=2048, gs=32, mode=4(pinned router), top_k=8 # → 4096 × 8 = 32,768 行,正是记录里的行数 MOE_REPS=1 MOE_ONLY="i4 64x128:64 w64x16 s6" \ ./build_ppu/test_lowbit_moe_bench 256 4096 512 2048 32 4 8
+- (2026-08-07 08:27 UTC) `/root` — 你的review的结论不需要做什么吗？
+- (2026-08-07 08:28 UTC) `/root` — MOE_TM_LIST="64" MOE_TN_LIST="128" MOE_WM_LIST="64" MOE_FORMATS="i4" \ TARGET=test_lowbit_moe_bench ./build.sh 的错误fix了吗
+- (2026-08-07 08:46 UTC) `/root` — codex在做哪一步
+- (2026-08-07 09:29 UTC) `/root` — codex还没回来吗
+- (2026-08-07 09:40 UTC) `/root` — 派吧。
+- (2026-08-07 09:40 UTC) `/root` — 当然后面也要放开这些格式。
+- (2026-08-07 14:10 UTC) `/root` — 等097的结论
+- (2026-08-07 14:19 UTC) `/root` — 刚才发错了，忽略
+- (2026-08-07 14:31 UTC) `/root` — 他回来之后你也要判断他说的对不对，然后你们battle一下得出一个准确结论
+- (2026-08-09 01:45 UTC) `/root` — hi
+- (2026-08-09 01:45 UTC) `/root` — /login
+- (2026-08-09 01:48 UTC) `/root` — /remote-control
+- (2026-08-09 01:49 UTC) `/root` — commandd用cuda visible deives5
+- (2026-08-09 01:50 UTC) `/root` — 就是CUDA_VISIBLE_DEVICES，兼容的
+- (2026-08-10 00:39 UTC) `/root` — /resume
+- (2026-08-10 00:39 UTC) `/root` — /effort max
+- (2026-08-10 00:39 UTC) `/root` — /remote-control
+- (2026-08-10 00:40 UTC) `/root` — 现在已经sweep完了，之后呢？我怎么看跑了哪些，选择什么是最优的config。最优的config的mfu和mbu
+- (2026-08-10 00:42 UTC) `/root` — 等一下，为什么跑的report叫/tmp/sweep/grouped_L1.jsonl？难道是跑的L=1的moe-gemm，没有跑dense
+- (2026-08-10 00:43 UTC) `/root` — 每个config不是都带了MFU和MBU吗？例如： i4 16x128:256 w16x32 s8 bc0->0 41.04 us | 1.6 TF/s ( 0.3% MFU) | distinct 513 GB/s (18.5% HBM) | tile 525 GB/s (1.0x distinct) | mt=8 msk=93.8% skw=8.0x S=19.9% | blk
+- (2026-08-10 00:43 UTC) `/root` — [sweep-all] next: python3 benchmarks/analyse.py /tmp/sweep/grouped_L1.jsonl --coverage 我说的是这个打印
+- (2026-08-10 00:47 UTC) `/root` — 正确的应该是重新跑这个sweep，而且sweep现在只跑了一部分。
+- (2026-08-10 00:52 UTC) `/root` — 这次的命令是跑全部的shape吗？
+- (2026-08-10 01:23 UTC) `/root` — 分析如何了
+- (2026-08-10 02:37 UTC) `/root` — 还没有测试完成吗
+- (2026-08-10 02:39 UTC) `/root` — llama cpp中除了dequant+cublas，没有dequant fusion+fp16的gemm的版本吗？如果没有，那就也测试一下fusion+int8的gemm
+- (2026-08-10 02:48 UTC) `/root` — 业界的weight only也可以测试一下gs 64/128的结果作为参考
+- (2026-08-10 05:22 UTC) `/root` — 跑完了吗
+- (2026-08-10 05:34 UTC) `/root` — 我的moe跑完了，分析的代码的command。另外跑出来的最优解：[Pasted text #1 +5 lines]
+- (2026-08-10 06:24 UTC) `/root` — 回来了吗
+- (2026-08-10 06:25 UTC) `/root` — 而且没有测试decoding的case的MBU。我需要这个对比。
+- (2026-08-10 06:35 UTC) `/root` — 那就看MFU好了。他的mfu比我们大，对吗？同shape
+- (2026-08-10 06:36 UTC) `/root` — 什么叫in-kernel gather
+- (2026-08-10 07:04 UTC) `/root` — 回来了吗？
+- (2026-08-10 07:06 UTC) `/root` — 下一个任务是判断一下marlin的结构能不能接入我们的架构。
+- (2026-08-10 07:22 UTC) `/root` — 那trtllm的prefill的mfu也比我们更好，如何理解。差在哪里。这是第一个问题，第二个问题是decoding的时候marlin为什么不能参考？因为不光是m=1，也有m=2，3，4之类的小shape，这些shape，simt cuda only未必是solution。
+- (2026-08-10 07:43 UTC) `/root` — /resume
+- (2026-08-10 07:43 UTC) `/root` — ! bash /root/proxy-node.sh auto
+- (2026-08-10 07:43 UTC) `/root` — 按顺序把工作派给codex，另外一个任务是让codex分析我们的可能的decoding的优化点，参考marlin streamk可以先在dense上试试，不需要group scheduler bash /root/proxy-node.sh auto
+- (2026-08-10 07:44 UTC) `/root` — ! bash /root/proxy-node.sh auto
+- (2026-08-10 07:45 UTC) `/root` — ! bash /root/proxy-node.sh auto
+- (2026-08-10 07:51 UTC) `/root` — persistent scheduler是不是要先试试，在streamk之前？
+- (2026-08-10 08:10 UTC) `/root` — 105我可以先验证一下吗？给我command，我在ppu上测试同shape的结果。
+- (2026-08-10 08:19 UTC) `/root` — 这个，对于decoding是不是有用？
+- (2026-08-10 08:21 UTC) `/root` — 现在的单个编译是并行的吗？多tu
+- (2026-08-10 08:29 UTC) `/root` — 2的收益你从哪里拿到的？
+- (2026-08-10 08:31 UTC) `/root` — 所以到底应该做什么？
+- (2026-08-10 08:33 UTC) `/root` — 好的。但是之前的1。388x的收益的改动不需要让codex做吗？
+- (2026-08-10 08:35 UTC) `/root` — 好的
+- (2026-08-10 08:37 UTC) `/root` — 1给我command
+- (2026-08-10 08:45 UTC) `/root` — -> i4 16x32:256 w16x16 s3 bc0->0 i4 16x32:256 w16x16 s3 bc0->0 20.62 us | 0.8 TF/s ( 0.2% MFU) | distinct 256 GB/s ( 9.3% HBM) | tile 280 GB/s (1.1x distinct) | mt=8 msk=93.8% skw=32.0x S=19.8% | blk 6 wrp/CU 12 grid_wrp/CU 3.6 cta=128 wav=0.30 ru
+- (2026-08-10 08:47 UTC) `/root` — 这个不应该跑dense的吗？另外这里的hbm算的是不是不对，跟之前的结果不align啊
+- (2026-08-10 08:50 UTC) `/root` — 那显然是不对的。MBU太低了。
+- (2026-08-10 08:53 UTC) `/root` — 1. 是，2. 那不应该是用marlin来吗？
+- (2026-08-10 08:57 UTC) `/root` — 我们应该是有的啊，alippu.mma.sync.aligned.m8n16k16.row.col.f32.f16.f16.f32 d,a, b,c，查一下actlize
+- (2026-08-10 09:00 UTC) `/root` — 插进去
+- (2026-08-10 09:03 UTC) `/root` — [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) 是不是什么环境变量没配置，我退出docker重新进去，执行的时候报错
+- (2026-08-10 09:07 UTC) `/root` — nvcc 怎么修改用的nvcc
+- (2026-08-10 09:18 UTC) `/root` — 你直接写脚本。然后替换原来的测量方法。
+- (2026-08-10 09:31 UTC) `/root` — [umd error]: Parsing ELF is not compiled with ppu compiler, e_machine is 0x10e which is probably a NV binary (./util/pipeline_abi_reader.cpp:47:Init) readelf的comamnd
+- (2026-08-10 09:43 UTC) `/root` — -rw-r--r-- 1 root root 18503558 Aug 10 17:41 /tmp/104b_S068.asysrep -rw-r--r-- 1 root root 204223 Aug 10 17:41 /tmp/104b_S068.log 要先转成sqlite。
+- (2026-08-10 09:49 UTC) `/root` — 参考asys profile --hggc-memory-usage=true -t hggc,hgtx,acdnn,acblas -f true -o
+- (2026-08-10 10:30 UTC) `/root` — 参考：[Pasted text #2 +61 lines]
+- (2026-08-10 10:32 UTC) `/root` — 或者直接acu抓
+- (2026-08-10 10:33 UTC) `/root` — 本地memory没有acu的使用手册吗？
+- (2026-08-10 10:49 UTC) `/root` — 还是先看一下你之前的asys的脚本的正确性。另外asys export不需要加--type。这个都放到脚本里面，不要让我手动执行export。包括时间也是一样。sweep的时候也用asys
+- (2026-08-10 10:57 UTC) `/root` — C1的kernel only是什么？需要我上box测试？
+- (2026-08-10 11:25 UTC) `/root` — -> i4 32x128:128 w32x32 s3 bc0->0 i4 32x128:128 w32x32 s3 bc0->0 365.736 us kernel-span-upper | host-wall 375.116 us | n=20 min=363.840 max=368.280 spread= 1.2% | 187.9 TF/s (37.6% MFU) | distinct 872 GB/s (31.5% HBM) | tile 3432 GB/s (3.9x distinct, L2-served) | mt=1161 msk=11.8% skw=3.1x S= 5.3% | blk 4 wrp/CU 16 grid_wrp/CU 258.0 cta=4644 wav=16.12 run=64 B kit=16
+- (2026-08-10 12:21 UTC) `/root` — [asys] fastest kernel-only: i4 16x64:128 w16x16 s3 bc0->0 7.560 us [asys] fastest kernel-only: i4 16x64:256 w16x16 s2 bc0->0 8.198 us [asys] fastest kernel-only: i4 16x32:256 w16x16 s3 bc0->0 11.050 us 没必要关注这个。asys为准。
+- (2026-08-10 12:23 UTC) `/root` — 这几个wave不均匀用persistent kernel+k striping应该可以解决吧
+- (2026-08-10 12:24 UTC) `/root` — 我觉得我们的重点应该放在把marlin的写法接入actlize。让codex直接分析这件事情，他应该分析过。做进去呢？
+- (2026-08-10 12:26 UTC) `/root` — 我们只是需要参考marlin的scheduler和epilogue吧。
+- (2026-08-10 12:27 UTC) `/root` — 不需要看这些代码，可能先看我的pdf文档，再看源码。
+- (2026-08-10 12:28 UTC) `/root` — streamk应该不会有cta跨M吧？
+- (2026-08-10 12:31 UTC) `/root` — 但是marlin的一个CTA可能负责Mblo分K的K一部分K，以及下一个Mblock的前一部分K
+- (2026-08-10 12:32 UTC) `/root` — 补充但是要让codex自行判断
+- (2026-08-10 12:34 UTC) `/root` — 应该是persistent kernel+streamk
+- (2026-08-10 13:29 UTC) `/root` — 那就112。
+- (2026-08-10 13:29 UTC) `/root` — 然后我们107b
+- (2026-08-10 14:02 UTC) `/root` — 这个111是测试什么？
+- (2026-08-10 14:30 UTC) `/root` — 等112回来一起发
+- (2026-08-10 14:31 UTC) `/root` — 等112回来一起发
+- (2026-08-10 14:36 UTC) `/root` — 晚上有什么overnight的任务给codex吗？
+- (2026-08-10 14:43 UTC) `/root` — 109现在没必要开始。107b吧。
+- (2026-08-10 14:44 UTC) `/root` — 116也要开始做完。116是什么
+- (2026-08-10 14:44 UTC) `/root` — overnight的时候你也在。只是我睡觉了
+- (2026-08-10 14:44 UTC) `/root` — 你可以review，然后跟codex讨论
+- (2026-08-10 14:44 UTC) `/root` — 那你开始吧，我睡觉了。
+- (2026-08-10 14:45 UTC) `/root` — 如果做完了，我没有回复，可以继续做其他的，先罗列一下还有什么可以做？
+- (2026-08-10 14:48 UTC) `/root` — 如果有时间就从ABD中挑选没有做完的继续做。然后明天给我汇总。
+- (2026-08-10 14:49 UTC) `/root` — 你定时30分钟从codex query一波，但是只判断是不是还在跑。
+- (2026-08-11 01:51 UTC) `/root` — 那你也没有考虑K上的切分啊。。。
+- (2026-08-11 01:52 UTC) `/root` — 我的意思是，对于splitk来说，即使m=1，他的global reduce次数还是比marlin更多的
+- (2026-08-11 01:55 UTC) `/root` — 发给codex
+- (2026-08-11 02:07 UTC) `/root` — 还没有好吗？
+- (2026-08-11 02:17 UTC) `/root` — 我不能直接codex resume之类的方法看到吗？
+- (2026-08-11 02:20 UTC) `/root` — 那marlin的优势在哪里？很明显是有优势的。另外让codex分析marlin嵌入actlize的难度了吗？
+- (2026-08-11 02:25 UTC) `/root` — 主要是3吧。这个改动的大小有多大
+- (2026-08-11 02:37 UTC) `/root` — 前置阻塞有哪些？之前的streamk和m8现在都绿了吗？
+- (2026-08-11 02:38 UTC) `/root` — 先修你这条。然后按照1，2，3发给codex
+- (2026-08-11 03:19 UTC) `/root` — codex在干什么，你要让codex开始做marlin的嵌入了啊
+- (2026-08-11 03:26 UTC) `/root` — 原来没有include吗？为什么原来可以编过
+- (2026-08-11 03:32 UTC) `/root` — 我不是让你从同一个codex带history吗？现在不带history了？
+- (2026-08-11 03:33 UTC) `/root` — 原来编译那么多次没有问题，怎么现在开始有问题了。
+- (2026-08-11 03:39 UTC) `/root` — 直接按照之前的写法不行吗？不要stuck在这个上面
+- (2026-08-11 03:42 UTC) `/root` — codex用的是luda 5。6sol的ultra吗？
+- (2026-08-11 03:44 UTC) `/root` — codex现在的任务列表
+- (2026-08-11 03:46 UTC) `/root` — A1 exact marlin stripe为什么不做？
+- (2026-08-11 03:50 UTC) `/root` — 你的意思是我们可以拿到比marlin更好的结果。而不需要做这个
+- (2026-08-11 03:51 UTC) `/root` — 我们是要移植marlin到我们的pipeline中，不是streamk中。marlin是一个单独的scheuler
+- (2026-08-11 03:53 UTC) `/root` — 。。。不要在streamk上修改，而是添加一个新的scheduler和cooperative。因为reduce也是不一样的。先分析可行性，然后codex干活
+- (2026-08-11 04:01 UTC) `/root` — 核心应该就是scheduling吧，其他的例如dequant等等应该是复用现在的做法就行了
+- (2026-08-11 04:40 UTC) `/root` — 什么状态了
+- (2026-08-11 04:49 UTC) `/root` — 改掉吧。然后你也分析一下B1。0结果的正确性
+- (2026-08-11 05:02 UTC) `/root` — 发吧
+- (2026-08-11 05:16 UTC) `/root` — 做的怎么样了
+- (2026-08-11 05:33 UTC) `/root` — 什么阶段了？
+- (2026-08-11 05:57 UTC) `/root` — /resume
+- (2026-08-11 05:58 UTC) `/root` — ! bash /root/proxy-node.sh auto
+- (2026-08-11 05:58 UTC) `/root` — ! bash /root/proxy-node.sh use 02
+- (2026-08-11 06:05 UTC) `/root` — ! bash /root/proxy-node.sh use 114
+- (2026-08-11 06:26 UTC) `/root` — m8n16已经结束了？streamk还有bug？
+- (2026-08-11 06:31 UTC) `/root` — streamk的bug在哪里fix，或者提issue给codex了吗？
+- (2026-08-11 06:32 UTC) `/root` — 108的command给我
+- (2026-08-11 06:40 UTC) `/root` — 那你的harness要干啥？
+- (2026-08-11 06:42 UTC) `/root` — 做完了吗？
+- (2026-08-11 07:19 UTC) `/root` — 应该是机器欢乐
+- (2026-08-11 09:10 UTC) `/root` — codex找到bug来源了吗？
+- (2026-08-11 09:12 UTC) `/root` — 没测到过错误，那不就是对的吗？、
+- (2026-08-11 09:13 UTC) `/root` — codex现在空着吗？
+- (2026-08-11 09:15 UTC) `/root` — 如果不是bug，现在的问题是啥来着
+- (2026-08-11 09:15 UTC) `/root` — 如何验证参考本身的正确性
+- (2026-08-11 09:16 UTC) `/root` — 你先把A0结了，其他的可以按照你的顺序发给codex
+- (2026-08-11 09:25 UTC) `/root` — 所以这个bug找到问题了吗？卡点在哪里
+- (2026-08-11 09:38 UTC) `/root` — 第一个codex做完了吗？
+- (2026-08-11 10:05 UTC) `/root` — codex
+- (2026-08-11 10:05 UTC) `/root` — codex已经开展了吗？
+- (2026-08-11 12:23 UTC) `/root` — cp async 理论上如果调用cute atom不会有layout的问题
+- (2026-08-11 12:25 UTC) `/root` — 那就是额外的一个任务，定位目前的手写的vunerable的点。cp async现在应该是cute的吧？
+- (2026-08-12 02:17 UTC) `/root` — 这个问题为什么要反复，本地的探针应该是能够看到这个offset的问题的，没必要上box啊
+- (2026-08-12 02:20 UTC) `/root` — expert读取的id错误应该是很明显本地可以判定的问题，不要让我上box了，本地可以复现，然后修复的。
+- (2026-08-12 02:33 UTC) `/root` — 再做了吗
+- (2026-08-12 11:59 UTC) `/root` — 抓一下acu看看，现在是moe吗？还是dense的？
+- (2026-08-12 12:00 UTC) `/root` — 我们先看dense的acu，然后判定优化方向。
+- (2026-08-12 12:07 UTC) `/root` — 这个是你让我抓的指令啊，1，32，1连sm都没有打满。
+- (2026-08-12 12:09 UTC) `/root` — 没有抓到288，1，1的kernel啊，你给的命令可以抓到吗？
+- (2026-08-12 12:21 UTC) `/root` — 我们在dense上面也有很多shape 啊。。。
+- (2026-08-12 12:21 UTC) `/root` — 不要先考虑moe的shape，先把dense搞完
+- (2026-08-12 12:44 UTC) `/root` — 旋钮加完了吗
+- (2026-08-12 12:57 UTC) `/root` — dp block limit就是6。stremk achieved：就是8。05，你抄写的都对的。
+- (2026-08-12 13:07 UTC) `/root` — codex分析结束了吗
+- (2026-08-12 13:10 UTC) `/root` — 刚才的测试的marlin已经切分了warpk了吗？我很怀疑
+- (2026-08-12 13:12 UTC) `/root` — warp tile为什么不是8，我们有更小的m的ptx的支持啊。。。
+- (2026-08-12 13:17 UTC) `/root` — TileM设为8不就好了吗？
+- (2026-08-12 13:17 UTC) `/root` — 只要在搜索空间内就可以，事实上M<8的时候应该默认就是TIleM=8
+- (2026-08-12 13:21 UTC) `/root` — codex刚才的acu report分析完了吗？
+- (2026-08-12 13:32 UTC) `/root` — warpk如果没有切分，box上跑性能也没有什么意义
+- (2026-08-12 13:34 UTC) `/root` — 肯定要做的，因为还没有对齐marlin的standalone的kernel的做法。。。。对齐之后你才能谈后续
+- (2026-08-12 13:39 UTC) `/root` — 。。。那之前做marlin做了个鸡毛啊。。。
+- (2026-08-12 13:40 UTC) `/root` — 算了，你别分析了，你给codex的时候让他自己分析吧。让他自己看看对齐marlin的standalone kernel，我们还需要哪些？先不看dequant部分。
+- (2026-08-12 13:40 UTC) `/root` — 然后直接让他开始做。overnight做完。本地验证performance。
+- (2026-08-12 13:41 UTC) `/root` — 然后你给我一下gemv的性能。我们之前应该有测试过
+- (2026-08-12 13:41 UTC) `/root` — Q4K在box上
+- (2026-08-12 13:47 UTC) `/root` — 应该不是吧，我记得性能是47%左右啊。gemv的simt的版本
+- (2026-08-12 13:51 UTC) `/root` — 你这里的tensorcore的46。0是哪里来的？N*K摊平的测试结果？如果是的话，只能作为参考吧
+- (2026-08-12 13:54 UTC) `/root` — 这个是PPU上测似的，我说的是代码有没有参考价值
+- (2026-08-12 13:56 UTC) `/root` — 注意，这个是simt，不是gemm，我们现在的gemv的simt实现可能这些很多已经是有了的。。。
+- (2026-08-12 13:59 UTC) `/root` — 3没懂意义？
+- (2026-08-12 14:00 UTC) `/root` — 我们为什么在gemv中没有使用lop3，照理说现在的prologue中应该已经有支持了啊？tensorcore的版本不是用lop3吗？
+- (2026-08-12 14:01 UTC) `/root` — 3需要我们使用原生格式，而不是我们shuffle之后的格式，是这个意思吗？
+- (2026-08-12 14:09 UTC) `/root` — 让codex抓一下。另外其实你本地就可以跑我发给你的pdf的代码。然后对比一下同shape的性能。
+- (2026-08-12 14:10 UTC) `/root` — 让codex抓一下。另外其实你本地就可以跑我发给你的pdf的代码。然后对比一下同shape的性能。发给codex做这些事情。
+- (2026-08-12 23:59 UTC) `/root` — /resume
+- (2026-08-13 01:47 UTC) `/root` — 好了吗
+- (2026-08-13 03:44 UTC) `/root` — 加上fastquant在不在codex的后续todo
+- (2026-08-13 04:03 UTC) `/root` — 现在哪一步了？
+- (2026-08-13 05:33 UTC) `/root` — 我先看看acu，给我command
+- (2026-08-13 05:39 UTC) `/root` — 你来doublecheck和review代码实现，对齐marlin
+- (2026-08-13 06:36 UTC) `/root` — 不是，是因为你的marlin增加了巨量的instruction。。。。
+- (2026-08-13 08:35 UTC) `/root` — 等一下，我们的instruction更多，根你说的retained different好像没有关系。看看codex在分析吗？
+- (2026-08-13 08:42 UTC) `/root` — 安装codex
+- (2026-08-13 09:40 UTC) `/root` — 做成inbox
+- (2026-08-14 00:59 UTC) `/root` — echo $PPU_SDK /sim/eec/users/junfu.qx/ppu_sdk/PPU_SDK root@aiswu95:/sim/eec/shared/junfu.qx/quactlize# which nvcc /sim/eec/users/junfu.qx/ppu_sdk/PPU_SDK/CUDA_SDK/bin/nvcc
+- (2026-08-14 01:07 UTC) `/root` — 为什么gemv lowbit是我们出货的哪个？
+- (2026-08-14 01:08 UTC) `/root` — fully quantized用的是自己写的fast dequant还是actlize中带的？
+- (2026-08-14 01:14 UTC) `/root` — 为什么scale first和native gemv走的是不同的dequant路线，因为一个是你写的，一个是codex写的？
+- (2026-08-14 01:24 UTC) `/root` — native gemv吃的是原始的格式吗？lowbit吃的是shuffle之后的格式？那怎么会一个对齐一个不对齐呢？逻辑上都是对齐的。
+- (2026-08-14 01:27 UTC) `/root` — 先不要写inbox，我们先讨论清楚。现在有几种gemv的实现。分别对应什么输入。分别用了什么dequant方法。
+- (2026-08-14 01:30 UTC) `/root` — 逻辑上出货的代码是2
+- (2026-08-14 01:33 UTC) `/root` — 2的提取如果是最贵的，我们的prefill为什么要用这个format
+- (2026-08-14 01:35 UTC) `/root` — 总结一下上面的讨论，我让codex修改优化我们出货的代码
+- (2026-08-14 02:28 UTC) `/root` — 理论分析一下用marlin和simt的gemv的roofline。是不是decoding的时候simt是更好的。
+- (2026-08-14 02:33 UTC) `/root` — 你没有考虑dequant的计算开销。
+- (2026-08-14 02:35 UTC) `/root` — 而且能够达到的occupancy也不一样吧。warp数量和grid数量也不同。simt是不是可以更多的warp。先看看kernel
+- (2026-08-14 02:40 UTC) `/root` — stall在instruction fetch，同时Achieved Occupancy只有12。4，理论是37。5。这个原因是什么？marlin kernel，persistent 只有72个grid，256个threadthread per block。
+- (2026-08-14 02:53 UTC) `/root` — marlin没有cta内的切K吗？
+- (2026-08-14 02:54 UTC) `/root` — 你看看最近的codex提交，marlin的warpk是不是已经默认打开了
+- (2026-08-14 02:57 UTC) `/root` — 所以现在看我们根simt还有什么差距呢？
+- (2026-08-14 03:06 UTC) `/root` — 但是marlin可以m=8，然后我们n可以是16。k可以更大
+- (2026-08-14 03:21 UTC) `/root` — A在marlin中放到shm了吗
+- (2026-08-14 03:23 UTC) `/root` — B在marlin中用的也是cp async吗？是不是可以aiu load
+- (2026-08-14 05:40 UTC) `/root` — [Pasted text #1 +51 lines] 另外还有
+- (2026-08-14 05:43 UTC) `/root` — scale first 的simt的gemv在我们中间没有任何路径会调用，删掉吧
+- (2026-08-14 05:50 UTC) `/root` — 写一个inbox给我贴出来就行
+- (2026-08-14 06:01 UTC) `/root` — /resume
+- (2026-08-14 06:01 UTC) `/root` — /effort max
+- (2026-08-14 06:01 UTC) `/root` — /remote-control
+- (2026-08-14 08:30 UTC) `/root` — blksyn defer 对应什么指令？
+- (2026-08-14 08:51 UTC) `/root` — 之前应该测试过更大的shape
+- (2026-08-14 08:54 UTC) `/root` — 旧张量核两倍的数据量比现在的marlin还快，显然marlin存在kernel上的缺陷。是不是可以论证不适配我们的硬件？
+- (2026-08-14 09:10 UTC) `/root` — 啥意思？vllm的marlin只用了1个barrier？
+- (2026-08-14 09:14 UTC) `/root` — 用ncu试试全县
+- (2026-08-14 09:16 UTC) `/root` — 我有一台5070可以给你权限。
+- (2026-08-14 09:49 UTC) `/root` — 所以5090上为什么快呢？同样的kernel，都是marlin的原始代码
+- (2026-08-14 12:22 UTC) `/root` — 5070在tcp://0.tcp.jp.ngrok.io:24129，用户名Drqianxu，密码<REDACTED>
+- (2026-08-14 12:31 UTC) `/root` — 有wsl
+- (2026-08-14 12:44 UTC) `/root` — 5070上测试出来的bw利用率
+- (2026-08-14 12:52 UTC) `/root` — 上面的两个，一个是我们的ksplit的分析和todo，一个是5070上的profile方法写一个inbox
+- (2026-08-14 13:34 UTC) `/root` — 总结一下我发给codex让他完成
+- (2026-08-14 13:42 UTC) `/root` — 你先跟进一下codex的最近几个commit吧
+- (2026-08-14 13:57 UTC) `/root` — 如果我看到splitk快了很多， 怎么fuse reduction到epilogue最快
+- (2026-08-14 13:59 UTC) `/root` — 独立的reduction显然不好，有重复的launch开销。其他的按照性能上分析呢
+- (2026-08-14 14:03 UTC) `/root` — last peer wins是什么意思
+- (2026-08-14 14:04 UTC) `/root` — 如果想要添加k split，如何给codex prompt
+- (2026-08-14 14:06 UTC) `/root` — 不对，是增加一个collective做splitk的collective，类似于cutlass2。0的做法。就是我跟你说的，我们要固化1x32768x512x1想对于1x4096x4096的优势。懂了吗？
+- (2026-08-14 14:08 UTC) `/root` — 我侧视了PPU上一个是7。4us，一个是19us。
+- (2026-08-14 14:10 UTC) `/root` — cold。同一个gs，同一个shape，winning config不同。我sweep的最优结果。
+- (2026-08-14 14:16 UTC) `/root` — 改吧
+- (2026-08-15 06:03 UTC) `/root` — /resume
+- (2026-08-15 06:03 UTC) `/root` — /effort max
+- (2026-08-15 06:04 UTC) `/root` — 我如何resume codex
+- (2026-08-16 01:42 UTC) `/root` — /resume
+- (2026-08-16 01:42 UTC) `/root` — /effort max
+- (2026-08-16 10:53 UTC) `/root` — /resume
+- (2026-08-16 10:55 UTC) `/root` — codex resume的命令是什么，为什么我到目标目录下resume没有用
+- (2026-08-16 10:57 UTC) `/root` — /auto-mode-setup
+- (2026-08-16 10:57 UTC) `/root` — /effort max
+- (2026-08-16 10:57 UTC) `/root` — 但是好像不对，我们的codex不是这个session，你看一下我们之前的对话
+- (2026-08-16 10:58 UTC) `/root` — 但是好像不对，我们的codex不是这个session，你看一下我们之前的对话
+- (2026-08-16 12:56 UTC) `/root` — [Pasted text #1 +40 lines]
+- (2026-08-16 12:57 UTC) `/root` — 可以参考：[Pasted text #2 +53 lines]
+- (2026-08-17 05:34 UTC) `/root` — /resume
+- (2026-08-17 05:34 UTC) `/root` — /effort max
+- (2026-08-17 05:34 UTC) `/root` — /remote-control
+- (2026-08-17 05:34 UTC) `/root` — 我们的offline的layout跟哪些参数有关系
+- (2026-08-17 05:37 UTC) `/root` — /auto-mode-setup
+- (2026-08-25 07:05 UTC) `/root` — /resume
+- (2026-08-25 07:08 UTC) `/root` — [Pasted text #1 +180 lines]
+- (2026-08-25 07:36 UTC) `/root` — /auto-mode-setup
+- (2026-08-25 07:37 UTC) `/root` — 你本地尝试找一下bug在哪里
+- (2026-08-25 07:49 UTC) `/root` — /model
+- (2026-08-25 07:49 UTC) `/root` — /effort max
+- (2026-08-25 07:49 UTC) `/root` — 本地静态分析出bug
+- (2026-08-25 08:33 UTC) `/root` — /remote-control
+- (2026-08-25 08:55 UTC) `/root` — [Pasted text #2 +21 lines]
+- (2026-08-25 09:10 UTC) `/root` — 开始啊
+- (2026-08-25 09:54 UTC) `/root` — 结论是什么
+- (2026-08-26 00:20 UTC) `/root` — /resume
+- (2026-08-26 00:20 UTC) `/root` — /effort max
+- (2026-08-26 01:27 UTC) `/root` — • 根因是 fp16 metadata 清零与 packed scale/zero 解码由不同 warp 负责，却缺少跨 warp 屏障，导致延迟的清零偶发覆盖已解码数据，产生 32 列条带错误。 codex判断的，已经box上验证过
+- (2026-08-26 01:33 UTC) `/root` — 为什么要清0？
+- (2026-08-26 02:37 UTC) `/root` — review一下codex的最近几个commit
+- (2026-08-26 09:21 UTC) `/root` — 手动推倒一下F2的offline格式，对于F1的兼容性
+- (2026-08-26 09:37 UTC) `/root` — /resumn
+- (2026-08-26 09:37 UTC) `/root` — /resume
+- (2026-08-26 09:37 UTC) `/root` — /effort max
+- (2026-08-27 11:20 UTC) `/root` — /resume
+- (2026-08-27 11:21 UTC) `/root` — 看一下最近的codex的commit，分析一下为什么pack4的格式的bank conflict更多。
+- (2026-08-28 01:14 UTC) `/root/marlin_ppu/quactlize` — /resume
+- (2026-08-28 01:14 UTC) `/root` — /resume
+- (2026-08-28 01:15 UTC) `/root` — /effort max
+- (2026-08-28 01:15 UTC) `/root` — 分析一下codex最近的几个结果和commit
+- (2026-08-28 01:19 UTC) `/root` — fused store看上去没有bc的变化，那就是实现有问题？
+- (2026-08-28 01:21 UTC) `/root` — bank conflict现在是shared store没有了，但是多了shared store from global load。
+- (2026-08-28 01:27 UTC) `/root` — 这个会有预期的性能受益吗？
+- (2026-08-28 01:36 UTC) `/root` — 你这边看一下有哪些内容我们已经固化可以挪到main
+- (2026-08-28 02:53 UTC) `/root` — /remote-control
+- (2026-08-28 02:53 UTC) `/root` — 如果要分多个阶段，比如1阶段，我们只看Q4K的dense gemm。q4k格式固化之后可以挪到main吗？
+- (2026-08-30 08:10 UTC) `/root` — /resume
+- (2026-08-30 08:11 UTC) `/root` — /effort max
+- (2026-08-30 08:11 UTC) `/root` — [Pasted text #1 +133 lines]
+- (2026-08-30 08:43 UTC) `/root` — === LADDER VERDICT === FQ_PACKED_UNIT_PREPASS_LADDER qtype=10 cells=8192 grid=2 coverage_bad=8192 header_bad=8192 code_bad=8192 product_bad=8192 sentinel=[8192,8192,8192,8192] meta=[0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff,0x7bff] first=[e0,sb0,n0,g0,want=0x392a,got=0x7bff] sha=7c6216d437f96b37f9f4c1710322286a8970581e rc=2 artifacts=/workspace/quactlize-q2-prepass-ladder-7c6216d4-20260830T075913Z [Pasted text #3 +4 lines]
+- (2026-08-31 01:03 UTC) `/root` — /resume
+- (2026-08-31 01:04 UTC) `/root` — 帮我画一个kpack4的示意图
+- (2026-08-31 01:04 UTC) `/root` — /remote-control
+- (2026-08-31 01:18 UTC) `/root` — [Pasted text #1 +4 lines]
+- (2026-08-31 01:18 UTC) `/root` — /remote-control
+- (2026-08-31 01:29 UTC) `/root` — 给我一个更简单的描述，现在的还是太复杂了，我只需要一张图表示。
+- (2026-08-31 01:29 UTC) `/root` — 给我一个更简单的描述，现在的还是太复杂了，我只需要一张图表示原来的格式和现在的格式。
+- (2026-08-31 07:29 UTC) `/root` — 如果我们要对于数据格式进行online的shuffle，最好在什么位置？我说的llama cpp的什么位置？
+- (2026-08-31 10:55 UTC) `/root` — [Pasted text #2 +10 lines]
+- (2026-09-01 07:54 UTC) `/root` — /resume
+- (2026-09-01 07:54 UTC) `/root` — 如果要到llama cpp中repack，我们应该放到什么位置？
+- (2026-09-01 07:57 UTC) `/root` — 我说的是在llama cpp中online convert gguf到我们的目的格式，需要在哪里转换
+- (2026-09-01 08:36 UTC) `/root` — 重新patch这个dev，以这个dev为准，前面的hulvue
+- (2026-09-01 08:36 UTC) `/root` — 忽略
+- (2026-09-01 09:20 UTC) `/root` — 工作区到develop branch，注意就是apply 我发给你的patch的branch，其他的本地改动删掉。
+- (2026-09-01 15:03 UTC) `/root` — 现在需要什么？
+- (2026-09-02 01:23 UTC) `/root` — /model
+- (2026-09-02 01:23 UTC) `/root` — /effort max
+- (2026-09-02 01:24 UTC) `/root` — /model
+- (2026-09-02 01:25 UTC) `/root` — [Pasted text #1 +14 lines]
+- (2026-09-02 03:04 UTC) `/root` — 你的意思是我如果so已经准备好，你这边就能直接用so里面的新的接口inference llama cpp了？
+- (2026-09-02 03:06 UTC) `/root` — glibc应该是可以安装的。
+- (2026-09-02 03:10 UTC) `/root` — /remote-control
+- (2026-09-02 03:25 UTC) `/root` — 画一个图表示原始的gguf和转换之后的gguf，读一下reference/gguf_kpack.py
+- (2026-09-02 03:52 UTC) `/root` — 应该可以评估一下这个online转换的时间吧，你现在已经在llama cpp上了？
+- (2026-09-02 04:09 UTC) `/root` — 注意存储占用
+- (2026-09-02 04:12 UTC) `/root` — 大部分放到autodltmp
+- (2026-09-02 06:01 UTC) `/root` — /resume'
+- (2026-09-02 06:01 UTC) `/root` — /resume
+- (2026-09-02 06:02 UTC) `/root` — 有一个问题，关于之前的画出来的q4k的shuffle的图，原始的格式，weight并不是连续存储，是0，32，1，33这样吧？然后重排之后的slot是什么？我们是相邻的k上的4个数排在一个float16吗？
+- (2026-09-02 06:32 UTC) `/root` — 找一下最新的几个codex的history
+- (2026-09-02 06:34 UTC) `/root` — 看一下resume codex里面的id是不是最新的
+- (2026-09-02 06:37 UTC) `/root` — 思考一下如何清理一下root下面的空间
+- (2026-09-02 06:44 UTC) `/root` — 先做C
+- (2026-09-02 06:46 UTC) `/root` — 数据盘里也可以清理
+- (2026-09-02 06:46 UTC) `/root` — 有很多模型可以去掉
+- (2026-09-02 06:46 UTC) `/root` — /remote-control
+- (2026-09-02 06:49 UTC) `/root` — nsight compute直接删掉，nvidia的cuda 12。8删掉
+- (2026-09-02 06:51 UTC) `/root` — 先处理temp
+- (2026-09-02 06:52 UTC) `/root` — 模型删掉，反汇编删掉。旧副本的llamacpp删掉
+- (2026-09-02 09:41 UTC) `/root` — 之前让你测试的格式转换的时间多长
+- (2026-09-04 02:57 UTC) `/root` — 做一个量化工具，可以配置额定的目标显存，然后据此自动选择每个层的精度。可以参考llama cpp中的gguf的量化方法。然后我们再从这个基础上扩展，比如更细粒度的量化方案，比如hawqv3，甚至可以是不同的moe experts都是不同的精度。参考文章：[Pasted text #1 +5 lines]
+- (2026-09-04 03:31 UTC) `/root` — 到齐了吗？
+- (2026-09-04 07:19 UTC) `/root` — /resume
+- (2026-09-04 07:20 UTC) `/root` — 分析一下dangqiancodex处理的问题。就是M8的case在m大于8的时候使用出现精度问题
+- (2026-09-04 07:20 UTC) `/root` — • 两个现象值得分开：Xplane 的同一 TM8 路径已经覆盖 M=9/15/16/17 并通过，所以 grouped scheduler 和普通 A 第二 tile 不是共同根因；K-pack 首坏点 24608 = 8×3072 + 32，正好同时落在第二个 M tile 与 N=32 边界。我先查 K-pack 专属的 fragment 映射和 packed metadata ownership，这两条比继续改 A 更有判别力。
+- (2026-09-04 07:42 UTC) `/root` — 分析一下dangqiancodex处理的问题。就是M8的case在m大于8的时候使用出现精度问题
+- (2026-09-04 07:44 UTC) `/root` — • 两个现象值得分开：Xplane 的同一 TM8 路径已经覆盖 M=9/15/16/17 并通过，所以 grouped scheduler 和普通 A 第二 tile 不是共同根因；K-pack 首坏点 24608 = 8×3072 + 32，正好同时落在第二个 M tile 与 N=32 边界。我先查 K-pack 专属的 fragment 映射和 packed metadata ownership，这两条比继续改 A 更有判别力。
+- (2026-09-04 09:54 UTC) `/root` — 清理一下本地的量化框架的尝试和模型。
+- (2026-09-04 09:54 UTC) `/root` — 我不让你干了
+- (2026-09-21 07:31 UTC) `/root` — /resume
+- (2026-09-21 07:31 UTC) `/root` — 解压root目录下的3。6。0的tar。然后写一个PPU版本的bf16的gemm的高性能算子。写到example里面
+- (2026-09-21 07:31 UTC) `/root` — /login
+- (2026-09-21 07:32 UTC) `/root` — /remote-control
+- (2026-09-21 07:33 UTC) `/root` — 继续
+- (2026-09-21 07:33 UTC) `/root` — /model
+- (2026-09-21 07:33 UTC) `/root` — /effort max
+- (2026-09-21 07:33 UTC) `/root` — 写一个1。7的版本的
+- (2026-09-21 07:38 UTC) `/root` — 直接写一个原生的sm90的kernel
+- (2026-09-21 07:44 UTC) `/root` — 我只需要你写kernel，不需要做本地的编译验证
+- (2026-09-21 07:47 UTC) `/root` — 在什么目录
+- (2026-09-21 08:13 UTC) `/root` — 看一下文档中的1。3x的加速，是把128切分成了48，48，32，其中48的指令是可以1。5x的加速的。所以合起来是1。33x。看一下这个怎么实现1。5x的加速，是不是软件改动很大。注意example里面有，只有fp8，fp4可以
+- (2026-09-21 08:16 UTC) `/root` — 逻辑上是48，48，48就可以1。5x
+- (2026-09-21 08:21 UTC) `/root` — 可以写一个小的case，让我侧视一下性能上限能不能到1。5x。
+- (2026-09-21 08:36 UTC) `/root` — swizzle一定要是2的幂次方吗？如果不是，怎么改？
+- (2026-09-21 08:41 UTC) `/root` — 如果我们offlineshuffle权重呢？能够解决吗？
+- (2026-09-21 09:26 UTC) `/root` — 如果不shuffle的话什么方法能够打满
+- (2026-09-21 09:31 UTC) `/root` — A和B可以交换啊。
+- (2026-09-21 09:34 UTC) `/root` — 直接看一下sm90里面有没有，跟sm90一致
+- (2026-09-21 09:52 UTC) `/root` — 直接看cute的arch里面有没有对应呢指令就行了吧。sm90是兼容的
+- (2026-09-21 09:54 UTC) `/root` — 所以现在看起来的最好方案是什么？预期能到什么水平
+- (2026-09-21 09:58 UTC) `/root` — 为什么是96，而不是144？
+- (2026-09-21 10:00 UTC) `/root` — 这些可能都是配置选项，192还是96
+- (2026-09-21 10:02 UTC) `/root` — 预估一下改动的范围
+- (2026-09-21 10:06 UTC) `/root` — 让codex review一下。然后让他开始写。
+- (2026-09-21 10:07 UTC) `/root` — 你来review。用codex的astra的high thinking
+- (2026-09-22 03:30 UTC) `/root` — /resume
+- (2026-09-22 03:31 UTC) `/root` — 清理一下本机器的root目录下的临时文件，和看上去可以删掉的文件
+- (2026-09-22 07:54 UTC) `/root` — /resume
+- (2026-09-22 07:55 UTC) `/root` — 我手动删掉了一些内容，我们回到之前的代码完成
+- (2026-09-22 08:04 UTC) `/root` — 709的example的want接受的几个配置是什么？
+- (2026-09-22 08:07 UTC) `/root` — 这个版本的性能如何
+- (2026-09-22 08:11 UTC) `/root` — 我只能在performance model上仿真，所以如果多个程序要跑，只能跑iters=1，没有warmup。另外需要分多次跑，单个程序会在一次仿真中记录，没办法区分。
+- (2026-09-22 08:12 UTC) `/root` — 709现在可以跑perfmodel吗？
+- (2026-09-22 08:19 UTC) `/root` — 不对，应该只跑单次
+- (2026-09-22 08:20 UTC) `/root` — 我的意思是我执行709的时候应该只跑单次kernel。要不然会混合在一起
+- (2026-09-22 08:22 UTC) `/root` — nvcc -std=c++17 -O3 -arch=sm_90a \ -I../../include -I../../tools/util/include \ 709_ppu_fp8_k48_probe.cu -o 709_ppu_fp8_k48_probe 报错：709_ppu_fp8_k48_probe.cu:103:28: error: no member named 'layout_b' in '::cute::Layout< ::cute::tuple< ::cute::C<(int)64>, ::cute::tuple< ::cute::C<(int)16>, ::cute::C<(int)9>>>, ::cute::tuple< ::cute::C<(int)16>, ::cute::tuple< ::cute::C<(int)1>, ::cute::C<(int)1024>>>>'
+- (2026-09-22 08:24 UTC) `/root` — /remote-control
+- (2026-09-22 08:30 UTC) `/root` — 这个测试就发了几条指令？何意味？
+- (2026-09-26 01:05 UTC) `/root` — /resume
+- (2026-09-26 01:05 UTC) `/root` — 给我一个prompt我让codex继续完成

@@ -1,0 +1,47 @@
+model = "gpt-6-astra"
+model_context_window = 372000
+model_auto_compact_token_limit = 334800
+model_reasoning_effort = "max"
+approvals_reviewer = "user"
+service_tier = "default"
+[projects."/root"]
+trust_level = "trusted"
+
+[projects."/root/marlin_ppu/Kernels"]
+trust_level = "trusted"
+
+[projects."/root/marlin_ppu/Kernels/third_party/actlize"]
+trust_level = "trusted"
+
+[projects."/root/marlin_ppu/quactlize"]
+trust_level = "trusted"
+
+[projects."/root/marlin_ppu/actlizeLA"]
+trust_level = "trusted"
+
+[projects."/root/marlin_ppu"]
+trust_level = "trusted"
+
+[projects."/root/miniconda3"]
+trust_level = "trusted"
+
+[projects."/root/autodl-tmp"]
+trust_level = "trusted"
+
+[notice]
+hide_rate_limit_model_nudge = true
+
+[tui]
+resume_cwd = "session"
+screen_reader_detection_done = true
+
+[tui.model_availability_nux]
+gpt-6-astra = 4
+"gpt-6.1-sol" = 4
+
+[marketplaces.openai-bundled]
+source_type = "local"
+source = "/root/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+[plugins."visualize@openai-bundled"]
+enabled = true
